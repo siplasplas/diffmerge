@@ -4,16 +4,13 @@
 #include <QVBoxLayout>
 
 #include <qce/CodeEditArea.h>
-#include <qce/FillerLine.h>
 
 namespace diffmerge::gui {
 
 DiffEditor::DiffEditor(Side side, QWidget* parent)
     : QWidget(parent), m_side(side), m_scheme(ColorScheme::forSystem()) {
 
-    m_doc = new qce::SimpleTextDocument(this);
-    m_fillerState = std::make_unique<qce::FillerState>();
-
+    m_doc  = new qce::SimpleTextDocument(this);
     m_edit = new qce::CodeEdit(this);
     m_edit->setDocument(m_doc);
     m_edit->area()->setReadOnly(true);
@@ -34,8 +31,6 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     } else {
         m_edit->addLeftMargin(m_lineNumbers.get());
     }
-
-    m_edit->area()->setFillerState(m_fillerState.get());
 
     m_edit->area()->setLineBackgroundProvider([this](int docLine) -> QColor {
         if (docLine < 0 || docLine >= static_cast<int>(m_docLineChanges.size()))
@@ -61,8 +56,6 @@ void DiffEditor::setColorScheme(const ColorScheme& scheme) {
 void DiffEditor::applyModel() {
     if (!m_model) {
         m_doc->setLines({});
-        m_fillerState->setFillers({});
-        m_edit->area()->refreshFillers();
         m_docLineChanges.clear();
         return;
     }
@@ -74,14 +67,6 @@ void DiffEditor::applyModel() {
     for (int i = 0; i < docCount; ++i) {
         m_docLineChanges[i] = m_model->docLineChangeType(m_side, i);
     }
-
-    QVector<qce::FillerLine> fillers;
-    for (const auto& fi : m_model->fillerRanges(m_side)) {
-        fillers.append({fi.beforeDocLine, fi.rowCount,
-                        m_scheme.placeholderBg, QString{}});
-    }
-    m_fillerState->setFillers(fillers);
-    m_edit->area()->refreshFillers();
 }
 
 }  // namespace diffmerge::gui

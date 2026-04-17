@@ -25,7 +25,7 @@ void FileDiffWidget::setupUi() {
     layout->setSpacing(0);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
-    m_leftEditor = new DiffEditor(Side::Left, splitter);
+    m_leftEditor  = new DiffEditor(Side::Left,  splitter);
     m_rightEditor = new DiffEditor(Side::Right, splitter);
     splitter->addWidget(m_leftEditor);
     splitter->addWidget(m_rightEditor);
@@ -33,16 +33,29 @@ void FileDiffWidget::setupUi() {
     splitter->setChildrenCollapsible(false);
     layout->addWidget(splitter);
 
-    // Synchronized scrolling via qce::CodeEditArea::viewportChanged
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
+
     connect(leftEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [rightEdit](const qce::ViewportState& vp) {
-        rightEdit->area()->verticalScrollBar()->setValue(vp.firstVisibleRow);
+            this, [this, rightEdit](const qce::ViewportState& vp) {
+        if (m_syncingScroll) return;
+        m_syncingScroll = true;
+        const int otherCount = rightEdit->area()->document()->lineCount();
+        const int otherTop   = m_syncMapper.computeOtherTop(
+            Side::Left, vp.firstVisibleLine, vp.visibleLineCount(), otherCount);
+        rightEdit->area()->verticalScrollBar()->setValue(otherTop);
+        m_syncingScroll = false;
     });
+
     connect(rightEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [leftEdit](const qce::ViewportState& vp) {
-        leftEdit->area()->verticalScrollBar()->setValue(vp.firstVisibleRow);
+            this, [this, leftEdit](const qce::ViewportState& vp) {
+        if (m_syncingScroll) return;
+        m_syncingScroll = true;
+        const int otherCount = leftEdit->area()->document()->lineCount();
+        const int otherTop   = m_syncMapper.computeOtherTop(
+            Side::Right, vp.firstVisibleLine, vp.visibleLineCount(), otherCount);
+        leftEdit->area()->verticalScrollBar()->setValue(otherTop);
+        m_syncingScroll = false;
     });
 }
 
@@ -52,8 +65,17 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     diffcore::DiffEngine engine;
     const diffcore::DiffResult result = engine.compute(leftLines, rightLines, opts);
     m_model->build(result, leftLines, rightLines);
+    m_syncMapper.build(result);
     m_leftEditor->setAlignedModel(m_model.get());
     m_rightEditor->setAlignedModel(m_model.get());
+}
+
+void FileDiffWidget::setSyncThreshold(double fraction) {
+    m_syncMapper.setThreshold(fraction);
+}
+
+double FileDiffWidget::syncThreshold() const {
+    return m_syncMapper.threshold();
 }
 
 }  // namespace diffmerge::gui

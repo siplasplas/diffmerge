@@ -1,7 +1,3 @@
-// FileDiffWidget contains two DiffEditors side-by-side, sharing an
-// AlignedLineModel. This stage does NOT include sync scrolling - that
-// comes in stage 3. Each editor scrolls independently for now.
-
 #ifndef DIFFMERGE_GUI_FILEDIFFWIDGET_H
 #define DIFFMERGE_GUI_FILEDIFFWIDGET_H
 
@@ -12,6 +8,7 @@
 #include <diffcore/DiffTypes.h>
 
 #include "AlignedLineModel.h"
+#include "ScrollSyncMapper.h"
 
 namespace diffmerge::gui {
 
@@ -23,25 +20,25 @@ public:
     explicit FileDiffWidget(QWidget* parent = nullptr);
     ~FileDiffWidget() override;
 
-    // Load two files' contents, run the diff engine, and display. The
-    // caller has already done file I/O; we just need the line lists.
-    // Pass opts if you want to customize normalization (ignore case, etc.).
     void setContent(const QStringList& leftLines,
                     const QStringList& rightLines,
                     const diffcore::DiffOptions& opts = {});
 
-    // Expose access to the underlying editors for callers that want to
-    // wire extra behavior (e.g. sync scroll in stage 3).
-    DiffEditor* leftEditor() const { return m_leftEditor; }
+    // Fraction of viewport height at which the sync line sits (0 < t < 1).
+    void setSyncThreshold(double fraction);
+    double syncThreshold() const;
+
+    DiffEditor* leftEditor()  const { return m_leftEditor; }
     DiffEditor* rightEditor() const { return m_rightEditor; }
 
 private:
-    // Build layout (two editors + splitter).
     void setupUi();
 
-    DiffEditor* m_leftEditor;
-    DiffEditor* m_rightEditor;
+    DiffEditor* m_leftEditor  = nullptr;
+    DiffEditor* m_rightEditor = nullptr;
     std::unique_ptr<AlignedLineModel> m_model;
+    ScrollSyncMapper m_syncMapper;
+    bool m_syncingScroll = false;
 };
 
 }  // namespace diffmerge::gui

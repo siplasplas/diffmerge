@@ -1,8 +1,8 @@
 // DiffEditor wraps qce::CodeEdit for side-by-side diff display:
 //   - Scrollbar on outer edge (Left pane: left; Right pane: right)
 //   - LineNumberGutter on inner edge (Left pane: right rail; Right pane: left rail)
-//   - FillerState for placeholder rows (empty lines, no number)
 //   - Per-line background colors via setLineBackgroundProvider
+//   - No filler lines; scroll alignment is handled by ScrollSyncMapper
 
 #ifndef DIFFMERGE_GUI_DIFFEDITOR_H
 #define DIFFMERGE_GUI_DIFFEDITOR_H
@@ -12,7 +12,6 @@
 #include <memory>
 
 #include <qce/CodeEdit.h>
-#include <qce/FillerState.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/margins/LineNumberGutter.h>
 
@@ -41,7 +40,6 @@ private:
 
     qce::SimpleTextDocument* m_doc = nullptr;
     qce::CodeEdit* m_edit = nullptr;
-    std::unique_ptr<qce::FillerState> m_fillerState;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
 
     // Per-doc-line change types; read by the line background provider lambda.
