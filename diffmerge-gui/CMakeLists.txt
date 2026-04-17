@@ -1,4 +1,5 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(qcodeedit 1.1 REQUIRED)
 
 set(DIFFMERGE_GUI_SOURCES
     src/main.cpp
@@ -10,10 +11,6 @@ set(DIFFMERGE_GUI_SOURCES
 
     src/editor/DiffEditor.h
     src/editor/DiffEditor.cpp
-    src/editor/DiffGutter.h
-    src/editor/DiffGutter.cpp
-    src/editor/DiffSideMargin.h
-    src/editor/DiffSideMargin.cpp
 
     src/fileview/AlignedLineModel.h
     src/fileview/AlignedLineModel.cpp
@@ -31,6 +28,7 @@ target_link_libraries(diffmerge-gui
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
+        qcodeedit::qcodeedit
 )
 
 if(DIFFMERGE_BUILD_TESTS)

@@ -1,4 +1,5 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
+find_package(qcodeedit 1.1 REQUIRED)
 
 # AlignedLineModel is a pure logic class; test it in isolation by
 # compiling the two source files we need directly into the test binary.
@@ -21,16 +22,12 @@ target_link_libraries(test_aligned_model
 add_test(NAME test_aligned_model COMMAND test_aligned_model)
 
 # screenshot_tool is a developer helper, not a test - it renders the
-# FileDiffWidget offscreen and saves a PNG. Useful for visual regression
-# checks. Not registered with ctest because it produces a file, not a
-# pass/fail signal.
+# FileDiffWidget offscreen and saves a PNG.
 set(GUI_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 add_executable(screenshot_tool
     screenshot_tool.cpp
     ${GUI_SRC_DIR}/common/ColorScheme.cpp
     ${GUI_SRC_DIR}/editor/DiffEditor.cpp
-    ${GUI_SRC_DIR}/editor/DiffGutter.cpp
-    ${GUI_SRC_DIR}/editor/DiffSideMargin.cpp
     ${GUI_SRC_DIR}/fileview/AlignedLineModel.cpp
     ${GUI_SRC_DIR}/fileview/FileDiffWidget.cpp
 )
@@ -41,4 +38,5 @@ target_link_libraries(screenshot_tool
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
+        qcodeedit::qcodeedit
 )

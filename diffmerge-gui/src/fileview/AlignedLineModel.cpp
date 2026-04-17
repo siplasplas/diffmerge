@@ -125,4 +125,50 @@ QString AlignedLineModel::buildDocumentText(Side side) const {
     return t.join(QLatin1Char('\n'));
 }
 
+QStringList AlignedLineModel::documentLines(Side side) const {
+    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
+    const auto& text = (side == Side::Left) ? m_leftText : m_rightText;
+    QStringList result;
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+        if (!rows[i].isPlaceholder())
+            result.append(text[i]);
+    }
+    return result;
+}
+
+QVector<AlignedLineModel::FillerInfo> AlignedLineModel::fillerRanges(Side side) const {
+    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
+    QVector<FillerInfo> result;
+    int docLine = 0;
+    int i = 0;
+    const int total = static_cast<int>(rows.size());
+    while (i < total) {
+        if (!rows[i].isPlaceholder()) {
+            ++docLine;
+            ++i;
+        } else {
+            const diffcore::ChangeType ct = rows[i].changeType;
+            int count = 0;
+            while (i < total && rows[i].isPlaceholder()) {
+                ++count;
+                ++i;
+            }
+            result.append({docLine, count, ct});
+        }
+    }
+    return result;
+}
+
+diffcore::ChangeType AlignedLineModel::docLineChangeType(Side side, int docLine) const {
+    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
+    int dc = 0;
+    for (const auto& row : rows) {
+        if (!row.isPlaceholder()) {
+            if (dc == docLine) return row.changeType;
+            ++dc;
+        }
+    }
+    return diffcore::ChangeType::Equal;
+}
+
 }  // namespace diffmerge::gui

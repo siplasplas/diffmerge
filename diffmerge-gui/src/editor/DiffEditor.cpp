@@ -1,199 +1,87 @@
 #include "DiffEditor.h"
 
 #include <QFontDatabase>
-#include <QPainter>
-#include <QResizeEvent>
-#include <QScrollBar>
-#include <QTextBlock>
+#include <QVBoxLayout>
 
-#include "DiffGutter.h"
-#include "DiffSideMargin.h"
+#include <qce/CodeEditArea.h>
+#include <qce/FillerLine.h>
 
 namespace diffmerge::gui {
 
 DiffEditor::DiffEditor(Side side, QWidget* parent)
-    : QPlainTextEdit(parent), m_side(side) {
-    m_scheme = ColorScheme::forSystem();
+    : QWidget(parent), m_side(side), m_scheme(ColorScheme::forSystem()) {
 
-    setReadOnly(true);
-    setLineWrapMode(QPlainTextEdit::NoWrap);
-    setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_doc = new qce::SimpleTextDocument(this);
+    m_fillerState = std::make_unique<qce::FillerState>();
 
-    // Margin widgets are children of the editor but positioned within
-    // the editor's viewport frame.
-    m_gutter = new DiffGutter(this, m_side, nullptr, this);
-    m_sideMargin = new DiffSideMargin(this, m_side, nullptr, this);
-    m_gutter->setColorScheme(m_scheme);
-    m_sideMargin->setColorScheme(m_scheme);
+    m_edit = new qce::CodeEdit(this);
+    m_edit->setDocument(m_doc);
+    m_edit->area()->setReadOnly(true);
+    m_edit->area()->setWordWrap(false);
 
-    // QPlainTextEdit emits updateRequest when the viewport needs repaint,
-    // including on scroll. We forward it to the margin widgets so they
-    // scroll in sync with the text.
-    connect(this, &QPlainTextEdit::updateRequest,
-            this, &DiffEditor::onUpdateRequest);
+    const QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    m_edit->setFont(f);
 
-    // When the vertical scrollbar appears or disappears (e.g. after loading
-    // a larger document), its range changes; relayout margin widgets so
-    // they shift to avoid being covered by the scrollbar.
-    connect(verticalScrollBar(), &QAbstractSlider::rangeChanged,
-            this, [this]() { layoutMargins(); });
+    // Scrollbar on outer edge
+    using SBS = qce::CodeEdit::ScrollBarSide;
+    m_edit->setScrollBarSide(m_side == Side::Left ? SBS::Left : SBS::Right);
 
-    updateViewportMargins();
+    // Line numbers on inner edge
+    m_lineNumbers = std::make_unique<qce::LineNumberGutter>(m_doc);
+    m_lineNumbers->setFont(f);
+    if (m_side == Side::Left) {
+        m_edit->addRightMargin(m_lineNumbers.get());
+    } else {
+        m_edit->addLeftMargin(m_lineNumbers.get());
+    }
+
+    m_edit->area()->setFillerState(m_fillerState.get());
+
+    m_edit->area()->setLineBackgroundProvider([this](int docLine) -> QColor {
+        if (docLine < 0 || docLine >= static_cast<int>(m_docLineChanges.size()))
+            return {};
+        return m_scheme.backgroundFor(m_docLineChanges[docLine]);
+    });
+
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(m_edit);
 }
 
 void DiffEditor::setAlignedModel(const AlignedLineModel* model) {
     m_model = model;
-
-    // Re-create margin widgets with the new model (simpler than adding a
-    // setter API; margins are cheap QWidgets).
-    delete m_gutter;
-    delete m_sideMargin;
-    m_gutter = new DiffGutter(this, m_side, m_model, this);
-    m_sideMargin = new DiffSideMargin(this, m_side, m_model, this);
-    m_gutter->setColorScheme(m_scheme);
-    m_sideMargin->setColorScheme(m_scheme);
-    m_gutter->show();
-    m_sideMargin->show();
-
-    if (m_model) {
-        setPlainText(m_model->buildDocumentText(m_side));
-    } else {
-        clear();
-    }
-
-    updateViewportMargins();
-    layoutMargins();
-    viewport()->update();
+    applyModel();
 }
 
 void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_scheme = scheme;
-    if (m_gutter) m_gutter->setColorScheme(scheme);
-    if (m_sideMargin) m_sideMargin->setColorScheme(scheme);
-    viewport()->update();
+    m_edit->area()->viewport()->update();
 }
 
-int DiffEditor::gutterWidth() const {
-    return m_gutter ? m_gutter->computeWidth() : 0;
-}
-
-int DiffEditor::sideMarginWidth() const {
-    return m_sideMargin ? m_sideMargin->preferredWidth() : 0;
-}
-
-void DiffEditor::updateViewportMargins() {
-    // Tell QPlainTextEdit to reserve space for our margin widgets so
-    // text does not draw underneath them.
-    const int gw = gutterWidth();
-    const int sw = sideMarginWidth();
-    if (m_side == Side::Left) {
-        setViewportMargins(gw, 0, sw, 0);
-    } else {
-        setViewportMargins(sw, 0, gw, 0);
+void DiffEditor::applyModel() {
+    if (!m_model) {
+        m_doc->setLines({});
+        m_fillerState->setFillers({});
+        m_edit->area()->refreshFillers();
+        m_docLineChanges.clear();
+        return;
     }
-}
 
-int DiffEditor::verticalScrollBarWidth() const {
-    // Qt places the vertical scrollbar on the right edge of contentsRect().
-    // We need its width so the margin widgets can be shifted away from it,
-    // otherwise the scrollbar paints over the gutter/side-margin.
-    auto* sb = verticalScrollBar();
-    if (!sb || !sb->isVisible()) return 0;
-    return sb->width();
-}
+    m_doc->setLines(m_model->documentLines(m_side));
 
-void DiffEditor::layoutMargins() {
-    if (!m_gutter || !m_sideMargin) return;
-    const QRect cr = contentsRect();
-    const int gw = gutterWidth();
-    const int sw = sideMarginWidth();
-    const int sbw = verticalScrollBarWidth();
-
-    if (m_side == Side::Left) {
-        // Gutter on outer (left), side margin on inner (right).
-        // Scrollbar (if visible) sits at cr.right(); push the side margin
-        // LEFT of the scrollbar so digits/stripes are not covered.
-        m_gutter->setGeometry(cr.left(), cr.top(), gw, cr.height());
-        m_sideMargin->setGeometry(cr.right() - sbw - sw + 1, cr.top(),
-                                   sw, cr.height());
-    } else {
-        // Gutter on outer (right), side margin on inner (left).
-        // Scrollbar (if visible) sits at cr.right(); push the gutter
-        // LEFT of the scrollbar.
-        m_sideMargin->setGeometry(cr.left(), cr.top(), sw, cr.height());
-        m_gutter->setGeometry(cr.right() - sbw - gw + 1, cr.top(),
-                              gw, cr.height());
+    const int docCount = m_doc->lineCount();
+    m_docLineChanges.resize(docCount);
+    for (int i = 0; i < docCount; ++i) {
+        m_docLineChanges[i] = m_model->docLineChangeType(m_side, i);
     }
-}
 
-void DiffEditor::resizeEvent(QResizeEvent* event) {
-    QPlainTextEdit::resizeEvent(event);
-    layoutMargins();
-}
-
-void DiffEditor::onUpdateRequest(const QRect& rect, int dy) {
-    // Scroll the margins together with the viewport.
-    if (dy != 0) {
-        if (m_gutter) m_gutter->scroll(0, dy);
-        if (m_sideMargin) m_sideMargin->scroll(0, dy);
-    } else {
-        if (m_gutter) m_gutter->update(0, rect.y(),
-                                        m_gutter->width(), rect.height());
-        if (m_sideMargin) m_sideMargin->update(0, rect.y(),
-                                                m_sideMargin->width(),
-                                                rect.height());
+    QVector<qce::FillerLine> fillers;
+    for (const auto& fi : m_model->fillerRanges(m_side)) {
+        fillers.append({fi.beforeDocLine, fi.rowCount,
+                        m_scheme.placeholderBg, QString{}});
     }
-}
-
-void DiffEditor::paintPlaceholderGlyph(QPainter& painter, const QRect& r) {
-    painter.setPen(m_scheme.placeholderFg);
-    // A short sequence of em-dashes centered vertically.
-    painter.drawText(r, Qt::AlignVCenter | Qt::AlignLeft,
-                     QStringLiteral("  — — — — — — —"));
-}
-
-void DiffEditor::paintLineBackgrounds(QPainter& painter) {
-    if (!m_model) return;
-
-    QTextBlock block = firstVisibleBlock();
-    int blockNumber = block.blockNumber();
-    const int viewportOffsetY = static_cast<int>(contentOffset().y());
-    const int viewportWidth = viewport()->width();
-
-    while (block.isValid()) {
-        const QRectF geom = blockBoundingGeometry(block);
-        const int top = static_cast<int>(geom.top()) + viewportOffsetY;
-        const int height = static_cast<int>(geom.height());
-        if (top > viewport()->height()) break;
-
-        if (top + height >= 0 && blockNumber < m_model->rowCount()) {
-            const AlignedRow& row = m_model->row(m_side, blockNumber);
-            const QRect lineRect(0, top, viewportWidth, height);
-
-            // Placeholder rows get a muted background + glyph.
-            if (row.isPlaceholder()) {
-                painter.fillRect(lineRect, m_scheme.placeholderBg);
-                paintPlaceholderGlyph(painter, lineRect);
-            } else {
-                const QColor bg = m_scheme.backgroundFor(row.changeType);
-                if (bg.isValid()) {
-                    painter.fillRect(lineRect, bg);
-                }
-            }
-        }
-        block = block.next();
-        ++blockNumber;
-    }
-}
-
-void DiffEditor::paintEvent(QPaintEvent* event) {
-    // Paint our custom line backgrounds UNDER the text.
-    {
-        QPainter bgPainter(viewport());
-        paintLineBackgrounds(bgPainter);
-    }
-    // Then let QPlainTextEdit paint the text on top.
-    QPlainTextEdit::paintEvent(event);
+    m_fillerState->setFillers(fillers);
+    m_edit->area()->refreshFillers();
 }
 
 }  // namespace diffmerge::gui

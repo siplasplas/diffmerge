@@ -27,6 +27,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVector>
 #include <vector>
 
 #include <diffcore/DiffTypes.h>
@@ -70,9 +71,27 @@ public:
     QString text(Side side, int alignedRow) const;
 
     // Build a single QString with all rows joined by '\n', suitable for
-    // QPlainTextEdit::setPlainText(). Placeholder rows produce empty lines
-    // (the editor's paint event decorates them).
+    // QPlainTextEdit::setPlainText(). Placeholder rows produce empty lines.
     QString buildDocumentText(Side side) const;
+
+    // --- qce-specific query methods ---
+
+    // Returns only the real (non-placeholder) lines as document content.
+    QStringList documentLines(Side side) const;
+
+    // Describes one run of placeholder rows for qce::FillerState.
+    struct FillerInfo {
+        int beforeDocLine;  // insert before this 0-based doc line; equals
+                            // docLineCount when the filler trails all real lines
+        int rowCount;
+        diffcore::ChangeType changeType;
+    };
+
+    // Returns filler positions; caller maps changeType to color.
+    QVector<FillerInfo> fillerRanges(Side side) const;
+
+    // Change type for a real (non-placeholder) doc line (0-based).
+    diffcore::ChangeType docLineChangeType(Side side, int docLine) const;
 
 private:
     // Append an Equal range to both sides' aligned rows.
