@@ -112,21 +112,26 @@ static int applyHeuristics(int dmPos, int blockSize,
         return (p - 1) + 1;
     }
 
-    // H4: find max slider range (including empty lines in match), then look
-    // for a "#pragma mark" / "// MARK" line in the matching run. If present,
-    // slide back so that line starts the block. Take the farthest mark so
-    // we absorb as much of the surrounding context as possible.
+    // H4: absorb a "#pragma mark" / "// MARK" section header into the block.
+    //  (a) Within the slide-left valid range, find the farthest mark line and
+    //      slide so that line starts the block.
+    //  (b) If nothing found inside the range AND the line just before the
+    //      block is a mark line, slide back by 1 regardless of slide validity
+    //      (humans prefer grouping the mark with the inserted code even
+    //      though this changes what's considered "inserted").
+    auto isMark = [](const QString& line) {
+        const QString t = line.trimmed();
+        return t.startsWith(QStringLiteral("#pragma mark")) ||
+               t.startsWith(QStringLiteral("// MARK"));
+    };
     int k4 = 0;
     while (p - (k4 + 1) >= 0 && p + size - (k4 + 1) < N &&
            rel[p - (k4 + 1)] == rel[p + size - (k4 + 1)])
         ++k4;
     for (int j = k4; j >= 1; --j) {
-        const QString t = rel[p - j].trimmed();
-        if (t.startsWith(QStringLiteral("#pragma mark")) ||
-            t.startsWith(QStringLiteral("// MARK"))) {
-            return (p - j) + 1;
-        }
+        if (isMark(rel[p - j])) return (p - j) + 1;
     }
+    if (p > 0 && isMark(rel[p - 1])) return (p - 1) + 1;
 
     return dmPos;
 }
