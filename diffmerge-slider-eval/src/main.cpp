@@ -110,7 +110,7 @@ static int applyHeuristics(int dmPos, int blockSize,
     if (p > 0 && p + size - 1 < N &&
         rel[p - 1] == rel[p + size - 1]) {
         const QString t = rel[p - 1].trimmed();
-        if (t.startsWith(QStringLiteral("/***"))  ||
+        if (t.startsWith(QStringLiteral("/*"))    ||
             t.startsWith(QStringLiteral(";;***")) ||
             t.startsWith(QStringLiteral(";***"))  ||
             t.startsWith(QStringLiteral(";;;;"))) {
