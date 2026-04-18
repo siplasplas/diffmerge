@@ -144,18 +144,16 @@ static void printSliderDetail(QTextStream& out,
     const QStringList& rel  = (sc.sign == '+') ? linesB : linesA;
     const char         side = (sc.sign == '+') ? 'B' : 'A';
 
-    if (sc.diffPos > 0 && sc.diffPos != humanPos) {
-        out << QStringLiteral("\n  -- sys/dm position (file %1, line %2) --\n")
-               .arg(side).arg(sc.diffPos);
-        printFragment(out, rel, sc.diffPos, blockSize, sc.sign);
-        out << QStringLiteral("\n  -- human position  (file %1, line %2) --\n")
-               .arg(side).arg(humanPos);
-        printFragment(out, rel, humanPos, blockSize, sc.sign);
-    } else {
-        out << QStringLiteral("\n  -- position (file %1, line %2) --\n")
-               .arg(side).arg(dmPos);
-        printFragment(out, rel, dmPos, blockSize, sc.sign);
-    }
+    auto section = [&](const QString& label, int pos) {
+        if (pos <= 0) return;
+        out << QStringLiteral("\n  -- %1 (file %2, line %3) --\n")
+               .arg(label).arg(side).arg(pos);
+        printFragment(out, rel, pos, blockSize, sc.sign);
+    };
+
+    section(QStringLiteral("sys diff "), sc.diffPos);
+    section(QStringLiteral("human    "), humanPos);
+    section(QStringLiteral("diffmerge"), dmPos);
 }
 
 // logs[k] receives verbose detail for sliders where dm_error == k (k = 0..3).
@@ -200,8 +198,10 @@ static void evaluateRepo(const QString& csvPath,
                 continue;
             }
 
+            // Look up block size from the engine's hunk BEFORE any heuristic
+            // shift (once shifted, dmPos no longer matches any hunk's start).
+            const int blockSize = findHunkSize(diff, sc, dmPos);
             if (useHeuristics) {
-                const int blockSize = findHunkSize(diff, sc, dmPos);
                 const QStringList& rel = (sc.sign == '+') ? linesB : linesA;
                 dmPos = applyHeuristics(dmPos, blockSize, rel);
             }
@@ -228,15 +228,12 @@ static void evaluateRepo(const QString& csvPath,
 
             const bool wantShow = showErrorsMin > 0 && absDm >= showErrorsMin;
             const bool wantLog  = dmError >= 0 && dmError <= 3 && logs[dmError];
-            if (wantShow || wantLog) {
-                const int blockSize = findHunkSize(diff, sc, dmPos);
-                if (wantShow)
-                    printSliderDetail(out, sc, entry.digest, humanPos, dmPos,
-                                      dmError, blockSize, linesA, linesB);
-                if (wantLog)
-                    printSliderDetail(*logs[dmError], sc, entry.digest, humanPos,
-                                      dmPos, dmError, blockSize, linesA, linesB);
-            }
+            if (wantShow)
+                printSliderDetail(out, sc, entry.digest, humanPos, dmPos,
+                                  dmError, blockSize, linesA, linesB);
+            if (wantLog)
+                printSliderDetail(*logs[dmError], sc, entry.digest, humanPos,
+                                  dmPos, dmError, blockSize, linesA, linesB);
         }
     }
 
