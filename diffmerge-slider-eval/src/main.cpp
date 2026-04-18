@@ -35,20 +35,37 @@ static QString findPairFile(const QString& repoDir,
 
 static const char* kSep = "  +------------------------------------------\n";
 
-// Print context lines before/after the fragment at 1-based pos.
-// The fragment line itself is printed between two separator lines,
-// prefixed with the diff sign character.
+// Find the size (line count) of the hunk that starts at 1-based dmPos.
+// Returns 1 if no matching hunk is found.
+static int findHunkSize(const diffcore::DiffResult& result,
+                        const SliderCase& sc, int dmPos) {
+    for (const diffcore::Hunk& h : result.hunks) {
+        if (sc.sign == '+' && h.type != diffcore::ChangeType::Insert) continue;
+        if (sc.sign == '-' && h.type != diffcore::ChangeType::Delete) continue;
+        const int start1 = ((sc.sign == '+') ? h.rightRange.start
+                                              : h.leftRange.start) + 1;
+        if (start1 == dmPos)
+            return (sc.sign == '+') ? h.rightRange.count : h.leftRange.count;
+    }
+    return 1;
+}
+
+// Print ctx lines of context before/after a block [pos..pos+size-1] (1-based).
+// Block lines are prefixed with the diff sign ('+' / '-') and surrounded
+// by a single pair of separator lines.
 static void printFragment(QTextStream& out,
                           const QStringList& lines,
-                          int pos, char sign, int ctx = 3) {
+                          int pos, int blockSize, char sign, int ctx = 3) {
+    const int blockEnd = pos + blockSize - 1;  // inclusive
     const int from = qMax(1, pos - ctx);
-    const int to   = qMin(lines.size(), pos + ctx);
+    const int to   = qMin(lines.size(), blockEnd + ctx);
     for (int i = from; i <= to; ++i) {
-        if (i == pos)     out << kSep;
-        const char pfx = (i == pos) ? sign : ' ';
+        const bool inBlock = (i >= pos && i <= blockEnd);
+        if (i == pos) out << kSep;
+        const char pfx = inBlock ? sign : ' ';
         out << QStringLiteral("  %1 %2  %3\n")
                .arg(pfx).arg(i, 5).arg(lines[i - 1]);
-        if (i == pos)     out << kSep;
+        if (i == blockEnd) out << kSep;
     }
 }
 
@@ -56,11 +73,13 @@ static void printSliderDetail(QTextStream& out,
                               const SliderCase& sc,
                               const QString& digest,
                               int humanPos, int dmPos, int dmError,
+                              int blockSize,
                               const QStringList& linesA,
                               const QStringList& linesB) {
     out << QStringLiteral("\n========================================\n");
-    out << QStringLiteral("  digest=%1  %2 blockBegin=%3 delta=%4\n")
-           .arg(digest).arg(QChar(sc.sign)).arg(sc.blockBegin).arg(sc.delta);
+    out << QStringLiteral("  digest=%1  %2 blockBegin=%3 delta=%4  blockSize=%5\n")
+           .arg(digest).arg(QChar(sc.sign)).arg(sc.blockBegin).arg(sc.delta)
+           .arg(blockSize);
     out << QStringLiteral("  git=%1  sys=%2  human=%3  dm=%4  dm_error=%5\n")
            .arg(sc.blockBegin).arg(sc.diffPos).arg(humanPos).arg(dmPos).arg(dmError);
 
@@ -72,14 +91,14 @@ static void printSliderDetail(QTextStream& out,
     if (sc.diffPos > 0 && sc.diffPos != humanPos) {
         out << QStringLiteral("\n  -- sys/dm position (file %1, line %2) --\n")
                .arg(side).arg(sc.diffPos);
-        printFragment(out, rel, sc.diffPos, sc.sign);
+        printFragment(out, rel, sc.diffPos, blockSize, sc.sign);
         out << QStringLiteral("\n  -- human position  (file %1, line %2) --\n")
                .arg(side).arg(humanPos);
-        printFragment(out, rel, humanPos, sc.sign);
+        printFragment(out, rel, humanPos, blockSize, sc.sign);
     } else {
         out << QStringLiteral("\n  -- position (file %1, line %2) --\n")
                .arg(side).arg(dmPos);
-        printFragment(out, rel, dmPos, sc.sign);
+        printFragment(out, rel, dmPos, blockSize, sc.sign);
     }
 }
 
@@ -144,17 +163,16 @@ static void evaluateRepo(const QString& csvPath,
                 else                     ++stats.dmTieWithSys;
             }
 
-            if (showErrorsMin > 0 && absDm >= showErrorsMin) {
-                printSliderDetail(out, sc, entry.digest,
-                                  humanPos, dmPos, dmError,
-                                  linesA, linesB);
-            }
-
-            // Per-shift log files (dmError 0..3)
-            if (dmError >= 0 && dmError <= 3 && logs[dmError]) {
-                printSliderDetail(*logs[dmError], sc, entry.digest,
-                                  humanPos, dmPos, dmError,
-                                  linesA, linesB);
+            const bool wantShow = showErrorsMin > 0 && absDm >= showErrorsMin;
+            const bool wantLog  = dmError >= 0 && dmError <= 3 && logs[dmError];
+            if (wantShow || wantLog) {
+                const int blockSize = findHunkSize(diff, sc, dmPos);
+                if (wantShow)
+                    printSliderDetail(out, sc, entry.digest, humanPos, dmPos,
+                                      dmError, blockSize, linesA, linesB);
+                if (wantLog)
+                    printSliderDetail(*logs[dmError], sc, entry.digest, humanPos,
+                                      dmPos, dmError, blockSize, linesA, linesB);
             }
         }
     }
