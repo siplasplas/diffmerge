@@ -68,6 +68,17 @@ static int applyHeuristics(int dmPos, int blockSize,
     const int size = blockSize;
     const int N    = rel.size();
 
+    // H5: JSON-like boundary "},\n{" before the block, same two lines at
+    // the end of the block (k=2 slide valid) — slide back by 1 so the block
+    // begins with "{" (groups a complete object).
+    if (p >= 2 && p + size - 1 < N &&
+        rel[p - 2].trimmed() == QStringLiteral("},") &&
+        rel[p - 1].trimmed() == QStringLiteral("{") &&
+        rel[p - 2] == rel[p + size - 2] &&
+        rel[p - 1] == rel[p + size - 1]) {
+        return (p - 1) + 1;
+    }
+
     // H2: max matching run of NON-EMPTY boundary lines (empty runs are left
     // for H1 to handle, so the two heuristics don't overlap).
     int k2 = 0;
