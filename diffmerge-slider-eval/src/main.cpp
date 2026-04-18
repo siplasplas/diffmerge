@@ -1,3 +1,4 @@
+#include <cmath>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -37,6 +38,7 @@ static QString findPairFile(const QString& repoDir,
 // Evaluate one CSV file (= one repo) and accumulate results into stats.
 static void evaluateRepo(const QString& csvPath,
                          const QString& repoDir,
+                         int maxSlide,
                          EvalStats& stats,
                          QTextStream& out) {
     const QVector<CsvEntry> entries = loadCsvFile(csvPath);
@@ -58,24 +60,30 @@ static void evaluateRepo(const QString& csvPath,
 
         for (const SliderCase& sc : entry.sliders) {
             const int humanPos = sc.blockBegin + sc.delta;
-            const int dmPos    = findDiffmergePos(diff, sc);
+            const int dmPos    = findDiffmergePos(diff, sc, maxSlide);
 
             ++stats.total;
             ++repoTotal;
 
-            if (sc.delta != 0) { ++stats.gnuWrong;  ++repoGnuWrong; }
+            // gnu_error = blockBegin - humanPos = -delta
+            const int gnuError = -sc.delta;
+            if (gnuError != 0) { ++stats.gnuWrong; ++repoGnuWrong; }
 
             if (dmPos < 0) {
                 ++stats.notFound;
-                ++stats.dmWrong;
-                ++repoDmWrong;
-                ++stats.errorHist[0];  // can't compute error, treat as 0 diff
-                continue;
+                continue;   // skip from dm stats — hunk outside maxSlide window
             }
 
             const int dmError = dmPos - humanPos;
             ++stats.errorHist[dmError];
             if (dmError != 0) { ++stats.dmWrong; ++repoDmWrong; }
+
+            // Better / worse / tie vs git diff
+            const int absDm  = std::abs(dmError);
+            const int absGnu = std::abs(gnuError);
+            if      (absDm < absGnu) ++stats.dmBetter;
+            else if (absDm > absGnu) ++stats.dmWorse;
+            else                     ++stats.dmTie;
         }
     }
 
@@ -104,6 +112,13 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Path to corpusDiff directory (output of corpus-dl)."),
         QStringLiteral("path"),
         QStringLiteral("corpusDiff"));
+    QCommandLineOption maxSlideOpt(
+        QStringLiteral("max-slide"),
+        QStringLiteral("Ignore a hunk match if it is more than N lines from "
+                       "blockBegin (the git diff position). Prevents false matches "
+                       "with unrelated changes in the same file. Default: 10."),
+        QStringLiteral("N"),
+        QStringLiteral("10"));
     QCommandLineOption reposOpt(
         QStringLiteral("repos"),
         QStringLiteral("Process at most N repositories (0 = all). "
@@ -111,14 +126,17 @@ int main(int argc, char* argv[]) {
         QStringLiteral("N"),
         QStringLiteral("0"));
     parser.addOption(corpusOpt);
+    parser.addOption(maxSlideOpt);
     parser.addOption(reposOpt);
     parser.process(app);
 
     const QString corpusDir = parser.value(corpusOpt);
+    const int     maxSlide  = parser.value(maxSlideOpt).toInt();
     const int     repoLimit = parser.value(reposOpt).toInt();
 
     QTextStream out(stdout);
-    out << "Corpus: " << corpusDir << "\n\n";
+    out << "Corpus   : " << corpusDir << "\n";
+    out << "max-slide: " << maxSlide << " lines\n\n";
 
     QDir dir(corpusDir);
     if (!dir.exists()) {
@@ -143,7 +161,7 @@ int main(int argc, char* argv[]) {
         const QString repoDir  = dir.filePath(QFileInfo(csvName).baseName());
         out << '[' << i << '/' << csvFiles.size() << "] " << csvName << '\n';
         out.flush();
-        evaluateRepo(csvPath, repoDir, stats, out);
+        evaluateRepo(csvPath, repoDir, maxSlide, stats, out);
     }
 
     out << "\n=== SUMMARY ===\n";

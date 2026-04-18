@@ -49,7 +49,8 @@ QVector<CsvEntry> loadCsvFile(const QString& csvPath) {
 // ---- Slider position finding -------------------------------------------
 
 int findDiffmergePos(const diffcore::DiffResult& result,
-                     const SliderCase& sc) {
+                     const SliderCase& sc,
+                     int maxSlide) {
     // blockBegin is 1-based; convert to 0-based for comparison with LineRange.
     const int target = sc.blockBegin - 1;
     int bestPos  = -1;
@@ -68,6 +69,8 @@ int findDiffmergePos(const diffcore::DiffResult& result,
             bestPos  = hunkStart + 1;  // back to 1-based
         }
     }
+    // Reject matches that are too far — they belong to a different change.
+    if (bestDist > maxSlide) return -1;
     return bestPos;
 }
 
@@ -76,23 +79,32 @@ int findDiffmergePos(const diffcore::DiffResult& result,
 QString formatStats(const EvalStats& s) {
     if (s.total == 0) return QStringLiteral("No sliders evaluated.\n");
 
-    auto pct = [&](int n) {
+    const int found = s.total - s.notFound;
+
+    auto pct = [&](int n, int base) -> QString {
+        if (base == 0) return QStringLiteral("-");
         return QStringLiteral("%1 / %2  (%3%)")
-            .arg(n).arg(s.total)
-            .arg(100.0 * n / s.total, 0, 'f', 1);
+            .arg(n).arg(base)
+            .arg(100.0 * n / base, 0, 'f', 1);
     };
 
     QString out;
     QTextStream ts(&out);
 
-    ts << QStringLiteral("Total sliders evaluated : %1\n").arg(s.total);
-    ts << QStringLiteral("Not found in diff output: %1\n\n").arg(s.notFound);
+    ts << QStringLiteral("Total sliders      : %1\n").arg(s.total);
+    ts << QStringLiteral("Hunk found (<=maxSlide): %1  not found: %2\n\n")
+          .arg(found).arg(s.notFound);
 
-    ts << QStringLiteral("                 Wrong          Right\n");
-    ts << QStringLiteral("Git diff :  ") << pct(s.gnuWrong)
-       << QStringLiteral("   ") << pct(s.total - s.gnuWrong) << '\n';
-    ts << QStringLiteral("Diffmerge:  ") << pct(s.dmWrong)
-       << QStringLiteral("   ") << pct(s.total - s.dmWrong) << '\n';
+    ts << QStringLiteral("                 Wrong (≠ human)       Right (= human)\n");
+    ts << QStringLiteral("Git diff :  ") << pct(s.gnuWrong,        s.total)
+       << QStringLiteral("   ") << pct(s.total - s.gnuWrong, s.total) << '\n';
+    ts << QStringLiteral("Diffmerge:  ") << pct(s.dmWrong,         found)
+       << QStringLiteral("   ") << pct(found - s.dmWrong,    found)   << '\n';
+
+    ts << QStringLiteral("\nDiffmerge vs Git diff (on %1 found sliders):\n").arg(found);
+    ts << QStringLiteral("  Better (closer to human) : ") << pct(s.dmBetter, found) << '\n';
+    ts << QStringLiteral("  Worse  (further from human): ") << pct(s.dmWorse,  found) << '\n';
+    ts << QStringLiteral("  Tie    (same distance)    : ") << pct(s.dmTie,    found) << '\n';
 
     ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos):\n");
     ts << QStringLiteral("  shift   count\n");

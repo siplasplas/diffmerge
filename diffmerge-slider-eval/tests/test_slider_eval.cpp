@@ -112,7 +112,23 @@ private slots:
         SliderCase sc;
         sc.sign       = '-';
         sc.blockBegin = 1;
-        QCOMPARE(findDiffmergePos(diff, sc), -1);
+        QCOMPARE(findDiffmergePos(diff, sc, 10), -1);
+    }
+
+    void findDiffmergePos_rejectsFarHunk() {
+        // Insert at line 10, ask for slider at blockBegin=1 with maxSlide=5 → reject.
+        const QStringList a{"a","b","c","d","e","f","g","h","i","j"};
+        QStringList b = a;
+        b.insert(9, QStringLiteral("NEW"));  // insert near end (position 10, 1-based)
+
+        diffcore::DiffEngine engine;
+        const auto diff = engine.compute(a, b);
+
+        SliderCase sc;
+        sc.sign       = '+';
+        sc.blockBegin = 1;   // far from actual insert at ~10
+        QCOMPARE(findDiffmergePos(diff, sc, 5), -1);   // 9 lines away → rejected
+        QVERIFY(findDiffmergePos(diff, sc, 20) > 0);   // relaxed → found
     }
 
     // --- delta=0 means git diff matched human; error histogram entry 0 ---

@@ -35,16 +35,30 @@ QVector<CsvEntry> loadCsvFile(const QString& csvPath);
 // sliding block (1-based line number on the relevant side).
 // sign='+' → search Insert hunks, return rightRange start+1.
 // sign='-' → search Delete hunks, return leftRange start+1.
-// Returns the start of the nearest matching hunk, or -1 if none found.
+// maxSlide: maximum distance (in lines) from blockBegin to accept a hunk.
+//   Hunks further away are almost certainly a different change in the file,
+//   not the slider. Use e.g. 10.  Pass INT_MAX to disable the filter.
+// Returns the 1-based position of the best matching hunk,
+// or -1 if none found within maxSlide.
 int findDiffmergePos(const diffcore::DiffResult& result,
-                     const SliderCase& sc);
+                     const SliderCase& sc,
+                     int maxSlide = 10);
 
 // Accumulated evaluation statistics.
 struct EvalStats {
     int total        = 0;   // total sliders evaluated
-    int gnuWrong     = 0;   // delta != 0  (git diff disagrees with human)
-    int dmWrong      = 0;   // dm_error != 0  (diffmerge disagrees with human)
-    int notFound     = 0;   // slider hunk not found in diffmerge output
+    int notFound     = 0;   // slider hunk not found within maxSlide
+
+    // gnu_error = -delta  (delta = human_pos - gnu_pos)
+    // dm_error  = dm_pos - human_pos
+    int gnuWrong     = 0;   // |gnu_error| != 0  (delta != 0)
+    int dmWrong      = 0;   // |dm_error|  != 0
+
+    // Comparison (for sliders where hunk was found):
+    int dmBetter     = 0;   // |dm_error| < |gnu_error|  — diffmerge closer to human
+    int dmWorse      = 0;   // |dm_error| > |gnu_error|  — diffmerge further from human
+    int dmTie        = 0;   // |dm_error| == |gnu_error| — same distance as git diff
+
     QMap<int, int>  errorHist;  // (dm_pos - human_pos) → count
 };
 
