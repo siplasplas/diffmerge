@@ -88,8 +88,8 @@ static void evaluateRepo(const QString& csvPath,
     }
 
     const QFileInfo fi(csvPath);
-    out << QStringLiteral("  %-30s  sliders: %4  gnu_wrong: %4 (%5%)  dm_wrong: %6 (%7%)\n")
-           .arg(fi.baseName())
+    out << QStringLiteral("  %1  sliders: %2  gnu_wrong: %3 (%4%)  dm_wrong: %5 (%6%)\n")
+           .arg(fi.baseName(), -30)
            .arg(repoTotal)
            .arg(repoGnuWrong)
            .arg(repoTotal ? 100.0 * repoGnuWrong / repoTotal : 0.0, 0, 'f', 1)
