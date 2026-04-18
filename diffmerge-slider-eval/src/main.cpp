@@ -35,124 +35,6 @@ static QString findPairFile(const QString& repoDir,
 
 static const char* kSep = "  +------------------------------------------\n";
 
-// Leading indentation width in columns. Tab counts as 4 spaces.
-static int indentWidth(const QString& line) {
-    int w = 0;
-    for (QChar c : line) {
-        if (c == QLatin1Char('\t'))      w += 4;
-        else if (c == QLatin1Char(' '))  ++w;
-        else break;
-    }
-    return w;
-}
-
-// Indexing (0-based into rel):
-//   rel[p]              first line of block
-//   rel[p + size - 1]   last line of block
-//   rel[p - 1]          line before block
-//   rel[p + size]       line after block
-//
-// H2 (tried first): find the largest k such that the k lines before the
-// block match the k last lines of the block, i.e.
-//     rel[p - i] == rel[p + size - i]   for i = 1..k
-// If k > 0 and indent(rel[p-k]) < indent(rel[p]), slide back by k (keeping
-// the less-indented boundary outside the block).
-//
-// H1 (tried only when H2 didn't fire): if the block starts with n empty
-// lines and is followed by m empty lines, slide forward by min(n, m) so the
-// empty lines end up after the block.
-static int applyHeuristics(int dmPos, int blockSize,
-                            const QStringList& rel) {
-    if (dmPos <= 0 || dmPos > rel.size() || blockSize < 1) return dmPos;
-    const int p    = dmPos - 1;
-    const int size = blockSize;
-    const int N    = rel.size();
-
-    // H5: JSON-like boundary "},\n{" before the block, same two lines at
-    // the end of the block (k=2 slide valid) — slide back by 1 so the block
-    // begins with "{" (groups a complete object).
-    if (p >= 2 && p + size - 1 < N &&
-        rel[p - 2].trimmed() == QStringLiteral("},") &&
-        rel[p - 1].trimmed() == QStringLiteral("{") &&
-        rel[p - 2] == rel[p + size - 2] &&
-        rel[p - 1] == rel[p + size - 1]) {
-        return (p - 1) + 1;
-    }
-
-    // H2: scan the slide-left range for an indent drop. Shift by the smallest
-    // k where indent(rel[p-k]) < indent(rel[p]) (closest lower-indent
-    // boundary); as fallback, shift by max_k when indent equals and every
-    // absorbed line starts with "//" (line-comment header block).
-    int k2 = 0;
-    while (p - (k2 + 1) >= 0 && p + size - (k2 + 1) < N &&
-           rel[p - (k2 + 1)] == rel[p + size - (k2 + 1)])
-        ++k2;
-    if (k2 > 0) {
-        const int indFirst = indentWidth(rel[p]);
-        for (int k = 1; k <= k2; ++k) {
-            if (indentWidth(rel[p - k]) < indFirst)
-                return (p - k) + 1;
-        }
-        if (indentWidth(rel[p - k2]) == indFirst) {
-            bool allComments = true;
-            for (int i = 1; i <= k2; ++i) {
-                if (!rel[p - i].trimmed().startsWith(QStringLiteral("//"))) {
-                    allComments = false;
-                    break;
-                }
-            }
-            if (allComments) return (p - k2) + 1;
-        }
-    }
-
-    // H1: empty-line boundary runs.
-    int n = 0;
-    while (n < size && p + n < N && rel[p + n].trimmed().isEmpty())
-        ++n;
-    int m = 0;
-    while (p + size + m < N && rel[p + size + m].trimmed().isEmpty())
-        ++m;
-    const int k1 = std::min(n, m);
-    if (k1 > 0) return (p + k1) + 1;
-
-    // H3: line before block is a visual section separator ("/***...",
-    // ";;***...", ";***...", ";;;;...") and equals block's last line
-    // (single-line slide-left valid) — slide back by 1.
-    if (p > 0 && p + size - 1 < N &&
-        rel[p - 1] == rel[p + size - 1]) {
-        const QString t = rel[p - 1].trimmed();
-        if (t.startsWith(QStringLiteral("/*"))    ||
-            t.startsWith(QStringLiteral(";;***")) ||
-            t.startsWith(QStringLiteral(";***"))  ||
-            t.startsWith(QStringLiteral(";;;;"))) {
-            return (p - 1) + 1;
-        }
-    }
-
-    // H4: absorb a "#pragma mark" / "// MARK" section header into the block.
-    //  (a) Within the slide-left valid range, find the farthest mark line and
-    //      slide so that line starts the block.
-    //  (b) If nothing found inside the range AND the line just before the
-    //      block is a mark line, slide back by 1 regardless of slide validity
-    //      (humans prefer grouping the mark with the inserted code even
-    //      though this changes what's considered "inserted").
-    auto isMark = [](const QString& line) {
-        const QString t = line.trimmed();
-        return t.startsWith(QStringLiteral("#pragma mark")) ||
-               t.startsWith(QStringLiteral("// MARK"));
-    };
-    int k4 = 0;
-    while (p - (k4 + 1) >= 0 && p + size - (k4 + 1) < N &&
-           rel[p - (k4 + 1)] == rel[p + size - (k4 + 1)])
-        ++k4;
-    for (int j = k4; j >= 1; --j) {
-        if (isMark(rel[p - j])) return (p - j) + 1;
-    }
-    if (p > 0 && isMark(rel[p - 1])) return (p - 1) + 1;
-
-    return dmPos;
-}
-
 // Find the size (line count) of the hunk that starts at 1-based dmPos.
 // Returns 1 if no matching hunk is found.
 static int findHunkSize(const diffcore::DiffResult& result,
@@ -243,7 +125,9 @@ static void evaluateRepo(const QString& csvPath,
         const QStringList linesB = loadLines(pathB);
         if (linesA.isEmpty() && linesB.isEmpty()) continue;
 
-        const diffcore::DiffResult diff = engine.compute(linesA, linesB);
+        diffcore::DiffOptions opts;
+        opts.applySliderHeuristics = useHeuristics;
+        const diffcore::DiffResult diff = engine.compute(linesA, linesB, opts);
 
         for (const SliderCase& sc : entry.sliders) {
             const int humanPos = sc.blockBegin + sc.delta;
@@ -260,13 +144,9 @@ static void evaluateRepo(const QString& csvPath,
                 continue;
             }
 
-            // Look up block size from the engine's hunk BEFORE any heuristic
-            // shift (once shifted, dmPos no longer matches any hunk's start).
+            // Heuristics (if enabled) are applied inside DiffEngine::compute,
+            // so dmPos already matches the adjusted hunk's start.
             const int blockSize = findHunkSize(diff, sc, dmPos);
-            if (useHeuristics) {
-                const QStringList& rel = (sc.sign == '+') ? linesB : linesA;
-                dmPos = applyHeuristics(dmPos, blockSize, rel);
-            }
 
             const int dmError = dmPos - humanPos;
             ++stats.errorHist[dmError];

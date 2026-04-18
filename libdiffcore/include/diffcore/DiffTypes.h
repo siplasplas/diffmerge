@@ -46,6 +46,7 @@ struct DiffOptions {
     bool ignoreEolStyle = true;      // CRLF == LF (done during line splitting)
     bool mergeReplaceHunks = true;         // Merge adjacent Delete+Insert into Replace
     bool coalesceAdjacentSameType = true;  // Merge consecutive hunks of identical type
+    bool applySliderHeuristics    = true;  // Shift Insert/Delete hunks to human-preferred boundaries
 };
 
 // Summary statistics, filled alongside hunks.

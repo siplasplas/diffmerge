@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "diffcore/LineInterner.h"
+#include "diffcore/SliderHeuristics.h"
 #include "internal/Diff.h"
 
 namespace diffcore {
@@ -213,6 +214,9 @@ DiffResult DiffEngine::compute(const QStringList& left,
     }
     if (opts.coalesceAdjacentSameType) {
         hunks = coalesceAdjacentHunks(hunks);
+    }
+    if (opts.applySliderHeuristics) {
+        applySliderHeuristics(hunks, left, right);
     }
 
     DiffResult result;

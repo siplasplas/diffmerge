@@ -4,11 +4,13 @@ set(DIFFCORE_PUBLIC_HEADERS
     include/diffcore/DiffTypes.h
     include/diffcore/LineInterner.h
     include/diffcore/DiffEngine.h
+    include/diffcore/SliderHeuristics.h
 )
 
 set(DIFFCORE_SOURCES
     src/LineInterner.cpp
     src/DiffEngine.cpp
+    src/SliderHeuristics.cpp
 )
 
 set(DIFFCORE_INTERNAL_HEADERS

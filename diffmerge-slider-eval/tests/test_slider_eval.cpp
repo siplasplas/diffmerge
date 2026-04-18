@@ -79,7 +79,8 @@ private slots:
 
         SliderCase sc;
         sc.sign       = '+';
-        sc.blockBegin = 3;   // expect insertion near line 3
+        sc.blockBegin = 3;
+        sc.diffPos    = 3;   // emulate annotated sys-diff position
         const int pos = findDiffmergePos(diff, sc);
         QVERIFY(pos > 0);
         // The inserted line "NEW" appears at 1-based position 3 in B.
@@ -96,6 +97,7 @@ private slots:
         SliderCase sc;
         sc.sign       = '-';
         sc.blockBegin = 3;   // "GONE" at line 3 in A
+        sc.diffPos    = 3;
         const int pos = findDiffmergePos(diff, sc);
         QVERIFY(pos > 0);
         QCOMPARE(pos, 3);
@@ -126,9 +128,11 @@ private slots:
 
         SliderCase sc;
         sc.sign       = '+';
-        sc.blockBegin = 1;   // far from actual insert at ~10
-        QCOMPARE(findDiffmergePos(diff, sc, 5), -1);   // 9 lines away → rejected
-        QVERIFY(findDiffmergePos(diff, sc, 20) > 0);   // relaxed → found
+        sc.blockBegin = 1;
+        sc.diffPos    = 1;   // anchor far from actual insert at ~10
+        // With diffPos set, tolerance is tight (3) regardless of maxSlide.
+        QCOMPARE(findDiffmergePos(diff, sc, 5),  -1);
+        QCOMPARE(findDiffmergePos(diff, sc, 20), -1);
     }
 
     // --- delta=0 means git diff matched human; error histogram entry 0 ---
