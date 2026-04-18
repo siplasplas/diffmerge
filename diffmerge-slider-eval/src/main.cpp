@@ -212,6 +212,10 @@ int main(int argc, char* argv[]) {
         QStringLiteral("repos"),
         QStringLiteral("Process at most N repositories (0 = all)."),
         QStringLiteral("N"), QStringLiteral("0"));
+    QCommandLineOption startOpt(
+        QStringLiteral("start"),
+        QStringLiteral("Skip the first N repositories. Default: 0."),
+        QStringLiteral("N"), QStringLiteral("0"));
     QCommandLineOption showErrorsOpt(
         QStringLiteral("show-errors"),
         QStringLiteral("Print file context for every slider where |dm_error| >= N. "
@@ -231,6 +235,7 @@ int main(int argc, char* argv[]) {
     parser.addOption(corpusOpt);
     parser.addOption(maxSlideOpt);
     parser.addOption(reposOpt);
+    parser.addOption(startOpt);
     parser.addOption(showErrorsOpt);
     parser.addOption(logsOpt);
     parser.addOption(heuristicsOpt);
@@ -239,6 +244,7 @@ int main(int argc, char* argv[]) {
     const QString corpusDir     = parser.value(corpusOpt);
     const int     maxSlide      = parser.value(maxSlideOpt).toInt();
     const int     repoLimit     = parser.value(reposOpt).toInt();
+    const int     startOffset   = parser.value(startOpt).toInt();
     const int     showErrorsMin = parser.isSet(showErrorsOpt)
                                   ? parser.value(showErrorsOpt).toInt() : 0;
     const QString logsDir       = parser.value(logsOpt);
@@ -277,12 +283,16 @@ int main(int argc, char* argv[]) {
 
     QStringList csvFiles = dir.entryList({QStringLiteral("*.csv")},
                                           QDir::Files, QDir::Name);
+    const int totalFiles = csvFiles.size();
+    if (startOffset > 0)
+        csvFiles = csvFiles.mid(startOffset);
     if (repoLimit > 0 && csvFiles.size() > repoLimit)
         csvFiles = csvFiles.mid(0, repoLimit);
 
     out << "Repositories to process: " << csvFiles.size()
-        << " (of " << dir.entryList({QStringLiteral("*.csv")},
-                                     QDir::Files).size() << " total)\n\n";
+        << " (of " << totalFiles << " total";
+    if (startOffset > 0) out << ", starting at #" << startOffset + 1;
+    out << ")\n\n";
 
     EvalStats stats;
     int i = 0;
