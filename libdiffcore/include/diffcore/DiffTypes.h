@@ -44,7 +44,8 @@ struct DiffOptions {
     bool ignoreCase = false;
     bool ignoreBlankLines = false;   // Treat blank lines as if they match
     bool ignoreEolStyle = true;      // CRLF == LF (done during line splitting)
-    bool mergeReplaceHunks = true;   // Merge adjacent Delete+Insert into Replace
+    bool mergeReplaceHunks = true;         // Merge adjacent Delete+Insert into Replace
+    bool coalesceAdjacentSameType = true;  // Merge consecutive hunks of identical type
 };
 
 // Summary statistics, filled alongside hunks.

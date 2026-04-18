@@ -215,6 +215,73 @@ private slots:
         QCOMPARE(r.stats.editDistance, 2);
     }
 
+    // --- Coalescing adjacent same-type hunks ---
+
+    // Char-by-char input "abc"→"abcXY": O(NP) may emit two Insert{1} blocks.
+    // Default coalescing must merge them into one Insert{2}.
+    void coalesceAdjacentInserts_producesOneInsertHunk() {
+        QStringList left{"a","b","c"};
+        QStringList right{"a","b","c","X","Y"};
+        DiffEngine eng;
+        DiffResult r = eng.compute(left, right);
+
+        int insertCount = 0, insertTotal = 0;
+        for (const auto& h : r.hunks) {
+            if (h.type == ChangeType::Insert) {
+                ++insertCount;
+                insertTotal += h.rightRange.count;
+            }
+        }
+        QCOMPARE(insertCount, 1);
+        QCOMPARE(insertTotal, 2);
+    }
+
+    // Same input with coalescing disabled: total coverage still correct,
+    // but we may get more than one Insert hunk.
+    void coalesceDisabled_totalCoveragePreserved() {
+        QStringList left{"a","b","c"};
+        QStringList right{"a","b","c","X","Y"};
+        DiffOptions opts;
+        opts.coalesceAdjacentSameType = false;
+        DiffEngine eng;
+        DiffResult r = eng.compute(left, right, opts);
+
+        int insertTotal = 0;
+        for (const auto& h : r.hunks)
+            if (h.type == ChangeType::Insert)
+                insertTotal += h.rightRange.count;
+        QCOMPARE(insertTotal, 2);
+    }
+
+    // Adjacent deletes at char level: "XYabc"→"abc" should be one Delete{2}.
+    void coalesceAdjacentDeletes_producesOneDeleteHunk() {
+        QStringList left{"X","Y","a","b","c"};
+        QStringList right{"a","b","c"};
+        DiffEngine eng;
+        DiffResult r = eng.compute(left, right);
+
+        int deleteCount = 0, deleteTotal = 0;
+        for (const auto& h : r.hunks) {
+            if (h.type == ChangeType::Delete) {
+                ++deleteCount;
+                deleteTotal += h.leftRange.count;
+            }
+        }
+        QCOMPARE(deleteCount, 1);
+        QCOMPARE(deleteTotal, 2);
+    }
+
+    // With default options, no two adjacent hunks in the output share the same type.
+    void coalesceDefault_noAdjacentSameTypeHunks() {
+        QStringList left{"a","b","c","d","e"};
+        QStringList right{"a","X","Y","d","Z"};
+        DiffEngine eng;
+        DiffResult r = eng.compute(left, right);
+
+        for (size_t i = 1; i < r.hunks.size(); ++i)
+            QVERIFY(r.hunks[i].type != r.hunks[i-1].type);
+    }
+
     // --- Hunk coverage (hunks span whole file) ---
 
     void hunksCoverEntireLeftFile() {

@@ -95,6 +95,26 @@ std::vector<Hunk> mergeReplaceHunks(const std::vector<Hunk>& input) {
     return out;
 }
 
+// Merge consecutive hunks that share the same ChangeType into one hunk.
+// This consolidates runs that the O(NP) backtracker emits as separate
+// single-element blocks (e.g. two adjacent Insert{1} → one Insert{2}).
+std::vector<Hunk> coalesceAdjacentHunks(const std::vector<Hunk>& input) {
+    if (input.empty()) return {};
+    std::vector<Hunk> out;
+    out.push_back(input[0]);
+    for (size_t i = 1; i < input.size(); ++i) {
+        Hunk& last = out.back();
+        const Hunk& h = input[i];
+        if (h.type == last.type) {
+            last.leftRange.count  += h.leftRange.count;
+            last.rightRange.count += h.rightRange.count;
+        } else {
+            out.push_back(h);
+        }
+    }
+    return out;
+}
+
 // Fill in aggregate stats based on final hunks and raw edit distance.
 DiffStats computeStats(const std::vector<Hunk>& hunks, int editDistance) {
     DiffStats s;
@@ -190,6 +210,9 @@ DiffResult DiffEngine::compute(const QStringList& left,
     std::vector<Hunk> hunks = rawHunksFromBlocks(blocks);
     if (opts.mergeReplaceHunks) {
         hunks = mergeReplaceHunks(hunks);
+    }
+    if (opts.coalesceAdjacentSameType) {
+        hunks = coalesceAdjacentHunks(hunks);
     }
 
     DiffResult result;
