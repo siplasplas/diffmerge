@@ -33,16 +33,22 @@ static QString findPairFile(const QString& repoDir,
     return repoDir + QLatin1Char('/') + candidates.first();
 }
 
-// Print N lines of context around 1-based position pos in lines, with a marker.
-static void printContext(QTextStream& out,
-                         const QStringList& lines,
-                         int pos, int ctx = 3) {
+static const char* kSep = "  +------------------------------------------\n";
+
+// Print context lines before/after the fragment at 1-based pos.
+// The fragment line itself is printed between two separator lines,
+// prefixed with the diff sign character.
+static void printFragment(QTextStream& out,
+                          const QStringList& lines,
+                          int pos, char sign, int ctx = 3) {
     const int from = qMax(1, pos - ctx);
     const int to   = qMin(lines.size(), pos + ctx);
     for (int i = from; i <= to; ++i) {
-        const QString marker = (i == pos) ? QStringLiteral(">>>") : QStringLiteral("   ");
-        out << QStringLiteral("    %1 %2: %3\n")
-               .arg(marker).arg(i, 4).arg(lines[i - 1]);
+        if (i == pos)     out << kSep;
+        const char pfx = (i == pos) ? sign : ' ';
+        out << QStringLiteral("  %1 %2  %3\n")
+               .arg(pfx).arg(i, 5).arg(lines[i - 1]);
+        if (i == pos)     out << kSep;
     }
 }
 
@@ -52,36 +58,38 @@ static void printSliderDetail(QTextStream& out,
                               int humanPos, int dmPos, int dmError,
                               const QStringList& linesA,
                               const QStringList& linesB) {
-    out << QStringLiteral("\n--- SLIDER %1 %2 %3 diffPos=%4  digest=%5\n")
-           .arg(QChar(sc.sign)).arg(sc.blockBegin).arg(sc.delta).arg(sc.diffPos)
-           .arg(digest);
-    out << QStringLiteral("    git diff pos : %1\n").arg(sc.blockBegin);
-    out << QStringLiteral("    sys diff pos : %1\n").arg(sc.diffPos);
-    out << QStringLiteral("    human pos    : %1  (delta=%2)\n").arg(humanPos).arg(sc.delta);
-    out << QStringLiteral("    diffmerge pos: %1  (dm_error=%2)\n").arg(dmPos).arg(dmError);
+    out << QStringLiteral("\n========================================\n");
+    out << QStringLiteral("  digest=%1  %2 blockBegin=%3 delta=%4\n")
+           .arg(digest).arg(QChar(sc.sign)).arg(sc.blockBegin).arg(sc.delta);
+    out << QStringLiteral("  git=%1  sys=%2  human=%3  dm=%4  dm_error=%5\n")
+           .arg(sc.blockBegin).arg(sc.diffPos).arg(humanPos).arg(dmPos).arg(dmError);
 
-    // For '+' sliders the relevant file is B (right); for '-' it is A (left).
-    const QStringList& relevant = (sc.sign == '+') ? linesB : linesA;
-    const char side = (sc.sign == '+') ? 'B' : 'A';
+    // For '+' sliders: relevant file is B (insertion visible in right file).
+    // For '-' sliders: relevant file is A (deletion visible in left file).
+    const QStringList& rel  = (sc.sign == '+') ? linesB : linesA;
+    const char         side = (sc.sign == '+') ? 'B' : 'A';
 
     if (sc.diffPos > 0 && sc.diffPos != humanPos) {
-        out << QStringLiteral("  context at sys/dm pos (file %1, line %2):\n")
+        out << QStringLiteral("\n  -- sys/dm position (file %1, line %2) --\n")
                .arg(side).arg(sc.diffPos);
-        printContext(out, relevant, sc.diffPos);
-        out << QStringLiteral("  context at human pos  (file %1, line %2):\n")
+        printFragment(out, rel, sc.diffPos, sc.sign);
+        out << QStringLiteral("\n  -- human position  (file %1, line %2) --\n")
                .arg(side).arg(humanPos);
-        printContext(out, relevant, humanPos);
+        printFragment(out, rel, humanPos, sc.sign);
     } else {
-        out << QStringLiteral("  context at diffmerge pos (file %1, line %2):\n")
+        out << QStringLiteral("\n  -- position (file %1, line %2) --\n")
                .arg(side).arg(dmPos);
-        printContext(out, relevant, dmPos);
+        printFragment(out, rel, dmPos, sc.sign);
     }
 }
 
+// logs[k] receives verbose detail for sliders where dm_error == k (k = 0..3).
+// Null pointer means that shift is not logged.
 static void evaluateRepo(const QString& csvPath,
                          const QString& repoDir,
                          int maxSlide,
                          int showErrorsMin,
+                         QTextStream* logs[4],
                          EvalStats& stats,
                          QTextStream& out) {
     const QVector<CsvEntry> entries = loadCsvFile(csvPath);
@@ -141,6 +149,13 @@ static void evaluateRepo(const QString& csvPath,
                                   humanPos, dmPos, dmError,
                                   linesA, linesB);
             }
+
+            // Per-shift log files (dmError 0..3)
+            if (dmError >= 0 && dmError <= 3 && logs[dmError]) {
+                printSliderDetail(*logs[dmError], sc, entry.digest,
+                                  humanPos, dmPos, dmError,
+                                  linesA, linesB);
+            }
         }
     }
 
@@ -183,10 +198,16 @@ int main(int argc, char* argv[]) {
                        "Shows the block in the file at sys-diff pos and at human pos "
                        "so you can see visually what each algorithm chose."),
         QStringLiteral("N"));
+    QCommandLineOption logsOpt(
+        QStringLiteral("logs"),
+        QStringLiteral("Write verbose slider details into DIR/log0 … DIR/log3, "
+                       "one file per shift value (dm_error = 0..3)."),
+        QStringLiteral("DIR"));
     parser.addOption(corpusOpt);
     parser.addOption(maxSlideOpt);
     parser.addOption(reposOpt);
     parser.addOption(showErrorsOpt);
+    parser.addOption(logsOpt);
     parser.process(app);
 
     const QString corpusDir     = parser.value(corpusOpt);
@@ -194,12 +215,29 @@ int main(int argc, char* argv[]) {
     const int     repoLimit     = parser.value(reposOpt).toInt();
     const int     showErrorsMin = parser.isSet(showErrorsOpt)
                                   ? parser.value(showErrorsOpt).toInt() : 0;
+    const QString logsDir       = parser.value(logsOpt);
+
+    // Open per-shift log files if --logs was given.
+    QFile     logFiles[4];
+    QTextStream* logs[4] = {nullptr, nullptr, nullptr, nullptr};
+    if (!logsDir.isEmpty()) {
+        QDir().mkpath(logsDir);
+        for (int k = 0; k <= 3; ++k) {
+            logFiles[k].setFileName(logsDir + QStringLiteral("/log") + QString::number(k));
+            if (logFiles[k].open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+                logs[k] = new QTextStream(&logFiles[k]);
+            else
+                QTextStream(stderr) << "cannot open: " << logFiles[k].fileName() << '\n';
+        }
+    }
 
     QTextStream out(stdout);
     out << "Corpus   : " << corpusDir << "\n";
     out << "max-slide: " << maxSlide << " lines\n";
     if (showErrorsMin > 0)
         out << "show-errors: |dm_error| >= " << showErrorsMin << "\n";
+    if (!logsDir.isEmpty())
+        out << "logs dir : " << logsDir << "/log0 .. log3\n";
     out << "\n";
 
     QDir dir(corpusDir);
@@ -225,10 +263,12 @@ int main(int argc, char* argv[]) {
         const QString repoDir = dir.filePath(QFileInfo(csvName).baseName());
         out << '[' << i << '/' << csvFiles.size() << "] " << csvName << '\n';
         out.flush();
-        evaluateRepo(csvPath, repoDir, maxSlide, showErrorsMin, stats, out);
+        evaluateRepo(csvPath, repoDir, maxSlide, showErrorsMin, logs, stats, out);
     }
 
     out << "\n=== SUMMARY ===\n";
     out << formatStats(stats);
+
+    for (int k = 0; k <= 3; ++k) delete logs[k];
     return 0;
 }
