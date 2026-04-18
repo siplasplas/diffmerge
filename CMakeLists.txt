@@ -14,6 +14,7 @@ set(CMAKE_AUTOMOC ON)
 option(DIFFMERGE_BUILD_GUI        "Build GUI application"          ON)
 option(DIFFMERGE_BUILD_CLI        "Build CLI application"          ON)
 option(DIFFMERGE_BUILD_CORPUS_DL  "Build corpus downloader"        ON)
+option(DIFFMERGE_BUILD_SLIDER_EVAL "Build slider evaluation tool"  ON)
 option(DIFFMERGE_BUILD_TESTS      "Build tests"                    ON)
 
 # enable_testing() must be called in the top-level CMakeLists.txt for ctest
@@ -39,4 +40,8 @@ endif()
 
 if(DIFFMERGE_BUILD_CORPUS_DL)
     add_subdirectory(diffmerge-corpus-dl)
+endif()
+
+if(DIFFMERGE_BUILD_SLIDER_EVAL)
+    add_subdirectory(diffmerge-slider-eval)
 endif()
