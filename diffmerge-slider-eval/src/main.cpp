@@ -79,20 +79,21 @@ static int applyHeuristics(int dmPos, int blockSize,
         return (p - 1) + 1;
     }
 
-    // H2: max matching run of NON-EMPTY boundary lines (empty runs are left
-    // for H1 to handle, so the two heuristics don't overlap).
+    // H2: scan the slide-left range for an indent drop. Shift by the smallest
+    // k where indent(rel[p-k]) < indent(rel[p]) (closest lower-indent
+    // boundary); as fallback, shift by max_k when indent equals and every
+    // absorbed line starts with "//" (line-comment header block).
     int k2 = 0;
     while (p - (k2 + 1) >= 0 && p + size - (k2 + 1) < N &&
-           rel[p - (k2 + 1)] == rel[p + size - (k2 + 1)] &&
-           !rel[p - (k2 + 1)].trimmed().isEmpty())
+           rel[p - (k2 + 1)] == rel[p + size - (k2 + 1)])
         ++k2;
     if (k2 > 0) {
-        const int indLeft  = indentWidth(rel[p - k2]);
         const int indFirst = indentWidth(rel[p]);
-        bool shift = (indLeft < indFirst);
-        // Equal indent also allowed when all k absorbed lines start with "//"
-        // (block starts with a block of line comments).
-        if (!shift && indLeft == indFirst) {
+        for (int k = 1; k <= k2; ++k) {
+            if (indentWidth(rel[p - k]) < indFirst)
+                return (p - k) + 1;
+        }
+        if (indentWidth(rel[p - k2]) == indFirst) {
             bool allComments = true;
             for (int i = 1; i <= k2; ++i) {
                 if (!rel[p - i].trimmed().startsWith(QStringLiteral("//"))) {
@@ -100,9 +101,8 @@ static int applyHeuristics(int dmPos, int blockSize,
                     break;
                 }
             }
-            shift = allComments;
+            if (allComments) return (p - k2) + 1;
         }
-        if (shift) return (p - k2) + 1;
     }
 
     // H1: empty-line boundary runs.
