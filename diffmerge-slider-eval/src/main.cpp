@@ -46,49 +46,47 @@ static int indentWidth(const QString& line) {
     return w;
 }
 
-// Heuristic 1: within the slider range, slide forward past positions where
-// the first block line and the line after the block are both empty.
+// Indexing (0-based into rel):
+//   rel[p]              first line of block
+//   rel[p + size - 1]   last line of block
+//   rel[p - 1]          line before block
+//   rel[p + size]       line after block
 //
-// Heuristic 2: if H1 didn't fire AND sliding left by 1 is valid (line before
-// block equals last block line), AND that line has smaller indent than the
-// block's first line, slide back by 1.
+// H2 (tried first): find the largest k such that the k lines before the
+// block match the k last lines of the block, i.e.
+//     rel[p - i] == rel[p + size - i]   for i = 1..k
+// If k > 0 and indent(rel[p-k]) < indent(rel[p]), slide back by k (keeping
+// the less-indented boundary outside the block).
 //
-// Indexing (all 0-based into rel):
-//   p              first line of block
-//   p + size - 1   last line of block
-//   p - 1          line before block
-//   p + size       line after block
-// Slide-left from p to p-1 is valid iff rel[p-1] == rel[p+size-1].
-//
-// Takes dmPos (1-based, matches the corpus CSV convention) and returns the
-// adjusted 1-based position.
+// H1 (tried only when H2 didn't fire): if the block starts with n empty
+// lines and is followed by m empty lines, slide forward by min(n, m) so the
+// empty lines end up after the block.
 static int applyHeuristics(int dmPos, int blockSize,
                             const QStringList& rel) {
     if (dmPos <= 0 || dmPos > rel.size() || blockSize < 1) return dmPos;
-    const int p = dmPos - 1;  // 0-based from here on
-    const int N = rel.size();
+    const int p    = dmPos - 1;
+    const int size = blockSize;
+    const int N    = rel.size();
 
-    // Leftmost valid slider position (0-based).
-    int pMin = p;
-    while (pMin > 0 && pMin - 1 + blockSize < N &&
-           rel[pMin - 1] == rel[pMin - 1 + blockSize])
-        --pMin;
+    // H2: max matching run of NON-EMPTY boundary lines (empty runs are left
+    // for H1 to handle, so the two heuristics don't overlap).
+    int k2 = 0;
+    while (p - (k2 + 1) >= 0 && p + size - (k2 + 1) < N &&
+           rel[p - (k2 + 1)] == rel[p + size - (k2 + 1)] &&
+           !rel[p - (k2 + 1)].trimmed().isEmpty())
+        ++k2;
+    if (k2 > 0 && indentWidth(rel[p - k2]) < indentWidth(rel[p]))
+        return (p - k2) + 1;
 
-    // H1: walk forward through empty/empty boundary positions.
-    int q = pMin;
-    while (q + blockSize < N &&
-           rel[q].trimmed().isEmpty() &&
-           rel[q + blockSize].trimmed().isEmpty()) {
-        ++q;
-    }
-    if (q != pMin) return q + 1;
-
-    // H2: single slide-left when indent of line-before < indent of block[0].
-    if (p > 0 && p - 1 + blockSize < N &&
-        rel[p - 1] == rel[p - 1 + blockSize] &&
-        indentWidth(rel[p - 1]) < indentWidth(rel[p])) {
-        return (p - 1) + 1;  // new 1-based position
-    }
+    // H1: empty-line boundary runs.
+    int n = 0;
+    while (n < size && p + n < N && rel[p + n].trimmed().isEmpty())
+        ++n;
+    int m = 0;
+    while (p + size + m < N && rel[p + size + m].trimmed().isEmpty())
+        ++m;
+    const int k1 = std::min(n, m);
+    if (k1 > 0) return (p + k1) + 1;
 
     return dmPos;
 }
