@@ -24,7 +24,10 @@ public:
     void run();
 
 private:
-    void processRepo(const QString& infoPath, int idx, int total);
+    // globalDl / globalSkip are running totals updated in-place.
+    void processRepo(const QString& infoPath,
+                     int repoIdx, int repoTotal,
+                     int& globalDl, int& globalSkip, int globalTotal);
 
     QString m_corpusDir;
     QString m_outputDir;

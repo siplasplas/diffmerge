@@ -42,20 +42,42 @@ void CorpusProcessor::run() {
         return;
     }
 
-    QStringList infos = dir.entryList({QStringLiteral("*.info")},
-                                       QDir::Files, QDir::Name);
+    const QStringList infos = dir.entryList({QStringLiteral("*.info")},
+                                             QDir::Files, QDir::Name);
     QDir().mkpath(m_outputDir);
 
+    // Pre-scan: count total slider entries across all repos so we can show
+    // a meaningful global progress "dl=X/Total".
     QTextStream out(stdout);
-    for (int i = 0; i < infos.size(); ++i) {
-        out << "[" << (i + 1) << "/" << infos.size() << "] "
-            << infos[i] << '\n';
-        out.flush();
-        processRepo(dir.filePath(infos[i]), i + 1, infos.size());
+    out << "Scanning corpus...\n"; out.flush();
+    int globalTotal = 0;
+    for (const QString& name : infos) {
+        const QString repoPath = loadInfoFile(dir.filePath(name));
+        if (repoPath.isEmpty()) continue;
+        const QFileInfo fi(dir.filePath(name));
+        const QString slidersPath = fi.dir().filePath(
+            fi.baseName() + QStringLiteral("-human.sliders"));
+        globalTotal += loadSlidersFile(slidersPath, repoPath).size();
     }
+    out << "Total slider entries: " << globalTotal << "\n\n"; out.flush();
+
+    int globalDl = 0, globalSkip = 0;
+    for (int i = 0; i < infos.size(); ++i) {
+        out << "[" << (i + 1) << "/" << infos.size() << "] " << infos[i] << '\n';
+        out.flush();
+        processRepo(dir.filePath(infos[i]),
+                    i + 1, infos.size(),
+                    globalDl, globalSkip, globalTotal);
+    }
+    out << "\nDone. Downloaded: " << globalDl
+        << "  Skipped: " << globalSkip
+        << "  Total entries: " << globalTotal << '\n';
 }
 
-void CorpusProcessor::processRepo(const QString& infoPath, int idx, int total) {
+void CorpusProcessor::processRepo(const QString& infoPath,
+                                   int repoIdx, int repoTotal,
+                                   int& globalDl, int& globalSkip,
+                                   int globalTotal) {
     const QString repoPath = loadInfoFile(infoPath);
     if (repoPath.isEmpty()) {
         QTextStream(stderr) << "skip (not a github URL): " << infoPath << '\n';
@@ -84,7 +106,7 @@ void CorpusProcessor::processRepo(const QString& infoPath, int idx, int total) {
 
     Downloader dl;
     QTextStream out(stdout);
-    int downloaded = 0, skipped = 0;
+    int repoDl = 0, repoSkip = 0;
 
     for (int i = 0; i < entries.size(); ++i) {
         const SliderEntry& e = entries[i];
@@ -110,13 +132,17 @@ void CorpusProcessor::processRepo(const QString& infoPath, int idx, int total) {
 
         if (ok) {
             byDigest[digest] = {e};
-            ++downloaded;
+            ++repoDl;
+            ++globalDl;
         } else {
-            ++skipped;
+            ++repoSkip;
+            ++globalSkip;
         }
 
-        out << "  " << (i + 1) << "/" << entries.size()
-            << "  dl=" << downloaded << " skip=" << skipped << '\r';
+        // Progress: repo-local and global counters.
+        out << "  repo " << (i + 1) << "/" << entries.size()
+            << "  global dl=" << globalDl << "/" << globalTotal
+            << " skip=" << (globalSkip) << '\r';
         out.flush();
     }
     out << '\n';
@@ -147,9 +173,9 @@ void CorpusProcessor::processRepo(const QString& infoPath, int idx, int total) {
         csvOut << '\n';
     }
 
-    out << "  repo " << dirName << ": " << downloaded << " pairs downloaded"
-        << (skipped ? QStringLiteral(", %1 skipped").arg(skipped) : QString())
-        << '\n';
+    out << "  repo " << dirName << ": " << repoDl << " downloaded"
+        << (repoSkip ? QStringLiteral(", %1 skipped").arg(repoSkip) : QString())
+        << "  [global " << globalDl << "/" << globalTotal << "]\n";
 }
 
 }  // namespace diffmerge::corpus
