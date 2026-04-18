@@ -125,13 +125,10 @@ QString formatStats(const EvalStats& s) {
         ts << QStringLiteral("  Tie    (same distance)    : ") << pct(s.dmTieWithSys,   sysCmp) << '\n';
     }
 
-    ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos):\n");
+    ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos, shift 0..3):\n");
     ts << QStringLiteral("  shift   count\n");
-    const int minShift = s.errorHist.isEmpty() ? 0 : s.errorHist.firstKey();
-    const int maxShift = s.errorHist.isEmpty() ? 0 : s.errorHist.lastKey();
-    for (int k = minShift; k <= maxShift; ++k) {
+    for (int k = 0; k <= 3; ++k) {
         const int cnt = s.errorHist.value(k, 0);
-        if (cnt == 0) continue;
         const QString bar(std::min(cnt * 40 / s.total + 1, 40), QLatin1Char('#'));
         ts << QStringLiteral("  %1  %2  %3\n")
               .arg(k, 4).arg(cnt, 6).arg(bar);
