@@ -16,6 +16,7 @@ struct SliderCase {
     char sign       = '+';  // '+' = insertion in right file, '-' = deletion from left
     int  blockBegin = 0;    // where git diff placed the sliding block (1-based)
     int  delta      = 0;    // shift to get from git diff pos to human preference
+    int  diffPos    = -1;   // where system diff (classic Myers) placed it; -1 = unknown
 };
 
 // One digest entry from a CSV file: one file pair + N sliders that reference it.
@@ -49,15 +50,25 @@ struct EvalStats {
     int total        = 0;   // total sliders evaluated
     int notFound     = 0;   // slider hunk not found within maxSlide
 
-    // gnu_error = -delta  (delta = human_pos - gnu_pos)
-    // dm_error  = dm_pos - human_pos
+    // git diff baseline: gnu_error = -delta  (blockBegin - humanPos)
     int gnuWrong     = 0;   // |gnu_error| != 0  (delta != 0)
-    int dmWrong      = 0;   // |dm_error|  != 0
 
-    // Comparison (for sliders where hunk was found):
-    int dmBetter     = 0;   // |dm_error| < |gnu_error|  — diffmerge closer to human
-    int dmWorse      = 0;   // |dm_error| > |gnu_error|  — diffmerge further from human
-    int dmTie        = 0;   // |dm_error| == |gnu_error| — same distance as git diff
+    // system diff baseline (only for entries with diffPos > 0):
+    int sysTotal     = 0;   // sliders with diffPos available
+    int sysWrong     = 0;   // |sys_error| != 0  (diffPos != humanPos)
+
+    // diffmerge result (for sliders where hunk was found):
+    int dmWrong      = 0;   // |dm_error| != 0
+
+    // dm vs git diff comparison:
+    int dmBetter     = 0;   // |dm_error| < |gnu_error|
+    int dmWorse      = 0;   // |dm_error| > |gnu_error|
+    int dmTie        = 0;   // |dm_error| == |gnu_error|
+
+    // dm vs system diff comparison (only when diffPos > 0 and hunk was found):
+    int dmBetterThanSys = 0;
+    int dmWorseThanSys  = 0;
+    int dmTieWithSys    = 0;
 
     QMap<int, int>  errorHist;  // (dm_pos - human_pos) → count
 };

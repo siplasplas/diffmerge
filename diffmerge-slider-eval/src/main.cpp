@@ -84,6 +84,17 @@ static void evaluateRepo(const QString& csvPath,
             if      (absDm < absGnu) ++stats.dmBetter;
             else if (absDm > absGnu) ++stats.dmWorse;
             else                     ++stats.dmTie;
+
+            // System diff comparison (only when diffPos was annotated)
+            if (sc.diffPos > 0) {
+                ++stats.sysTotal;
+                const int sysError = sc.diffPos - humanPos;
+                if (sysError != 0) ++stats.sysWrong;
+                const int absSys = std::abs(sysError);
+                if      (absDm < absSys) ++stats.dmBetterThanSys;
+                else if (absDm > absSys) ++stats.dmWorseThanSys;
+                else                     ++stats.dmTieWithSys;
+            }
         }
     }
 

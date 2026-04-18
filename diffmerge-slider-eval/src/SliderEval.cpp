@@ -25,6 +25,7 @@ CsvEntry parseCsvLine(const QString& line) {
         sc.sign       = parts[0].isEmpty() ? '+' : parts[0][0].toLatin1();
         sc.blockBegin = parts[1].toInt();
         sc.delta      = parts[2].toInt();
+        if (parts.size() >= 4) sc.diffPos = parts[3].toInt();
         if (sc.blockBegin <= 0) continue;
         entry.sliders.append(sc);
     }
@@ -51,8 +52,10 @@ QVector<CsvEntry> loadCsvFile(const QString& csvPath) {
 int findDiffmergePos(const diffcore::DiffResult& result,
                      const SliderCase& sc,
                      int maxSlide) {
-    // blockBegin is 1-based; convert to 0-based for comparison with LineRange.
-    const int target = sc.blockBegin - 1;
+    // Use diffPos (system diff anchor) to identify the exact hunk.
+    // If diffPos is not annotated we cannot reliably locate the hunk — skip it.
+    if (sc.diffPos <= 0) return -1;
+    const int target = sc.diffPos - 1;  // convert to 0-based
     int bestPos  = -1;
     int bestDist = INT_MAX;
 
@@ -69,8 +72,11 @@ int findDiffmergePos(const diffcore::DiffResult& result,
             bestPos  = hunkStart + 1;  // back to 1-based
         }
     }
-    // Reject matches that are too far — they belong to a different change.
-    if (bestDist > maxSlide) return -1;
+    // When diffPos is available, use a tight tolerance — system diff and O(NP)
+    // should agree within a few lines at most. A large distance means we've
+    // matched an unrelated hunk elsewhere in the file.
+    const int effectiveMax = (sc.diffPos > 0) ? 3 : maxSlide;
+    if (bestDist > effectiveMax) return -1;
     return bestPos;
 }
 
@@ -98,6 +104,11 @@ QString formatStats(const EvalStats& s) {
     ts << QStringLiteral("                 Wrong (≠ human)       Right (= human)\n");
     ts << QStringLiteral("Git diff :  ") << pct(s.gnuWrong,        s.total)
        << QStringLiteral("   ") << pct(s.total - s.gnuWrong, s.total) << '\n';
+    if (s.sysTotal > 0) {
+        ts << QStringLiteral("Sys diff :  ") << pct(s.sysWrong,    s.sysTotal)
+           << QStringLiteral("   ") << pct(s.sysTotal - s.sysWrong, s.sysTotal)
+           << QStringLiteral("  (on %1 annotated)\n").arg(s.sysTotal);
+    }
     ts << QStringLiteral("Diffmerge:  ") << pct(s.dmWrong,         found)
        << QStringLiteral("   ") << pct(found - s.dmWrong,    found)   << '\n';
 
@@ -105,6 +116,14 @@ QString formatStats(const EvalStats& s) {
     ts << QStringLiteral("  Better (closer to human) : ") << pct(s.dmBetter, found) << '\n';
     ts << QStringLiteral("  Worse  (further from human): ") << pct(s.dmWorse,  found) << '\n';
     ts << QStringLiteral("  Tie    (same distance)    : ") << pct(s.dmTie,    found) << '\n';
+
+    if (s.sysTotal > 0) {
+        const int sysCmp = s.dmBetterThanSys + s.dmWorseThanSys + s.dmTieWithSys;
+        ts << QStringLiteral("\nDiffmerge vs Sys diff (on %1 sliders with diffPos):\n").arg(sysCmp);
+        ts << QStringLiteral("  Better (closer to human) : ") << pct(s.dmBetterThanSys, sysCmp) << '\n';
+        ts << QStringLiteral("  Worse  (further from human): ") << pct(s.dmWorseThanSys, sysCmp) << '\n';
+        ts << QStringLiteral("  Tie    (same distance)    : ") << pct(s.dmTieWithSys,   sysCmp) << '\n';
+    }
 
     ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos):\n");
     ts << QStringLiteral("  shift   count\n");
