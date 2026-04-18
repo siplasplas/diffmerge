@@ -6,6 +6,7 @@
 #include <QVector>
 
 #include <diffcore/DiffTypes.h>
+#include <diffcore/SliderHeuristics.h>
 
 namespace diffmerge::slidereval {
 
@@ -71,6 +72,15 @@ struct EvalStats {
     int dmTieWithSys    = 0;
 
     QMap<int, int>  errorHist;  // (dm_pos - human_pos) → count
+
+    // Per-heuristic stats (index = (int)HeuristicId, 0 = None/unused).
+    struct HStats {
+        int fired  = 0;  // times this heuristic fired
+        int better = 0;  // moved closer to human  (vs no-heuristic base)
+        int worse  = 0;  // moved further from human
+        int tie    = 0;  // same distance, different position
+    };
+    HStats hStats[diffcore::kHeuristicCount];
 };
 
 // Pretty-print stats to a string.

@@ -155,6 +155,22 @@ diffmerge/
         └── screenshot_tool.cpp          Narzędzie dev (offscreen PNG)
 ```
 
+## Slider heuristics — wyniki na korpusie diff-slider-tools
+
+Korpus: diff-slider-tools, ~5 400 sliderów.
+
+| shift | bez heurystyk | z heurystykami |
+|------:|------:|------:|
+| −1 |    1 |   104 |
+|  0 | 1741 |  4970 |
+|  1 | 3392 |   173 |
+|  2 |  208 |   102 |
+|  3 |   50 |    31 |
+|  4 |   20 |     7 |
+
+Shift = 0 oznacza trafienie w ludzką preferencję.  
+Heurystyki poprawiły trafność z ~32 % do ~91 %.
+
 ## Roadmapa
 
 - [x] **Etap 1** — silnik + adapter + CLI smoke + testy

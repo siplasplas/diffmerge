@@ -9,6 +9,7 @@
 #include <QTextStream>
 
 #include <diffcore/DiffEngine.h>
+#include <diffcore/SliderHeuristics.h>
 
 #include "SliderEval.h"
 
@@ -35,20 +36,6 @@ static QString findPairFile(const QString& repoDir,
 
 static const char* kSep = "  +------------------------------------------\n";
 
-// Find the size (line count) of the hunk that starts at 1-based dmPos.
-// Returns 1 if no matching hunk is found.
-static int findHunkSize(const diffcore::DiffResult& result,
-                        const SliderCase& sc, int dmPos) {
-    for (const diffcore::Hunk& h : result.hunks) {
-        if (sc.sign == '+' && h.type != diffcore::ChangeType::Insert) continue;
-        if (sc.sign == '-' && h.type != diffcore::ChangeType::Delete) continue;
-        const int start1 = ((sc.sign == '+') ? h.rightRange.start
-                                              : h.leftRange.start) + 1;
-        if (start1 == dmPos)
-            return (sc.sign == '+') ? h.rightRange.count : h.leftRange.count;
-    }
-    return 1;
-}
 
 // Print ctx lines of context before/after a block [pos..pos+size-1] (1-based).
 // Block lines are prefixed with the diff sign ('+' / '-') and surrounded
@@ -69,13 +56,29 @@ static void printFragment(QTextStream& out,
     }
 }
 
+static QString probeLabel(const diffcore::HeuristicProbe& probe) {
+    static const char* names[] = {
+        nullptr, "H1", "H2", "H3", "H3b", "H4", "H5", "H6", "H7"
+    };
+    const char* excl = (probe.exclusive != diffcore::HeuristicId::None)
+                       ? names[static_cast<int>(probe.exclusive)] : nullptr;
+    if (excl && probe.h1Applied)
+        return QStringLiteral("%1+H1").arg(QLatin1String(excl));
+    if (excl)
+        return QLatin1String(excl);
+    if (probe.h1Applied)
+        return QStringLiteral("H1");
+    return {};
+}
+
 static void printSliderDetail(QTextStream& out,
                               const SliderCase& sc,
                               const QString& digest,
                               int humanPos, int dmPos, int dmError,
                               int blockSize,
                               const QStringList& linesA,
-                              const QStringList& linesB) {
+                              const QStringList& linesB,
+                              const diffcore::HeuristicProbe& probe = {}) {
     out << QStringLiteral("\n========================================\n");
     out << QStringLiteral("  digest=%1  %2 blockBegin=%3 delta=%4  blockSize=%5\n")
            .arg(digest).arg(QChar(sc.sign)).arg(sc.blockBegin).arg(sc.delta)
@@ -88,26 +91,37 @@ static void printSliderDetail(QTextStream& out,
     const QStringList& rel  = (sc.sign == '+') ? linesB : linesA;
     const char         side = (sc.sign == '+') ? 'B' : 'A';
 
-    auto section = [&](const QString& label, int pos) {
+    auto section = [&](const QString& label, int pos, const char* suffix = nullptr) {
         if (pos <= 0) return;
-        out << QStringLiteral("\n  -- %1 (file %2, line %3) --\n")
-               .arg(label).arg(side).arg(pos);
+        if (suffix)
+            out << QStringLiteral("\n  -- %1 (file %2, line %3)  [%4] --\n")
+                   .arg(label).arg(side).arg(pos).arg(QLatin1String(suffix));
+        else
+            out << QStringLiteral("\n  -- %1 (file %2, line %3) --\n")
+                   .arg(label).arg(side).arg(pos);
         printFragment(out, rel, pos, blockSize, sc.sign);
     };
 
+    const QString label = probeLabel(probe);
     section(QStringLiteral("sys diff "), sc.diffPos);
     section(QStringLiteral("human    "), humanPos);
-    section(QStringLiteral("diffmerge"), dmPos);
+    section(QStringLiteral("diffmerge"), dmPos,
+            label.isEmpty() ? nullptr : label.toUtf8().constData());
 }
 
-// logs[k] receives verbose detail for sliders where dm_error == k (k = 0..3).
+// Log files cover dm_error values kLogMin..kLogMax.
+// logs[dmError - kLogMin] receives verbose detail for that shift.
 // Null pointer means that shift is not logged.
+static constexpr int kLogMin   = -1;
+static constexpr int kLogMax   =  3;
+static constexpr int kLogCount =  5;  // kLogMax - kLogMin + 1
+
 static void evaluateRepo(const QString& csvPath,
                          const QString& repoDir,
                          int maxSlide,
                          int showErrorsMin,
                          bool useHeuristics,
-                         QTextStream* logs[4],
+                         QTextStream* logs[kLogCount],
                          EvalStats& stats,
                          QTextStream& out) {
     const QVector<CsvEntry> entries = loadCsvFile(csvPath);
@@ -125,13 +139,14 @@ static void evaluateRepo(const QString& csvPath,
         const QStringList linesB = loadLines(pathB);
         if (linesA.isEmpty() && linesB.isEmpty()) continue;
 
-        diffcore::DiffOptions opts;
-        opts.applySliderHeuristics = useHeuristics;
-        const diffcore::DiffResult diff = engine.compute(linesA, linesB, opts);
+        // Always compute without heuristics first (baseline).
+        diffcore::DiffOptions baseOpts;
+        baseOpts.applySliderHeuristics = false;
+        const diffcore::DiffResult baseDiff = engine.compute(linesA, linesB, baseOpts);
 
         for (const SliderCase& sc : entry.sliders) {
-            const int humanPos = sc.blockBegin + sc.delta;
-            int       dmPos    = findDiffmergePos(diff, sc, maxSlide);
+            const int humanPos   = sc.blockBegin + sc.delta;
+            const int baseDmPos  = findDiffmergePos(baseDiff, sc, maxSlide);
 
             ++stats.total;
             ++repoTotal;
@@ -139,14 +154,46 @@ static void evaluateRepo(const QString& csvPath,
             const int gnuError = -sc.delta;
             if (gnuError != 0) { ++stats.gnuWrong; ++repoGnuWrong; }
 
-            if (dmPos < 0) {
+            if (baseDmPos < 0) {
                 ++stats.notFound;
                 continue;
             }
 
-            // Heuristics (if enabled) are applied inside DiffEngine::compute,
-            // so dmPos already matches the adjusted hunk's start.
-            const int blockSize = findHunkSize(diff, sc, dmPos);
+            // Find the matching hunk in baseDiff to get block size and probe heuristic.
+            const QStringList& rel = (sc.sign == '+') ? linesB : linesA;
+            int blockSize = 1;
+            diffcore::HeuristicProbe probe{baseDmPos - 1, diffcore::HeuristicId::None,
+                                           baseDmPos - 1, false};
+            for (const diffcore::Hunk& h : baseDiff.hunks) {
+                int p0 = -1, sz = 0;
+                if (sc.sign == '+' && h.type == diffcore::ChangeType::Insert) {
+                    p0 = h.rightRange.start; sz = h.rightRange.count;
+                } else if (sc.sign == '-' && h.type == diffcore::ChangeType::Delete) {
+                    p0 = h.leftRange.start; sz = h.leftRange.count;
+                }
+                if (p0 >= 0 && p0 + 1 == baseDmPos) {
+                    blockSize = sz;
+                    probe = diffcore::probeHeuristic(p0, sz, rel);
+                    break;
+                }
+            }
+
+            const int heuristicDmPos = probe.pos + 1;
+            const int dmPos = useHeuristics ? heuristicDmPos : baseDmPos;
+
+            // Per-heuristic stats — exclusive and H1 tracked independently.
+            auto trackH = [&](int idx, int adjustedPos) {
+                ++stats.hStats[idx].fired;
+                const int baseErr = std::abs(baseDmPos   - humanPos);
+                const int hErr    = std::abs(adjustedPos - humanPos);
+                if      (hErr < baseErr) ++stats.hStats[idx].better;
+                else if (hErr > baseErr) ++stats.hStats[idx].worse;
+                else                     ++stats.hStats[idx].tie;
+            };
+            if (probe.exclusive != diffcore::HeuristicId::None)
+                trackH(static_cast<int>(probe.exclusive), probe.posAfterExcl + 1);
+            if (probe.h1Applied)
+                trackH(static_cast<int>(diffcore::HeuristicId::H1), heuristicDmPos);
 
             const int dmError = dmPos - humanPos;
             ++stats.errorHist[dmError];
@@ -169,13 +216,15 @@ static void evaluateRepo(const QString& csvPath,
             }
 
             const bool wantShow = showErrorsMin > 0 && absDm >= showErrorsMin;
-            const bool wantLog  = dmError >= 0 && dmError <= 3 && logs[dmError];
+            const bool wantLog  = dmError >= kLogMin && dmError <= kLogMax
+                                  && logs[dmError - kLogMin];
             if (wantShow)
                 printSliderDetail(out, sc, entry.digest, humanPos, dmPos,
-                                  dmError, blockSize, linesA, linesB);
+                                  dmError, blockSize, linesA, linesB, probe);
             if (wantLog)
-                printSliderDetail(*logs[dmError], sc, entry.digest, humanPos,
-                                  dmPos, dmError, blockSize, linesA, linesB);
+                printSliderDetail(*logs[dmError - kLogMin], sc, entry.digest,
+                                  humanPos, dmPos, dmError, blockSize,
+                                  linesA, linesB, probe);
         }
     }
 
@@ -224,8 +273,8 @@ int main(int argc, char* argv[]) {
         QStringLiteral("N"));
     QCommandLineOption logsOpt(
         QStringLiteral("logs"),
-        QStringLiteral("Write verbose slider details into DIR/log0 … DIR/log3, "
-                       "one file per shift value (dm_error = 0..3)."),
+        QStringLiteral("Write verbose slider details into DIR/log-1, DIR/log0 … DIR/log3, "
+                       "one file per shift value (dm_error = -1..3)."),
         QStringLiteral("DIR"));
     QCommandLineOption heuristicsOpt(
         QStringLiteral("heuristics"),
@@ -251,16 +300,17 @@ int main(int argc, char* argv[]) {
     const bool    useHeuristics = parser.isSet(heuristicsOpt);
 
     // Open per-shift log files if --logs was given.
-    QFile     logFiles[4];
-    QTextStream* logs[4] = {nullptr, nullptr, nullptr, nullptr};
+    QFile        logFiles[kLogCount];
+    QTextStream* logs[kLogCount] = {};
     if (!logsDir.isEmpty()) {
         QDir().mkpath(logsDir);
-        for (int k = 0; k <= 3; ++k) {
-            logFiles[k].setFileName(logsDir + QStringLiteral("/log") + QString::number(k));
-            if (logFiles[k].open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
-                logs[k] = new QTextStream(&logFiles[k]);
+        for (int k = kLogMin; k <= kLogMax; ++k) {
+            const int idx = k - kLogMin;
+            logFiles[idx].setFileName(logsDir + QStringLiteral("/log") + QString::number(k));
+            if (logFiles[idx].open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+                logs[idx] = new QTextStream(&logFiles[idx]);
             else
-                QTextStream(stderr) << "cannot open: " << logFiles[k].fileName() << '\n';
+                QTextStream(stderr) << "cannot open: " << logFiles[idx].fileName() << '\n';
         }
     }
 
@@ -270,7 +320,7 @@ int main(int argc, char* argv[]) {
     if (showErrorsMin > 0)
         out << "show-errors: |dm_error| >= " << showErrorsMin << "\n";
     if (!logsDir.isEmpty())
-        out << "logs dir : " << logsDir << "/log0 .. log3\n";
+        out << "logs dir : " << logsDir << "/log-1 .. log3\n";
     if (useHeuristics)
         out << "heuristics: ON\n";
     out << "\n";
@@ -309,6 +359,6 @@ int main(int argc, char* argv[]) {
     out << "\n=== SUMMARY ===\n";
     out << formatStats(stats);
 
-    for (int k = 0; k <= 3; ++k) delete logs[k];
+    for (int k = 0; k < kLogCount; ++k) delete logs[k];
     return 0;
 }

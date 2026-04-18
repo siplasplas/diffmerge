@@ -125,13 +125,42 @@ QString formatStats(const EvalStats& s) {
         ts << QStringLiteral("  Tie    (same distance)    : ") << pct(s.dmTieWithSys,   sysCmp) << '\n';
     }
 
-    ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos, shift 0..3):\n");
+    ts << QStringLiteral("\nError histogram  (diffmerge_pos - human_pos):\n");
     ts << QStringLiteral("  shift   count\n");
-    for (int k = 0; k <= 3; ++k) {
-        const int cnt = s.errorHist.value(k, 0);
-        const QString bar(std::min(cnt * 40 / s.total + 1, 40), QLatin1Char('#'));
+    // Print all non-zero entries sorted by shift value.
+    for (auto it = s.errorHist.cbegin(); it != s.errorHist.cend(); ++it) {
+        if (it.value() == 0) continue;
+        const QString bar(std::min(it.value() * 40 / s.total + 1, 40), QLatin1Char('#'));
         ts << QStringLiteral("  %1  %2  %3\n")
-              .arg(k, 4).arg(cnt, 6).arg(bar);
+              .arg(it.key(), 4).arg(it.value(), 6).arg(bar);
+    }
+
+    // Per-heuristic stats (only printed when at least one heuristic fired)
+    static const char* kHNames[] = {
+        nullptr, "H1 (empty/bare)   ", "H2 (indent drop)  ",
+        "H3 (separator/1) ", "H3b(doc comment) ", "H4 (mark)         ",
+        "H5 (},{)          ", "H6 (// series)    ", "H7 (empty outer)  "
+    };
+    bool anyFired = false;
+    for (int i = 1; i < diffcore::kHeuristicCount; ++i)
+        if (s.hStats[i].fired > 0) { anyFired = true; break; }
+
+    if (anyFired) {
+        ts << QStringLiteral("\nHeuristic stats (vs no-heuristic base):\n");
+        ts << QStringLiteral("  heuristic           fired   better    worse     tie\n");
+        for (int i = 1; i < diffcore::kHeuristicCount; ++i) {
+            const auto& h = s.hStats[i];
+            if (h.fired == 0) continue;
+            ts << QStringLiteral("  %1  %2   %3 (%4%)   %5 (%6%)   %7 (%8%)\n")
+                  .arg(QLatin1String(kHNames[i]))
+                  .arg(h.fired, 6)
+                  .arg(h.better, 6)
+                  .arg(h.fired ? 100.0 * h.better / h.fired : 0.0, 0, 'f', 1)
+                  .arg(h.worse, 6)
+                  .arg(h.fired ? 100.0 * h.worse  / h.fired : 0.0, 0, 'f', 1)
+                  .arg(h.tie, 6)
+                  .arg(h.fired ? 100.0 * h.tie    / h.fired : 0.0, 0, 'f', 1);
+        }
     }
     return out;
 }
