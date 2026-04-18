@@ -104,6 +104,14 @@ static int applyHeuristics(int dmPos, int blockSize,
     const int k1 = std::min(n, m);
     if (k1 > 0) return (p + k1) + 1;
 
+    // H3: line before block starts with "/*" and equals block's last line
+    // (single-line slide-left valid) — slide back by 1.
+    if (p > 0 && p + size - 1 < N &&
+        rel[p - 1] == rel[p + size - 1] &&
+        rel[p - 1].trimmed().startsWith(QStringLiteral("/*"))) {
+        return (p - 1) + 1;
+    }
+
     return dmPos;
 }
 
