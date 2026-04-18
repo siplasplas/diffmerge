@@ -35,36 +35,62 @@ static QString findPairFile(const QString& repoDir,
 
 static const char* kSep = "  +------------------------------------------\n";
 
-// Heuristic 1: if within the slider range a position exists where the block
-// starts with an empty line AND the line just after the block is also empty,
-// slide the block forward past those positions so the empty line ends up
-// before the block (and the block ends on an empty line).
+// Leading indentation width in columns. Tab counts as 4 spaces.
+static int indentWidth(const QString& line) {
+    int w = 0;
+    for (QChar c : line) {
+        if (c == QLatin1Char('\t'))      w += 4;
+        else if (c == QLatin1Char(' '))  ++w;
+        else break;
+    }
+    return w;
+}
+
+// Heuristic 1: within the slider range, slide forward past positions where
+// the first block line and the line after the block are both empty.
 //
-// A slider range is the set of positions where the same insertion/deletion
-// can be framed; we expand left from dmPos using the Myers slider invariant
-// (B[pos-1] == B[pos-1+blockSize] allows sliding left by 1).
-// Returns the adjusted 1-based position, or dmPos if the heuristic doesn't fire.
+// Heuristic 2: if H1 didn't fire AND sliding left by 1 is valid (line before
+// block equals last block line), AND that line has smaller indent than the
+// block's first line, slide back by 1.
+//
+// Indexing (all 0-based into rel):
+//   p              first line of block
+//   p + size - 1   last line of block
+//   p - 1          line before block
+//   p + size       line after block
+// Slide-left from p to p-1 is valid iff rel[p-1] == rel[p+size-1].
+//
+// Takes dmPos (1-based, matches the corpus CSV convention) and returns the
+// adjusted 1-based position.
 static int applyHeuristics(int dmPos, int blockSize,
                             const QStringList& rel) {
     if (dmPos <= 0 || dmPos > rel.size() || blockSize < 1) return dmPos;
+    const int p = dmPos - 1;  // 0-based from here on
+    const int N = rel.size();
 
-    // Slide left from dmPos to find the leftmost valid slider position.
-    int minPos = dmPos;
-    while (minPos > 1 && minPos - 2 + blockSize < rel.size() &&
-           rel[minPos - 2] == rel[minPos - 2 + blockSize])
-        --minPos;
+    // Leftmost valid slider position (0-based).
+    int pMin = p;
+    while (pMin > 0 && pMin - 1 + blockSize < N &&
+           rel[pMin - 1] == rel[pMin - 1 + blockSize])
+        --pMin;
 
-    // Walk forward through empty/empty boundary positions.
-    int pos = minPos;
-    while (pos - 1 + blockSize < rel.size() &&
-           rel[pos - 1].trimmed().isEmpty() &&
-           rel[pos - 1 + blockSize].trimmed().isEmpty()) {
-        ++pos;
+    // H1: walk forward through empty/empty boundary positions.
+    int q = pMin;
+    while (q + blockSize < N &&
+           rel[q].trimmed().isEmpty() &&
+           rel[q + blockSize].trimmed().isEmpty()) {
+        ++q;
+    }
+    if (q != pMin) return q + 1;
+
+    // H2: single slide-left when indent of line-before < indent of block[0].
+    if (p > 0 && p - 1 + blockSize < N &&
+        rel[p - 1] == rel[p - 1 + blockSize] &&
+        indentWidth(rel[p - 1]) < indentWidth(rel[p])) {
+        return (p - 1) + 1;  // new 1-based position
     }
 
-    // Heuristic didn't fire anywhere in the range — keep the engine's output.
-    if (pos == minPos) return dmPos;
-    return pos;
+    return dmPos;
 }
 
 // Find the size (line count) of the hunk that starts at 1-based dmPos.
