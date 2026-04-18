@@ -75,8 +75,24 @@ static int applyHeuristics(int dmPos, int blockSize,
            rel[p - (k2 + 1)] == rel[p + size - (k2 + 1)] &&
            !rel[p - (k2 + 1)].trimmed().isEmpty())
         ++k2;
-    if (k2 > 0 && indentWidth(rel[p - k2]) < indentWidth(rel[p]))
-        return (p - k2) + 1;
+    if (k2 > 0) {
+        const int indLeft  = indentWidth(rel[p - k2]);
+        const int indFirst = indentWidth(rel[p]);
+        bool shift = (indLeft < indFirst);
+        // Equal indent also allowed when k >= 2 and all k absorbed lines
+        // start with "//" (block starts with a block of line comments).
+        if (!shift && k2 >= 2 && indLeft == indFirst) {
+            bool allComments = true;
+            for (int i = 1; i <= k2; ++i) {
+                if (!rel[p - i].trimmed().startsWith(QStringLiteral("//"))) {
+                    allComments = false;
+                    break;
+                }
+            }
+            shift = allComments;
+        }
+        if (shift) return (p - k2) + 1;
+    }
 
     // H1: empty-line boundary runs.
     int n = 0;
