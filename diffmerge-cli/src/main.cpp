@@ -64,7 +64,7 @@ int emitBrief(const diffcore::DiffResult& r,
     return kExitDifferent;
 }
 
-// Emit full output (headers + hunks + summary). Returns exit code.
+// Emit full output in normal diff format. Returns exit code.
 int emitFull(const diffcore::DiffResult& r,
              const QStringList& leftLines,
              const QStringList& rightLines,
@@ -75,17 +75,9 @@ int emitFull(const diffcore::DiffResult& r,
     diffmerge::cli::PrintOptions printOpts;
     printOpts.useColor = resolveColor(opts);
 
-    out << "--- " << opts.leftPath << '\n';
-    out << "+++ " << opts.rightPath << '\n';
-
     diffmerge::cli::HunkPrinter printer(out, leftLines, rightLines, printOpts);
     printer.printAll(r);
 
-    // Summary footer.
-    out << "\n"
-        << r.stats.additions << " addition(s), "
-        << r.stats.deletions << " deletion(s), "
-        << r.stats.modifications << " modification(s)\n";
     return kExitDifferent;
 }
 

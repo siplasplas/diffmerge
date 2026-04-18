@@ -64,31 +64,28 @@ private slots:
 
     // --- Output contents ---
 
-    void outputShowsFileHeaders() {
-        auto r = run({fixturePath("greek_a.txt"), fixturePath("greek_b.txt")});
-        QVERIFY(r.stdOut.contains("--- "));
-        QVERIFY(r.stdOut.contains("+++ "));
-    }
-
     void outputShowsChangedLines() {
         auto r = run({fixturePath("greek_a.txt"), fixturePath("greek_b.txt")});
-        // "beta" was replaced with "BETA" - both markers should appear.
-        QVERIFY(r.stdOut.contains("- beta"));
-        QVERIFY(r.stdOut.contains("+ BETA"));
-        // "iota" is newly added in right file.
-        QVERIFY(r.stdOut.contains("+ iota"));
+        // "beta" → "BETA": both sides shown with < / > prefixes.
+        QVERIFY(r.stdOut.contains("< beta"));
+        QVERIFY(r.stdOut.contains("> BETA"));
+        // "iota" newly added in right file.
+        QVERIFY(r.stdOut.contains("> iota"));
     }
 
-    void outputShowsHunkHeaders() {
+    // Normal diff format: "LcR", "LaR", "LdR" range commands (no "@@").
+    void outputShowsRangeCommands() {
         auto r = run({fixturePath("greek_a.txt"), fixturePath("greek_b.txt")});
-        // Hunk headers use "@@ -L,C +L,C @@" format.
-        QVERIFY(r.stdOut.contains("@@"));
+        QVERIFY(r.stdOut.contains("2c2"));   // beta → BETA
+        QVERIFY(r.stdOut.contains("6c6"));   // zeta → ZETA_NEW
+        QVERIFY(r.stdOut.contains("8a9"));   // iota appended
+        QVERIFY(!r.stdOut.contains("@@"));   // not unified format
     }
 
-    void outputShowsSummary() {
+    // Replace hunks must have "---" separator between < and > lines.
+    void outputShowsReplaceSeparator() {
         auto r = run({fixturePath("greek_a.txt"), fixturePath("greek_b.txt")});
-        QVERIFY(r.stdOut.contains("addition(s)"));
-        QVERIFY(r.stdOut.contains("deletion(s)"));
+        QVERIFY(r.stdOut.contains("\n---\n"));
     }
 
     // --- Brief mode ---
@@ -157,7 +154,7 @@ private slots:
                       fixturePath("code_b.cpp")});
         QCOMPARE(r.exitCode, 1);
         // Added line "#include <string>"
-        QVERIFY(r.stdOut.contains("+ #include <string>"));
+        QVERIFY(r.stdOut.contains("> #include <string>"));
         // Added function "multiply"
         QVERIFY(r.stdOut.contains("int multiply"));
     }
