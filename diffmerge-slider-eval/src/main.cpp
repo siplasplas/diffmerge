@@ -35,6 +35,38 @@ static QString findPairFile(const QString& repoDir,
 
 static const char* kSep = "  +------------------------------------------\n";
 
+// Heuristic 1: if within the slider range a position exists where the block
+// starts with an empty line AND the line just after the block is also empty,
+// slide the block forward past those positions so the empty line ends up
+// before the block (and the block ends on an empty line).
+//
+// A slider range is the set of positions where the same insertion/deletion
+// can be framed; we expand left from dmPos using the Myers slider invariant
+// (B[pos-1] == B[pos-1+blockSize] allows sliding left by 1).
+// Returns the adjusted 1-based position, or dmPos if the heuristic doesn't fire.
+static int applyHeuristics(int dmPos, int blockSize,
+                            const QStringList& rel) {
+    if (dmPos <= 0 || dmPos > rel.size() || blockSize < 1) return dmPos;
+
+    // Slide left from dmPos to find the leftmost valid slider position.
+    int minPos = dmPos;
+    while (minPos > 1 && minPos - 2 + blockSize < rel.size() &&
+           rel[minPos - 2] == rel[minPos - 2 + blockSize])
+        --minPos;
+
+    // Walk forward through empty/empty boundary positions.
+    int pos = minPos;
+    while (pos - 1 + blockSize < rel.size() &&
+           rel[pos - 1].trimmed().isEmpty() &&
+           rel[pos - 1 + blockSize].trimmed().isEmpty()) {
+        ++pos;
+    }
+
+    // Heuristic didn't fire anywhere in the range — keep the engine's output.
+    if (pos == minPos) return dmPos;
+    return pos;
+}
+
 // Find the size (line count) of the hunk that starts at 1-based dmPos.
 // Returns 1 if no matching hunk is found.
 static int findHunkSize(const diffcore::DiffResult& result,
@@ -108,6 +140,7 @@ static void evaluateRepo(const QString& csvPath,
                          const QString& repoDir,
                          int maxSlide,
                          int showErrorsMin,
+                         bool useHeuristics,
                          QTextStream* logs[4],
                          EvalStats& stats,
                          QTextStream& out) {
@@ -130,7 +163,7 @@ static void evaluateRepo(const QString& csvPath,
 
         for (const SliderCase& sc : entry.sliders) {
             const int humanPos = sc.blockBegin + sc.delta;
-            const int dmPos    = findDiffmergePos(diff, sc, maxSlide);
+            int       dmPos    = findDiffmergePos(diff, sc, maxSlide);
 
             ++stats.total;
             ++repoTotal;
@@ -141,6 +174,12 @@ static void evaluateRepo(const QString& csvPath,
             if (dmPos < 0) {
                 ++stats.notFound;
                 continue;
+            }
+
+            if (useHeuristics) {
+                const int blockSize = findHunkSize(diff, sc, dmPos);
+                const QStringList& rel = (sc.sign == '+') ? linesB : linesA;
+                dmPos = applyHeuristics(dmPos, blockSize, rel);
             }
 
             const int dmError = dmPos - humanPos;
@@ -221,11 +260,17 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Write verbose slider details into DIR/log0 … DIR/log3, "
                        "one file per shift value (dm_error = 0..3)."),
         QStringLiteral("DIR"));
+    QCommandLineOption heuristicsOpt(
+        QStringLiteral("heuristics"),
+        QStringLiteral("Apply slider-placement heuristics before measuring dm_error. "
+                       "(1) If block starts with an empty line and the line after the "
+                       "block is also empty, slide forward by 1."));
     parser.addOption(corpusOpt);
     parser.addOption(maxSlideOpt);
     parser.addOption(reposOpt);
     parser.addOption(showErrorsOpt);
     parser.addOption(logsOpt);
+    parser.addOption(heuristicsOpt);
     parser.process(app);
 
     const QString corpusDir     = parser.value(corpusOpt);
@@ -234,6 +279,7 @@ int main(int argc, char* argv[]) {
     const int     showErrorsMin = parser.isSet(showErrorsOpt)
                                   ? parser.value(showErrorsOpt).toInt() : 0;
     const QString logsDir       = parser.value(logsOpt);
+    const bool    useHeuristics = parser.isSet(heuristicsOpt);
 
     // Open per-shift log files if --logs was given.
     QFile     logFiles[4];
@@ -256,6 +302,8 @@ int main(int argc, char* argv[]) {
         out << "show-errors: |dm_error| >= " << showErrorsMin << "\n";
     if (!logsDir.isEmpty())
         out << "logs dir : " << logsDir << "/log0 .. log3\n";
+    if (useHeuristics)
+        out << "heuristics: ON\n";
     out << "\n";
 
     QDir dir(corpusDir);
@@ -281,7 +329,8 @@ int main(int argc, char* argv[]) {
         const QString repoDir = dir.filePath(QFileInfo(csvName).baseName());
         out << '[' << i << '/' << csvFiles.size() << "] " << csvName << '\n';
         out.flush();
-        evaluateRepo(csvPath, repoDir, maxSlide, showErrorsMin, logs, stats, out);
+        evaluateRepo(csvPath, repoDir, maxSlide, showErrorsMin, useHeuristics,
+                     logs, stats, out);
     }
 
     out << "\n=== SUMMARY ===\n";
