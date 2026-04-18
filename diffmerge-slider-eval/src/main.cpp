@@ -104,17 +104,18 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Path to corpusDiff directory (output of corpus-dl)."),
         QStringLiteral("path"),
         QStringLiteral("corpusDiff"));
-    QCommandLineOption limitOpt(
-        QStringLiteral("limit"),
-        QStringLiteral("Process at most N repos (0 = all)."),
+    QCommandLineOption reposOpt(
+        QStringLiteral("repos"),
+        QStringLiteral("Process at most N repositories (0 = all). "
+                       "Each repo is one CSV file, e.g. cpython&cpython.csv."),
         QStringLiteral("N"),
         QStringLiteral("0"));
     parser.addOption(corpusOpt);
-    parser.addOption(limitOpt);
+    parser.addOption(reposOpt);
     parser.process(app);
 
     const QString corpusDir = parser.value(corpusOpt);
-    const int     limit     = parser.value(limitOpt).toInt();
+    const int     repoLimit = parser.value(reposOpt).toInt();
 
     QTextStream out(stdout);
     out << "Corpus: " << corpusDir << "\n\n";
@@ -127,8 +128,12 @@ int main(int argc, char* argv[]) {
 
     QStringList csvFiles = dir.entryList({QStringLiteral("*.csv")},
                                           QDir::Files, QDir::Name);
-    if (limit > 0 && csvFiles.size() > limit)
-        csvFiles = csvFiles.mid(0, limit);
+    if (repoLimit > 0 && csvFiles.size() > repoLimit)
+        csvFiles = csvFiles.mid(0, repoLimit);
+
+    out << "Repositories to process: " << csvFiles.size()
+        << " (of " << dir.entryList({QStringLiteral("*.csv")},
+                                     QDir::Files).size() << " total)\n\n";
 
     EvalStats stats;
     int i = 0;
