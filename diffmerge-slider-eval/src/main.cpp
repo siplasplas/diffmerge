@@ -79,9 +79,9 @@ static int applyHeuristics(int dmPos, int blockSize,
         const int indLeft  = indentWidth(rel[p - k2]);
         const int indFirst = indentWidth(rel[p]);
         bool shift = (indLeft < indFirst);
-        // Equal indent also allowed when k >= 2 and all k absorbed lines
-        // start with "//" (block starts with a block of line comments).
-        if (!shift && k2 >= 2 && indLeft == indFirst) {
+        // Equal indent also allowed when all k absorbed lines start with "//"
+        // (block starts with a block of line comments).
+        if (!shift && indLeft == indFirst) {
             bool allComments = true;
             for (int i = 1; i <= k2; ++i) {
                 if (!rel[p - i].trimmed().startsWith(QStringLiteral("//"))) {
