@@ -11,6 +11,10 @@ set(DIFFMERGE_GUI_SOURCES
 
     src/editor/DiffEditor.h
     src/editor/DiffEditor.cpp
+    src/editor/DiffHighlighter.h
+    src/editor/DiffHighlighter.cpp
+    src/editor/IntraLineDiffEngine.h
+    src/editor/IntraLineDiffEngine.cpp
 
     src/fileview/AlignedLineModel.h
     src/fileview/AlignedLineModel.cpp

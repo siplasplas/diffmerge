@@ -37,6 +37,21 @@ target_link_libraries(test_scroll_sync_mapper
 )
 add_test(NAME test_scroll_sync_mapper COMMAND test_scroll_sync_mapper)
 
+add_executable(test_intra_line_diff
+    test_intra_line_diff.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/editor/IntraLineDiffEngine.cpp
+)
+target_include_directories(test_intra_line_diff PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(test_intra_line_diff
+    PRIVATE
+        diffcore::diffcore
+        Qt6::Core
+        Qt6::Test
+)
+add_test(NAME test_intra_line_diff COMMAND test_intra_line_diff)
+
 # screenshot_tool is a developer helper, not a test - it renders the
 # FileDiffWidget offscreen and saves a PNG.
 set(GUI_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
@@ -44,6 +59,8 @@ add_executable(screenshot_tool
     screenshot_tool.cpp
     ${GUI_SRC_DIR}/common/ColorScheme.cpp
     ${GUI_SRC_DIR}/editor/DiffEditor.cpp
+    ${GUI_SRC_DIR}/editor/DiffHighlighter.cpp
+    ${GUI_SRC_DIR}/editor/IntraLineDiffEngine.cpp
     ${GUI_SRC_DIR}/fileview/AlignedLineModel.cpp
     ${GUI_SRC_DIR}/fileview/FileDiffWidget.cpp
     ${GUI_SRC_DIR}/fileview/ScrollSyncMapper.cpp

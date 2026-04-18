@@ -48,8 +48,19 @@ void DiffEditor::setAlignedModel(const AlignedLineModel* model) {
     applyModel();
 }
 
+void DiffEditor::setIntraLineDiffs(
+    const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges)
+{
+    m_intraLineDiffs = ranges;
+    applyHighlighter();
+}
+
 void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_scheme = scheme;
+    if (m_highlighter) {
+        m_highlighter->setData(m_intraLineDiffs, scheme.replaceCharBg);
+        m_edit->area()->setHighlighter(m_highlighter.get());
+    }
     m_edit->area()->viewport()->update();
 }
 
@@ -67,6 +78,25 @@ void DiffEditor::applyModel() {
     for (int i = 0; i < docCount; ++i) {
         m_docLineChanges[i] = m_model->docLineChangeType(m_side, i);
     }
+}
+
+void DiffEditor::applyHighlighter() {
+    // Check if any line actually has ranges to highlight.
+    const bool hasAny = std::any_of(
+        m_intraLineDiffs.begin(), m_intraLineDiffs.end(),
+        [](const QVector<IntraLineDiffEngine::CharRange>& v) { return !v.isEmpty(); });
+
+    if (!hasAny) {
+        m_edit->area()->setHighlighter(nullptr);
+        m_highlighter.reset();
+        return;
+    }
+
+    if (!m_highlighter)
+        m_highlighter = std::make_unique<DiffHighlighter>();
+
+    m_highlighter->setData(m_intraLineDiffs, m_scheme.replaceCharBg);
+    m_edit->area()->setHighlighter(m_highlighter.get());
 }
 
 }  // namespace diffmerge::gui

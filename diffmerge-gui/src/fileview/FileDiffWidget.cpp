@@ -9,6 +9,7 @@
 #include <qce/ViewportState.h>
 
 #include "../editor/DiffEditor.h"
+#include "../editor/IntraLineDiffEngine.h"
 
 namespace diffmerge::gui {
 
@@ -66,8 +67,14 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     const diffcore::DiffResult result = engine.compute(leftLines, rightLines, opts);
     m_model->build(result, leftLines, rightLines);
     m_syncMapper.build(result);
+
     m_leftEditor->setAlignedModel(m_model.get());
     m_rightEditor->setAlignedModel(m_model.get());
+
+    // Character-level highlights for Replace hunks
+    const auto charDiff = IntraLineDiffEngine::compute(result, leftLines, rightLines);
+    m_leftEditor->setIntraLineDiffs(charDiff.leftRanges);
+    m_rightEditor->setIntraLineDiffs(charDiff.rightRanges);
 }
 
 void FileDiffWidget::setSyncThreshold(double fraction) {

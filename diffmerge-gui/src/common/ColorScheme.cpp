@@ -30,10 +30,11 @@ ColorScheme ColorScheme::lightDefault() {
     s.darkTheme = false;
 
     // Hunk backgrounds - subtle tints, readable on white.
-    s.insertBg  = QColor(220, 245, 220);   // Light green
-    s.deleteBg  = QColor(250, 220, 220);   // Light red
-    s.replaceBg = QColor(220, 230, 250);   // Light blue
-    s.placeholderBg = QColor(245, 245, 240);
+    s.insertBg       = QColor(220, 245, 220);   // Light green
+    s.deleteBg       = QColor(250, 220, 220);   // Light red
+    s.replaceBg      = QColor(220, 230, 250);   // Light blue
+    s.replaceCharBg  = QColor(130, 170, 255);   // Stronger blue for changed chars
+    s.placeholderBg  = QColor(245, 245, 240);
     s.placeholderFg = QColor(180, 180, 175);
 
     // Gutter.
@@ -55,9 +56,10 @@ ColorScheme ColorScheme::darkDefault() {
     s.darkTheme = true;
 
     // Hunk backgrounds - muted, readable on dark gray.
-    s.insertBg  = QColor(40, 80, 40);
-    s.deleteBg  = QColor(90, 40, 40);
-    s.replaceBg = QColor(40, 60, 90);
+    s.insertBg      = QColor(40, 80, 40);
+    s.deleteBg      = QColor(90, 40, 40);
+    s.replaceBg     = QColor(40, 60, 90);
+    s.replaceCharBg = QColor(50, 90, 180);   // Stronger blue for changed chars
     s.placeholderBg = QColor(50, 50, 48);
     s.placeholderFg = QColor(90, 90, 85);
 

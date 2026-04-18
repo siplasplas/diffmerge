@@ -15,8 +15,9 @@ struct ColorScheme {
     QColor insertBg;
     QColor deleteBg;
     QColor replaceBg;
-    QColor placeholderBg;  // Empty row background (subtle)
-    QColor placeholderFg;  // Color for the "—" glyph
+    QColor replaceCharBg;  // Stronger bg for characters that differ within a Replace line
+    QColor placeholderBg;
+    QColor placeholderFg;
 
     QColor gutterBg;
     QColor gutterFg;
