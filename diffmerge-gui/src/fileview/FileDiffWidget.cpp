@@ -41,8 +41,8 @@ void FileDiffWidget::setupUi() {
     m_backButton->setText(QStringLiteral("← Directories"));
     m_backButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_backButton->setToolTip(QStringLiteral("Back to directory view"));
-    m_backButton->setVisible(false);
-    toolbar->addWidget(m_backButton);
+    m_backAction = toolbar->addWidget(m_backButton);
+    m_backAction->setVisible(false);
     toolbar->addSeparator();
 
     connect(m_backButton, &QToolButton::clicked, this, &FileDiffWidget::backRequested);
@@ -202,7 +202,7 @@ void FileDiffWidget::updateNavLabel() {
 }
 
 void FileDiffWidget::setBackVisible(bool visible) {
-    m_backButton->setVisible(visible);
+    m_backAction->setVisible(visible);
 }
 
 void FileDiffWidget::setSyncThreshold(double fraction) {

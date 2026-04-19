@@ -1,6 +1,7 @@
 #ifndef DIFFMERGE_GUI_FILEDIFFWIDGET_H
 #define DIFFMERGE_GUI_FILEDIFFWIDGET_H
 
+#include <QAction>
 #include <QLabel>
 #include <QStringList>
 #include <QToolButton>
@@ -51,6 +52,7 @@ private:
     DiffEditor*   m_leftEditor  = nullptr;
     DiffEditor*   m_rightEditor = nullptr;
     QToolButton*  m_backButton  = nullptr;
+    QAction*      m_backAction  = nullptr;
     QToolButton*  m_prevButton  = nullptr;
     QToolButton*  m_nextButton  = nullptr;
     QLabel*       m_navLabel    = nullptr;
