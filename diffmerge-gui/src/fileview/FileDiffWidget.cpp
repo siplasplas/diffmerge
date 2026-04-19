@@ -38,6 +38,8 @@ void FileDiffWidget::setupUi() {
 
     m_backButton = new QToolButton(toolbar);
     m_backButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogBack));
+    m_backButton->setText(QStringLiteral("← Directories"));
+    m_backButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_backButton->setToolTip(QStringLiteral("Back to directory view"));
     m_backButton->setVisible(false);
     toolbar->addWidget(m_backButton);
