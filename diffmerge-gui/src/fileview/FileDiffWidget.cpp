@@ -8,6 +8,8 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
 #include <qce/ViewportState.h>
@@ -33,6 +35,15 @@ void FileDiffWidget::setupUi() {
     auto* toolbar = new QToolBar(this);
     toolbar->setMovable(false);
     toolbar->setFloatable(false);
+
+    m_backButton = new QToolButton(toolbar);
+    m_backButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogBack));
+    m_backButton->setToolTip(QStringLiteral("Back to directory view"));
+    m_backButton->setVisible(false);
+    toolbar->addWidget(m_backButton);
+    toolbar->addSeparator();
+
+    connect(m_backButton, &QToolButton::clicked, this, &FileDiffWidget::backRequested);
 
     m_prevButton = new QToolButton(toolbar);
     m_prevButton->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
@@ -117,33 +128,60 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
 void FileDiffWidget::navigateToNext() {
     const QVector<int>& starts = m_model->hunkAlignedStarts();
     if (starts.isEmpty()) return;
-    const int next = m_currentHunk + 1;
-    if (next < starts.size())
-        navigateToHunk(next);
+
+    const int cursorLine = m_leftEditor->edit()->area()->cursorPosition().line;
+    for (int i = 0; i < starts.size(); ++i) {
+        const int hunkDocLine = m_model->docLineBeforeAligned(Side::Left, starts[i]);
+        if (hunkDocLine > cursorLine) {
+            navigateToHunk(i);
+            return;
+        }
+    }
 }
 
 void FileDiffWidget::navigateToPrev() {
     const QVector<int>& starts = m_model->hunkAlignedStarts();
     if (starts.isEmpty()) return;
-    const int prev = (m_currentHunk < 0 ? starts.size() : m_currentHunk) - 1;
-    if (prev >= 0)
-        navigateToHunk(prev);
+
+    const int cursorLine = m_leftEditor->edit()->area()->cursorPosition().line;
+    for (int i = starts.size() - 1; i >= 0; --i) {
+        const int hunkDocLine = m_model->docLineBeforeAligned(Side::Left, starts[i]);
+        if (hunkDocLine < cursorLine) {
+            navigateToHunk(i);
+            return;
+        }
+    }
 }
 
 void FileDiffWidget::navigateToHunk(int idx) {
     const QVector<int>& starts = m_model->hunkAlignedStarts();
+    const QVector<int>& ends   = m_model->hunkAlignedEnds();
     if (idx < 0 || idx >= starts.size()) return;
 
     m_currentHunk = idx;
     const int alignedRow = starts[idx];
+    const int hunkSpan   = ends[idx] - alignedRow;
 
     const int leftDoc  = m_model->docLineBeforeAligned(Side::Left,  alignedRow);
     const int rightDoc = m_model->docLineBeforeAligned(Side::Right, alignedRow);
 
+    // Place hunk at ~40% from top; reduce to 20% for large hunks
+    const int visible = m_leftEditor->edit()->area()->viewportState().visibleLineCount();
+    const double fraction = (visible > 0 && hunkSpan > visible * 0.3) ? 0.2 : 0.4;
+    const int offset = static_cast<int>(visible * fraction);
+
     m_syncingScroll = true;
-    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(leftDoc);
-    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(rightDoc);
+    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, leftDoc  - offset));
+    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, rightDoc - offset));
     m_syncingScroll = false;
+
+    // Move caret to hunk start so next F7/Shift+F7 is relative to it
+    const int leftDocCount  = m_leftEditor->edit()->area()->document()->lineCount();
+    const int rightDocCount = m_rightEditor->edit()->area()->document()->lineCount();
+    m_leftEditor->edit()->area()->setCursorPosition(
+        {std::min(leftDoc,  std::max(0, leftDocCount  - 1)), 0});
+    m_rightEditor->edit()->area()->setCursorPosition(
+        {std::min(rightDoc, std::max(0, rightDocCount - 1)), 0});
 
     updateNavLabel();
 }
@@ -159,6 +197,10 @@ void FileDiffWidget::updateNavLabel() {
     }
     m_prevButton->setEnabled(total > 0);
     m_nextButton->setEnabled(total > 0);
+}
+
+void FileDiffWidget::setBackVisible(bool visible) {
+    m_backButton->setVisible(visible);
 }
 
 void FileDiffWidget::setSyncThreshold(double fraction) {

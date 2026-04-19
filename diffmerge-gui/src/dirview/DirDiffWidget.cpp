@@ -74,6 +74,8 @@ void DirDiffWidget::setupUi() {
 
 void DirDiffWidget::setDirectories(const QString& leftPath,
                                    const QString& rightPath) {
+    m_leftPath  = leftPath;
+    m_rightPath = rightPath;
     m_headerLabel->setText(
         QStringLiteral("<b>Left:</b> %1&nbsp;&nbsp;&nbsp;<b>Right:</b> %2")
             .arg(leftPath.toHtmlEscaped(), rightPath.toHtmlEscaped()));

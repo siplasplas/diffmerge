@@ -14,7 +14,8 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(QWidget* parent = nullptr);
 
-    void loadFiles(const QString& leftPath, const QString& rightPath);
+    void loadFiles(const QString& leftPath, const QString& rightPath,
+                   bool fromDir = false);
     void loadDirectories(const QString& leftPath, const QString& rightPath);
 
 private slots:

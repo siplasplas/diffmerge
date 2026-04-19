@@ -33,9 +33,15 @@ public:
     DiffEditor* leftEditor()  const { return m_leftEditor; }
     DiffEditor* rightEditor() const { return m_rightEditor; }
 
+    // Show or hide the "← Back" button leading to the directory view.
+    void setBackVisible(bool visible);
+
 public slots:
     void navigateToNext();
     void navigateToPrev();
+
+signals:
+    void backRequested();
 
 private:
     void setupUi();
@@ -44,6 +50,7 @@ private:
 
     DiffEditor*   m_leftEditor  = nullptr;
     DiffEditor*   m_rightEditor = nullptr;
+    QToolButton*  m_backButton  = nullptr;
     QToolButton*  m_prevButton  = nullptr;
     QToolButton*  m_nextButton  = nullptr;
     QLabel*       m_navLabel    = nullptr;

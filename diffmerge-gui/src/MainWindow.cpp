@@ -45,6 +45,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(m_dirWidget, &DirDiffWidget::fileActivated,
             this, &MainWindow::onFileActivated);
+    connect(m_diffWidget, &FileDiffWidget::backRequested,
+            this, [this] {
+        m_stack->setCurrentWidget(m_dirWidget);
+        setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2")
+                           .arg(m_dirWidget->leftPath(), m_dirWidget->rightPath()));
+    });
 }
 
 void MainWindow::setupMenus() {
@@ -89,7 +95,8 @@ void MainWindow::onOpenDirectories() {
     loadDirectories(left, right);
 }
 
-void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath) {
+void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
+                           bool fromDir) {
     QString err;
     const QStringList leftLines = loadTextFile(leftPath, &err);
     if (!err.isEmpty()) { showError(err); return; }
@@ -97,6 +104,7 @@ void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath) {
     if (!err.isEmpty()) { showError(err); return; }
 
     m_diffWidget->setContent(leftLines, rightLines);
+    m_diffWidget->setBackVisible(fromDir);
     m_stack->setCurrentWidget(m_diffWidget);
     setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(leftPath, rightPath));
 }
@@ -115,7 +123,7 @@ void MainWindow::onFileActivated(const QString& leftPath, const QString& rightPa
                       .arg(leftPath, rightPath));
         return;
     }
-    loadFiles(leftPath, rightPath);
+    loadFiles(leftPath, rightPath, /*fromDir=*/true);
 }
 
 }  // namespace diffmerge::gui

@@ -17,6 +17,9 @@ public:
 
     void setDirectories(const QString& leftPath, const QString& rightPath);
 
+    QString leftPath()  const { return m_leftPath; }
+    QString rightPath() const { return m_rightPath; }
+
 signals:
     // Emitted when the user activates a file entry (double-click / Enter).
     // One or both paths may be empty (OnlyLeft / OnlyRight cases).
@@ -33,6 +36,8 @@ private:
     QTreeView*         m_view        = nullptr;
     QStandardItemModel* m_model      = nullptr;
     QVector<DirDiffEntry> m_entries;
+    QString m_leftPath;
+    QString m_rightPath;
 };
 
 }  // namespace diffmerge::gui
