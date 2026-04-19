@@ -60,12 +60,14 @@ void DirDiffWidget::setupUi() {
     m_leftBrowse = new QToolButton(pathBar);
     m_leftBrowse->setIcon(folderIcon);
     m_leftBrowse->setToolTip(QStringLiteral("Browse left directory"));
+    m_leftBrowse->setAutoRaise(true);
 
     m_rightPathEdit = new QLineEdit(pathBar);
     m_rightPathEdit->setPlaceholderText(QStringLiteral("Right directory..."));
     m_rightBrowse = new QToolButton(pathBar);
     m_rightBrowse->setIcon(folderIcon);
     m_rightBrowse->setToolTip(QStringLiteral("Browse right directory"));
+    m_rightBrowse->setAutoRaise(true);
 
     pathLayout->addWidget(m_leftPathEdit);
     pathLayout->addWidget(m_leftBrowse);

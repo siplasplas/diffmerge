@@ -47,6 +47,7 @@ void FileDiffWidget::setupUi() {
     m_backButton->setText(QStringLiteral("← Directories"));
     m_backButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_backButton->setToolTip(QStringLiteral("Back to directory view"));
+    m_backButton->setAutoRaise(true);
     m_backButton->setVisible(false);
     navLayout->addWidget(m_backButton);
 
@@ -61,11 +62,13 @@ void FileDiffWidget::setupUi() {
     m_prevButton = new QToolButton(navBar);
     m_prevButton->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
     m_prevButton->setToolTip(QStringLiteral("Previous change (Shift+F7)"));
+    m_prevButton->setAutoRaise(true);
     navLayout->addWidget(m_prevButton);
 
     m_nextButton = new QToolButton(navBar);
     m_nextButton->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
     m_nextButton->setToolTip(QStringLiteral("Next change (F7)"));
+    m_nextButton->setAutoRaise(true);
     navLayout->addWidget(m_nextButton);
 
     m_navLabel = new QLabel(QStringLiteral("No changes"), navBar);
@@ -94,12 +97,14 @@ void FileDiffWidget::setupUi() {
     m_leftBrowse = new QToolButton(pathBar);
     m_leftBrowse->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
     m_leftBrowse->setToolTip(QStringLiteral("Browse left file"));
+    m_leftBrowse->setAutoRaise(true);
 
     m_rightPathEdit = new QLineEdit(pathBar);
     m_rightPathEdit->setPlaceholderText(QStringLiteral("Right file..."));
     m_rightBrowse = new QToolButton(pathBar);
     m_rightBrowse->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
     m_rightBrowse->setToolTip(QStringLiteral("Browse right file"));
+    m_rightBrowse->setAutoRaise(true);
 
     pathLayout->addWidget(m_leftPathEdit);
     pathLayout->addWidget(m_leftBrowse);
