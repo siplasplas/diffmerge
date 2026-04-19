@@ -1,11 +1,13 @@
 #include "DirDiffWidget.h"
 
-#include <QApplication>
+#include <QFileDialog>
 #include <QFontDatabase>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
-#include <QLabel>
+#include <QLineEdit>
 #include <QStandardItemModel>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -15,11 +17,11 @@ namespace {
 
 QColor colorForStatus(DirEntryStatus s) {
     switch (s) {
-        case DirEntryStatus::OnlyLeft:   return QColor(0xff, 0xcc, 0xcc);  // light red
-        case DirEntryStatus::OnlyRight:  return QColor(0xcc, 0xff, 0xcc);  // light green
-        case DirEntryStatus::Different:  return QColor(0xff, 0xf0, 0x99);  // light yellow
-        case DirEntryStatus::Same:       return QColor();                   // default
-        case DirEntryStatus::Directory:  return QColor();                   // default
+        case DirEntryStatus::OnlyLeft:   return QColor(0xff, 0xcc, 0xcc);
+        case DirEntryStatus::OnlyRight:  return QColor(0xcc, 0xff, 0xcc);
+        case DirEntryStatus::Different:  return QColor(0xff, 0xf0, 0x99);
+        case DirEntryStatus::Same:       return QColor();
+        case DirEntryStatus::Directory:  return QColor();
     }
     return {};
 }
@@ -42,14 +44,38 @@ DirDiffWidget::DirDiffWidget(QWidget* parent) : QWidget(parent) {
 }
 
 void DirDiffWidget::setupUi() {
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    auto* vLayout = new QVBoxLayout(this);
+    vLayout->setContentsMargins(0, 0, 0, 0);
+    vLayout->setSpacing(0);
 
-    m_headerLabel = new QLabel(this);
-    m_headerLabel->setMargin(4);
-    layout->addWidget(m_headerLabel);
+    // Path bar
+    static const QIcon folderIcon(QStringLiteral(":/icons/folder.svg"));
 
+    auto* pathBar    = new QWidget(this);
+    auto* pathLayout = new QHBoxLayout(pathBar);
+    pathLayout->setContentsMargins(4, 3, 4, 3);
+
+    m_leftPathEdit = new QLineEdit(pathBar);
+    m_leftPathEdit->setPlaceholderText(QStringLiteral("Left directory..."));
+    m_leftBrowse = new QToolButton(pathBar);
+    m_leftBrowse->setIcon(folderIcon);
+    m_leftBrowse->setToolTip(QStringLiteral("Browse left directory"));
+
+    m_rightPathEdit = new QLineEdit(pathBar);
+    m_rightPathEdit->setPlaceholderText(QStringLiteral("Right directory..."));
+    m_rightBrowse = new QToolButton(pathBar);
+    m_rightBrowse->setIcon(folderIcon);
+    m_rightBrowse->setToolTip(QStringLiteral("Browse right directory"));
+
+    pathLayout->addWidget(m_leftPathEdit);
+    pathLayout->addWidget(m_leftBrowse);
+    pathLayout->addSpacing(8);
+    pathLayout->addWidget(m_rightPathEdit);
+    pathLayout->addWidget(m_rightBrowse);
+
+    vLayout->addWidget(pathBar);
+
+    // Tree view
     m_model = new QStandardItemModel(this);
     m_model->setHorizontalHeaderLabels(
         {QStringLiteral("Name"), QStringLiteral("Status")});
@@ -63,26 +89,50 @@ void DirDiffWidget::setupUi() {
     m_view->header()->setStretchLastSection(false);
     m_view->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_view->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_view->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
 
-    const QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    m_view->setFont(f);
+    vLayout->addWidget(m_view);
 
-    layout->addWidget(m_view);
-
-    connect(m_view, &QTreeView::activated,
-            this,   &DirDiffWidget::onActivated);
+    connect(m_leftBrowse,   &QToolButton::clicked, this, &DirDiffWidget::onBrowseLeft);
+    connect(m_rightBrowse,  &QToolButton::clicked, this, &DirDiffWidget::onBrowseRight);
+    connect(m_leftPathEdit,  &QLineEdit::returnPressed, this, &DirDiffWidget::reload);
+    connect(m_rightPathEdit, &QLineEdit::returnPressed, this, &DirDiffWidget::reload);
+    connect(m_view, &QTreeView::activated, this, &DirDiffWidget::onActivated);
 }
 
 void DirDiffWidget::setDirectories(const QString& leftPath,
                                    const QString& rightPath) {
-    m_leftPath  = leftPath;
-    m_rightPath = rightPath;
-    m_headerLabel->setText(
-        QStringLiteral("<b>Left:</b> %1&nbsp;&nbsp;&nbsp;<b>Right:</b> %2")
-            .arg(leftPath.toHtmlEscaped(), rightPath.toHtmlEscaped()));
+    m_leftPathEdit->setText(leftPath);
+    m_rightPathEdit->setText(rightPath);
+    reload();
+}
 
-    m_entries = scanDirDiff(leftPath, rightPath);
+void DirDiffWidget::reload() {
+    m_leftPath  = m_leftPathEdit->text().trimmed();
+    m_rightPath = m_rightPathEdit->text().trimmed();
+    if (m_leftPath.isEmpty() || m_rightPath.isEmpty()) return;
+
+    m_entries = scanDirDiff(m_leftPath, m_rightPath);
     populate(m_entries);
+    emit directoriesChanged(m_leftPath, m_rightPath);
+}
+
+void DirDiffWidget::onBrowseLeft() {
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select left directory"), m_leftPathEdit->text());
+    if (!dir.isEmpty()) {
+        m_leftPathEdit->setText(dir);
+        reload();
+    }
+}
+
+void DirDiffWidget::onBrowseRight() {
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select right directory"), m_rightPathEdit->text());
+    if (!dir.isEmpty()) {
+        m_rightPathEdit->setText(dir);
+        reload();
+    }
 }
 
 void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
@@ -90,14 +140,12 @@ void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
 
     static const QIcon folderIcon(QStringLiteral(":/icons/folder.svg"));
 
-    // Stack of parent items indexed by depth; depth 0 uses invisibleRootItem.
     QVector<QStandardItem*> parentStack;
     parentStack.append(m_model->invisibleRootItem());
 
     for (int i = 0; i < entries.size(); ++i) {
         const DirDiffEntry& e = entries[i];
 
-        // Trim the parent stack to the current depth
         while (parentStack.size() > e.depth + 1)
             parentStack.removeLast();
 

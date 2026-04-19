@@ -1,33 +1,13 @@
 #include "MainWindow.h"
 
-#include <QFile>
 #include <QFileDialog>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QStringList>
-#include <QTextStream>
 
 #include "dirview/DirDiffWidget.h"
 #include "fileview/FileDiffWidget.h"
 
 namespace diffmerge::gui {
-
-namespace {
-
-QStringList loadTextFile(const QString& path, QString* errorOut) {
-    QStringList lines;
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (errorOut)
-            *errorOut = QStringLiteral("Cannot open %1: %2").arg(path, f.errorString());
-        return lines;
-    }
-    QTextStream in(&f);
-    while (!in.atEnd()) lines.append(in.readLine());
-    return lines;
-}
-
-}  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_stack      = new QStackedWidget(this);
@@ -45,6 +25,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(m_dirWidget, &DirDiffWidget::fileActivated,
             this, &MainWindow::onFileActivated);
+    connect(m_dirWidget, &DirDiffWidget::directoriesChanged,
+            this, [this](const QString& l, const QString& r) {
+        setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(l, r));
+    });
+    connect(m_diffWidget, &FileDiffWidget::pathsChanged,
+            this, [this](const QString& l, const QString& r) {
+        setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(l, r));
+    });
     connect(m_diffWidget, &FileDiffWidget::backRequested,
             this, [this] {
         m_stack->setCurrentWidget(m_dirWidget);
@@ -97,28 +85,18 @@ void MainWindow::onOpenDirectories() {
 
 void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
                            bool fromDir) {
-    QString err;
-    const QStringList leftLines = loadTextFile(leftPath, &err);
-    if (!err.isEmpty()) { showError(err); return; }
-    const QStringList rightLines = loadTextFile(rightPath, &err);
-    if (!err.isEmpty()) { showError(err); return; }
-
-    m_diffWidget->setContent(leftLines, rightLines);
     m_diffWidget->setBackVisible(fromDir);
+    m_diffWidget->loadFromPaths(leftPath, rightPath);
     m_stack->setCurrentWidget(m_diffWidget);
-    setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(leftPath, rightPath));
 }
 
 void MainWindow::loadDirectories(const QString& leftPath, const QString& rightPath) {
     m_dirWidget->setDirectories(leftPath, rightPath);
     m_stack->setCurrentWidget(m_dirWidget);
-    setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(leftPath, rightPath));
 }
 
 void MainWindow::onFileActivated(const QString& leftPath, const QString& rightPath) {
     if (leftPath.isEmpty() || rightPath.isEmpty()) {
-        // One side missing — show a read-only single-file view in the future;
-        // for now just inform the user.
         showError(QStringLiteral("File exists only on one side:\n%1\n%2")
                       .arg(leftPath, rightPath));
         return;

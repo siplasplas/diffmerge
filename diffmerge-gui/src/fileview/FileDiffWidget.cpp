@@ -1,10 +1,15 @@
 #include "FileDiffWidget.h"
 
+#include <QFile>
+#include <QFileDialog>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QScrollBar>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStyle>
+#include <QTextStream>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -71,6 +76,36 @@ void FileDiffWidget::setupUi() {
 
     auto* prevShortcut = new QShortcut(Qt::ShiftModifier | Qt::Key_F7, this);
     connect(prevShortcut, &QShortcut::activated, this, &FileDiffWidget::navigateToPrev);
+
+    // Path bar
+    auto* pathBar    = new QWidget(this);
+    auto* pathLayout = new QHBoxLayout(pathBar);
+    pathLayout->setContentsMargins(4, 3, 4, 3);
+
+    m_leftPathEdit = new QLineEdit(pathBar);
+    m_leftPathEdit->setPlaceholderText(QStringLiteral("Left file..."));
+    m_leftBrowse = new QToolButton(pathBar);
+    m_leftBrowse->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+    m_leftBrowse->setToolTip(QStringLiteral("Browse left file"));
+
+    m_rightPathEdit = new QLineEdit(pathBar);
+    m_rightPathEdit->setPlaceholderText(QStringLiteral("Right file..."));
+    m_rightBrowse = new QToolButton(pathBar);
+    m_rightBrowse->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+    m_rightBrowse->setToolTip(QStringLiteral("Browse right file"));
+
+    pathLayout->addWidget(m_leftPathEdit);
+    pathLayout->addWidget(m_leftBrowse);
+    pathLayout->addSpacing(8);
+    pathLayout->addWidget(m_rightPathEdit);
+    pathLayout->addWidget(m_rightBrowse);
+
+    vLayout->addWidget(pathBar);
+
+    connect(m_leftBrowse,    &QToolButton::clicked,      this, &FileDiffWidget::onBrowseLeft);
+    connect(m_rightBrowse,   &QToolButton::clicked,      this, &FileDiffWidget::onBrowseRight);
+    connect(m_leftPathEdit,  &QLineEdit::returnPressed,  this, &FileDiffWidget::reloadFromPathBar);
+    connect(m_rightPathEdit, &QLineEdit::returnPressed,  this, &FileDiffWidget::reloadFromPathBar);
 
     // Editors
     auto* splitter = new QSplitter(Qt::Horizontal, this);
@@ -199,6 +234,56 @@ void FileDiffWidget::updateNavLabel() {
     }
     m_prevButton->setEnabled(total > 0);
     m_nextButton->setEnabled(total > 0);
+}
+
+bool FileDiffWidget::loadFromPaths(const QString& leftPath,
+                                   const QString& rightPath) {
+    auto readFile = [&](const QString& path, QStringList& out) -> bool {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QMessageBox::critical(this, QStringLiteral("Error"),
+                QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
+            return false;
+        }
+        QTextStream in(&f);
+        while (!in.atEnd()) out.append(in.readLine());
+        return true;
+    };
+
+    QStringList leftLines, rightLines;
+    if (!readFile(leftPath, leftLines)) return false;
+    if (!readFile(rightPath, rightLines)) return false;
+
+    m_leftPathEdit->setText(leftPath);
+    m_rightPathEdit->setText(rightPath);
+    setContent(leftLines, rightLines);
+    emit pathsChanged(leftPath, rightPath);
+    return true;
+}
+
+void FileDiffWidget::onBrowseLeft() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Select left file"), m_leftPathEdit->text());
+    if (!path.isEmpty()) {
+        m_leftPathEdit->setText(path);
+        reloadFromPathBar();
+    }
+}
+
+void FileDiffWidget::onBrowseRight() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Select right file"), m_rightPathEdit->text());
+    if (!path.isEmpty()) {
+        m_rightPathEdit->setText(path);
+        reloadFromPathBar();
+    }
+}
+
+void FileDiffWidget::reloadFromPathBar() {
+    const QString l = m_leftPathEdit->text().trimmed();
+    const QString r = m_rightPathEdit->text().trimmed();
+    if (l.isEmpty() || r.isEmpty()) return;
+    loadFromPaths(l, r);
 }
 
 void FileDiffWidget::setBackVisible(bool visible) {

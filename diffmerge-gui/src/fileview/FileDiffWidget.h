@@ -3,6 +3,7 @@
 
 #include <QAction>
 #include <QLabel>
+#include <QLineEdit>
 #include <QStringList>
 #include <QToolButton>
 #include <QWidget>
@@ -27,6 +28,10 @@ public:
                     const QStringList& rightLines,
                     const diffcore::DiffOptions& opts = {});
 
+    // Load files from disk, update path bar, and show diff.
+    // Returns false and shows an error if either file cannot be read.
+    bool loadFromPaths(const QString& leftPath, const QString& rightPath);
+
     // Fraction of viewport height at which the sync line sits (0 < t < 1).
     void setSyncThreshold(double fraction);
     double syncThreshold() const;
@@ -43,11 +48,16 @@ public slots:
 
 signals:
     void backRequested();
+    // Emitted after a successful loadFromPaths so MainWindow can update title.
+    void pathsChanged(const QString& leftPath, const QString& rightPath);
 
 private:
     void setupUi();
     void navigateToHunk(int idx);
     void updateNavLabel();
+    void onBrowseLeft();
+    void onBrowseRight();
+    void reloadFromPathBar();
 
     DiffEditor*   m_leftEditor  = nullptr;
     DiffEditor*   m_rightEditor = nullptr;
@@ -57,6 +67,10 @@ private:
     QToolButton*  m_nextButton  = nullptr;
     QLabel*       m_navLabel    = nullptr;
     int           m_currentHunk = -1;
+    QLineEdit*    m_leftPathEdit  = nullptr;
+    QToolButton*  m_leftBrowse    = nullptr;
+    QLineEdit*    m_rightPathEdit = nullptr;
+    QToolButton*  m_rightBrowse   = nullptr;
     std::unique_ptr<AlignedLineModel> m_model;
     ScrollSyncMapper m_syncMapper;
     bool m_syncingScroll = false;
