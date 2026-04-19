@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QFileDialog>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -10,7 +11,6 @@
 #include <QSplitter>
 #include <QStyle>
 #include <QTextStream>
-#include <QToolBar>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -36,37 +36,44 @@ void FileDiffWidget::setupUi() {
     vLayout->setContentsMargins(0, 0, 0, 0);
     vLayout->setSpacing(0);
 
-    // Navigation toolbar
-    auto* toolbar = new QToolBar(this);
-    toolbar->setMovable(false);
-    toolbar->setFloatable(false);
+    // Navigation bar
+    auto* navBar    = new QWidget(this);
+    auto* navLayout = new QHBoxLayout(navBar);
+    navLayout->setContentsMargins(2, 2, 2, 2);
+    navLayout->setSpacing(2);
 
-    m_backButton = new QToolButton(toolbar);
+    m_backButton = new QToolButton(navBar);
     m_backButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogBack));
     m_backButton->setText(QStringLiteral("← Directories"));
     m_backButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_backButton->setToolTip(QStringLiteral("Back to directory view"));
-    m_backAction = toolbar->addWidget(m_backButton);
-    m_backAction->setVisible(false);
-    toolbar->addSeparator();
+    m_backButton->setVisible(false);
+    navLayout->addWidget(m_backButton);
+
+    m_backSep = new QFrame(navBar);
+    m_backSep->setFrameShape(QFrame::VLine);
+    m_backSep->setFrameShadow(QFrame::Sunken);
+    m_backSep->setVisible(false);
+    navLayout->addWidget(m_backSep);
 
     connect(m_backButton, &QToolButton::clicked, this, &FileDiffWidget::backRequested);
 
-    m_prevButton = new QToolButton(toolbar);
+    m_prevButton = new QToolButton(navBar);
     m_prevButton->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
     m_prevButton->setToolTip(QStringLiteral("Previous change (Shift+F7)"));
-    toolbar->addWidget(m_prevButton);
+    navLayout->addWidget(m_prevButton);
 
-    m_nextButton = new QToolButton(toolbar);
+    m_nextButton = new QToolButton(navBar);
     m_nextButton->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
     m_nextButton->setToolTip(QStringLiteral("Next change (F7)"));
-    toolbar->addWidget(m_nextButton);
+    navLayout->addWidget(m_nextButton);
 
-    m_navLabel = new QLabel(QStringLiteral("No changes"), toolbar);
+    m_navLabel = new QLabel(QStringLiteral("No changes"), navBar);
     m_navLabel->setMargin(4);
-    toolbar->addWidget(m_navLabel);
+    navLayout->addWidget(m_navLabel);
+    navLayout->addStretch();
 
-    vLayout->addWidget(toolbar);
+    vLayout->addWidget(navBar);
 
     connect(m_prevButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToPrev);
     connect(m_nextButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToNext);
@@ -287,7 +294,8 @@ void FileDiffWidget::reloadFromPathBar() {
 }
 
 void FileDiffWidget::setBackVisible(bool visible) {
-    m_backAction->setVisible(visible);
+    m_backButton->setVisible(visible);
+    m_backSep->setVisible(visible);
 }
 
 void FileDiffWidget::setSyncThreshold(double fraction) {
