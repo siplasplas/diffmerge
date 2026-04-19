@@ -93,8 +93,9 @@ public:
     // Change type for a real (non-placeholder) doc line (0-based).
     diffcore::ChangeType docLineChangeType(Side side, int docLine) const;
 
-    // Aligned row index where each non-Equal hunk starts. Used for navigation.
+    // Aligned row indices where each non-Equal hunk starts/ends. Used for navigation.
     const QVector<int>& hunkAlignedStarts() const { return m_hunkAlignedStarts; }
+    const QVector<int>& hunkAlignedEnds()   const { return m_hunkAlignedEnds; }
 
     // Number of non-placeholder rows strictly before alignedRow on given side.
     // This is the scrollbar doc-line value that brings alignedRow into view.
@@ -122,6 +123,7 @@ private:
     QStringList m_leftText;   // Per aligned row (empty if placeholder)
     QStringList m_rightText;
     QVector<int> m_hunkAlignedStarts;  // aligned row start of each non-Equal hunk
+    QVector<int> m_hunkAlignedEnds;   // aligned row end (exclusive) of each non-Equal hunk
 };
 
 }  // namespace diffmerge::gui

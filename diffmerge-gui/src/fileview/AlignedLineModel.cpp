@@ -89,9 +89,11 @@ void AlignedLineModel::build(const diffcore::DiffResult& diff,
     m_leftText.clear();
     m_rightText.clear();
     m_hunkAlignedStarts.clear();
+    m_hunkAlignedEnds.clear();
 
     for (const diffcore::Hunk& h : diff.hunks) {
-        if (h.type != diffcore::ChangeType::Equal)
+        const bool isChange = h.type != diffcore::ChangeType::Equal;
+        if (isChange)
             m_hunkAlignedStarts.append(static_cast<int>(m_leftRows.size()));
         switch (h.type) {
             case diffcore::ChangeType::Equal:
@@ -107,6 +109,8 @@ void AlignedLineModel::build(const diffcore::DiffResult& diff,
                 appendReplace(h, leftLines, rightLines);
                 break;
         }
+        if (isChange)
+            m_hunkAlignedEnds.append(static_cast<int>(m_leftRows.size()));
     }
 
     // Post-condition: both sides have the same number of aligned rows.
