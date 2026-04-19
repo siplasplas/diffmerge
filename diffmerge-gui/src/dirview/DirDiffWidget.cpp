@@ -1,0 +1,130 @@
+#include "DirDiffWidget.h"
+
+#include <QApplication>
+#include <QFontDatabase>
+#include <QHeaderView>
+#include <QLabel>
+#include <QStandardItemModel>
+#include <QTreeView>
+#include <QVBoxLayout>
+
+namespace diffmerge::gui {
+
+namespace {
+
+QColor colorForStatus(DirEntryStatus s) {
+    switch (s) {
+        case DirEntryStatus::OnlyLeft:   return QColor(0xff, 0xcc, 0xcc);  // light red
+        case DirEntryStatus::OnlyRight:  return QColor(0xcc, 0xff, 0xcc);  // light green
+        case DirEntryStatus::Different:  return QColor(0xff, 0xf0, 0x99);  // light yellow
+        case DirEntryStatus::Same:       return QColor();                   // default
+        case DirEntryStatus::Directory:  return QColor();                   // default
+    }
+    return {};
+}
+
+QString labelForStatus(DirEntryStatus s) {
+    switch (s) {
+        case DirEntryStatus::OnlyLeft:  return QStringLiteral("only left");
+        case DirEntryStatus::OnlyRight: return QStringLiteral("only right");
+        case DirEntryStatus::Different: return QStringLiteral("different");
+        case DirEntryStatus::Same:      return QStringLiteral("same");
+        case DirEntryStatus::Directory: return QStringLiteral("dir");
+    }
+    return {};
+}
+
+}  // namespace
+
+DirDiffWidget::DirDiffWidget(QWidget* parent) : QWidget(parent) {
+    setupUi();
+}
+
+void DirDiffWidget::setupUi() {
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    m_headerLabel = new QLabel(this);
+    m_headerLabel->setMargin(4);
+    layout->addWidget(m_headerLabel);
+
+    m_model = new QStandardItemModel(this);
+    m_model->setHorizontalHeaderLabels(
+        {QStringLiteral("Name"), QStringLiteral("Status")});
+
+    m_view = new QTreeView(this);
+    m_view->setModel(m_model);
+    m_view->setRootIsDecorated(false);
+    m_view->setUniformRowHeights(true);
+    m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_view->header()->setStretchLastSection(false);
+    m_view->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_view->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+
+    const QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    m_view->setFont(f);
+
+    layout->addWidget(m_view);
+
+    connect(m_view, &QTreeView::activated,
+            this,   &DirDiffWidget::onActivated);
+}
+
+void DirDiffWidget::setDirectories(const QString& leftPath,
+                                   const QString& rightPath) {
+    m_headerLabel->setText(
+        QStringLiteral("<b>Left:</b> %1&nbsp;&nbsp;&nbsp;<b>Right:</b> %2")
+            .arg(leftPath.toHtmlEscaped(), rightPath.toHtmlEscaped()));
+
+    m_entries = scanDirDiff(leftPath, rightPath);
+    populate(m_entries);
+}
+
+void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
+    m_model->removeRows(0, m_model->rowCount());
+
+    for (int i = 0; i < entries.size(); ++i) {
+        const DirDiffEntry& e = entries[i];
+
+        // Indent name with non-breaking spaces to simulate tree depth
+        const QString indent = QString(e.depth * 2, QChar(0x00A0));
+        const QString prefix = e.isDir ? QStringLiteral("\xF0\x9F\x93\x81 ")  // 📁
+                                       : QStringLiteral("    ");
+        const QString name   = indent + prefix + e.relativePath.section(
+                                   QLatin1Char('/'), -1);
+
+        auto* nameItem   = new QStandardItem(name);
+        auto* statusItem = new QStandardItem(labelForStatus(e.status));
+
+        nameItem->setData(i, Qt::UserRole);  // store entry index
+
+        const QColor bg = colorForStatus(e.status);
+        if (bg.isValid()) {
+            nameItem->setBackground(bg);
+            statusItem->setBackground(bg);
+        }
+
+        if (e.isDir) {
+            QFont f = nameItem->font();
+            f.setBold(true);
+            nameItem->setFont(f);
+        }
+
+        m_model->appendRow({nameItem, statusItem});
+    }
+}
+
+void DirDiffWidget::onActivated(const QModelIndex& index) {
+    const QModelIndex nameIdx = m_model->index(index.row(), 0);
+    const int entryIdx = nameIdx.data(Qt::UserRole).toInt();
+    if (entryIdx < 0 || entryIdx >= m_entries.size()) return;
+
+    const DirDiffEntry& e = m_entries[entryIdx];
+    if (e.isDir) return;
+
+    emit fileActivated(e.leftPath, e.rightPath);
+}
+
+}  // namespace diffmerge::gui

@@ -1,32 +1,34 @@
-// Minimal main window for stage 2. Lets the user open two files and see
-// their diff. No merge, no directory comparison - just the file view.
-
 #ifndef DIFFMERGE_GUI_MAINWINDOW_H
 #define DIFFMERGE_GUI_MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QStackedWidget>
 
 namespace diffmerge::gui {
 
 class FileDiffWidget;
+class DirDiffWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow(QWidget* parent = nullptr);
 
-    // If non-null, load these two files immediately (used when the app is
-    // launched with two file paths on the command line).
     void loadFiles(const QString& leftPath, const QString& rightPath);
+    void loadDirectories(const QString& leftPath, const QString& rightPath);
 
 private slots:
     void onOpenFiles();
+    void onOpenDirectories();
+    void onFileActivated(const QString& leftPath, const QString& rightPath);
 
 private:
     void setupMenus();
     void showError(const QString& message);
 
-    FileDiffWidget* m_diffWidget;
+    QStackedWidget* m_stack      = nullptr;
+    FileDiffWidget* m_diffWidget = nullptr;
+    DirDiffWidget*  m_dirWidget  = nullptr;
 };
 
 }  // namespace diffmerge::gui

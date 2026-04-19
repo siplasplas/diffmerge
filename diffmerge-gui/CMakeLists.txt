@@ -22,6 +22,11 @@ set(DIFFMERGE_GUI_SOURCES
     src/fileview/FileDiffWidget.cpp
     src/fileview/ScrollSyncMapper.h
     src/fileview/ScrollSyncMapper.cpp
+
+    src/dirview/DirDiffModel.h
+    src/dirview/DirDiffModel.cpp
+    src/dirview/DirDiffWidget.h
+    src/dirview/DirDiffWidget.cpp
 )
 
 add_executable(diffmerge-gui ${DIFFMERGE_GUI_SOURCES})
