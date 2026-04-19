@@ -38,6 +38,7 @@ void FileDiffWidget::setupUi() {
 
     // Navigation bar
     auto* navBar    = new QWidget(this);
+    navBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* navLayout = new QHBoxLayout(navBar);
     navLayout->setContentsMargins(2, 2, 2, 2);
     navLayout->setSpacing(2);
@@ -89,6 +90,7 @@ void FileDiffWidget::setupUi() {
 
     // Path bar
     auto* pathBar    = new QWidget(this);
+    pathBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* pathLayout = new QHBoxLayout(pathBar);
     pathLayout->setContentsMargins(4, 3, 4, 3);
 
