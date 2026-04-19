@@ -1,7 +1,9 @@
 #ifndef DIFFMERGE_GUI_FILEDIFFWIDGET_H
 #define DIFFMERGE_GUI_FILEDIFFWIDGET_H
 
+#include <QLabel>
 #include <QStringList>
+#include <QToolButton>
 #include <QWidget>
 #include <memory>
 
@@ -31,11 +33,21 @@ public:
     DiffEditor* leftEditor()  const { return m_leftEditor; }
     DiffEditor* rightEditor() const { return m_rightEditor; }
 
+public slots:
+    void navigateToNext();
+    void navigateToPrev();
+
 private:
     void setupUi();
+    void navigateToHunk(int idx);
+    void updateNavLabel();
 
-    DiffEditor* m_leftEditor  = nullptr;
-    DiffEditor* m_rightEditor = nullptr;
+    DiffEditor*   m_leftEditor  = nullptr;
+    DiffEditor*   m_rightEditor = nullptr;
+    QToolButton*  m_prevButton  = nullptr;
+    QToolButton*  m_nextButton  = nullptr;
+    QLabel*       m_navLabel    = nullptr;
+    int           m_currentHunk = -1;
     std::unique_ptr<AlignedLineModel> m_model;
     ScrollSyncMapper m_syncMapper;
     bool m_syncingScroll = false;

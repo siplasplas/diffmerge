@@ -88,8 +88,11 @@ void AlignedLineModel::build(const diffcore::DiffResult& diff,
     m_rightRows.clear();
     m_leftText.clear();
     m_rightText.clear();
+    m_hunkAlignedStarts.clear();
 
     for (const diffcore::Hunk& h : diff.hunks) {
+        if (h.type != diffcore::ChangeType::Equal)
+            m_hunkAlignedStarts.append(static_cast<int>(m_leftRows.size()));
         switch (h.type) {
             case diffcore::ChangeType::Equal:
                 appendEqual(h, leftLines, rightLines);
@@ -169,6 +172,15 @@ diffcore::ChangeType AlignedLineModel::docLineChangeType(Side side, int docLine)
         }
     }
     return diffcore::ChangeType::Equal;
+}
+
+int AlignedLineModel::docLineBeforeAligned(Side side, int alignedRow) const {
+    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
+    int dc = 0;
+    for (int i = 0; i < alignedRow && i < static_cast<int>(rows.size()); ++i) {
+        if (!rows[i].isPlaceholder()) ++dc;
+    }
+    return dc;
 }
 
 }  // namespace diffmerge::gui

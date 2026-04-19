@@ -2,7 +2,11 @@
 
 #include <QHBoxLayout>
 #include <QScrollBar>
+#include <QShortcut>
 #include <QSplitter>
+#include <QStyle>
+#include <QToolBar>
+#include <QVBoxLayout>
 
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
@@ -21,10 +25,41 @@ FileDiffWidget::FileDiffWidget(QWidget* parent)
 FileDiffWidget::~FileDiffWidget() = default;
 
 void FileDiffWidget::setupUi() {
-    auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    auto* vLayout = new QVBoxLayout(this);
+    vLayout->setContentsMargins(0, 0, 0, 0);
+    vLayout->setSpacing(0);
 
+    // Navigation toolbar
+    auto* toolbar = new QToolBar(this);
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+
+    m_prevButton = new QToolButton(toolbar);
+    m_prevButton->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
+    m_prevButton->setToolTip(QStringLiteral("Previous change (Shift+F7)"));
+    toolbar->addWidget(m_prevButton);
+
+    m_nextButton = new QToolButton(toolbar);
+    m_nextButton->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    m_nextButton->setToolTip(QStringLiteral("Next change (F7)"));
+    toolbar->addWidget(m_nextButton);
+
+    m_navLabel = new QLabel(QStringLiteral("No changes"), toolbar);
+    m_navLabel->setMargin(4);
+    toolbar->addWidget(m_navLabel);
+
+    vLayout->addWidget(toolbar);
+
+    connect(m_prevButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToPrev);
+    connect(m_nextButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToNext);
+
+    auto* nextShortcut = new QShortcut(Qt::Key_F7, this);
+    connect(nextShortcut, &QShortcut::activated, this, &FileDiffWidget::navigateToNext);
+
+    auto* prevShortcut = new QShortcut(Qt::ShiftModifier | Qt::Key_F7, this);
+    connect(prevShortcut, &QShortcut::activated, this, &FileDiffWidget::navigateToPrev);
+
+    // Editors
     auto* splitter = new QSplitter(Qt::Horizontal, this);
     m_leftEditor  = new DiffEditor(Side::Left,  splitter);
     m_rightEditor = new DiffEditor(Side::Right, splitter);
@@ -32,7 +67,7 @@ void FileDiffWidget::setupUi() {
     splitter->addWidget(m_rightEditor);
     splitter->setSizes({1, 1});
     splitter->setChildrenCollapsible(false);
-    layout->addWidget(splitter);
+    vLayout->addWidget(splitter);
 
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
@@ -71,10 +106,59 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     m_leftEditor->setAlignedModel(m_model.get());
     m_rightEditor->setAlignedModel(m_model.get());
 
-    // Character-level highlights for Replace hunks
     const auto charDiff = IntraLineDiffEngine::compute(result, leftLines, rightLines);
     m_leftEditor->setIntraLineDiffs(charDiff.leftRanges);
     m_rightEditor->setIntraLineDiffs(charDiff.rightRanges);
+
+    m_currentHunk = -1;
+    updateNavLabel();
+}
+
+void FileDiffWidget::navigateToNext() {
+    const QVector<int>& starts = m_model->hunkAlignedStarts();
+    if (starts.isEmpty()) return;
+    const int next = m_currentHunk + 1;
+    if (next < starts.size())
+        navigateToHunk(next);
+}
+
+void FileDiffWidget::navigateToPrev() {
+    const QVector<int>& starts = m_model->hunkAlignedStarts();
+    if (starts.isEmpty()) return;
+    const int prev = (m_currentHunk < 0 ? starts.size() : m_currentHunk) - 1;
+    if (prev >= 0)
+        navigateToHunk(prev);
+}
+
+void FileDiffWidget::navigateToHunk(int idx) {
+    const QVector<int>& starts = m_model->hunkAlignedStarts();
+    if (idx < 0 || idx >= starts.size()) return;
+
+    m_currentHunk = idx;
+    const int alignedRow = starts[idx];
+
+    const int leftDoc  = m_model->docLineBeforeAligned(Side::Left,  alignedRow);
+    const int rightDoc = m_model->docLineBeforeAligned(Side::Right, alignedRow);
+
+    m_syncingScroll = true;
+    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(leftDoc);
+    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(rightDoc);
+    m_syncingScroll = false;
+
+    updateNavLabel();
+}
+
+void FileDiffWidget::updateNavLabel() {
+    const int total = m_model->hunkAlignedStarts().size();
+    if (total == 0) {
+        m_navLabel->setText(QStringLiteral("No changes"));
+    } else if (m_currentHunk < 0) {
+        m_navLabel->setText(QStringLiteral("%1 change(s)").arg(total));
+    } else {
+        m_navLabel->setText(QStringLiteral("%1 / %2").arg(m_currentHunk + 1).arg(total));
+    }
+    m_prevButton->setEnabled(total > 0);
+    m_nextButton->setEnabled(total > 0);
 }
 
 void FileDiffWidget::setSyncThreshold(double fraction) {
