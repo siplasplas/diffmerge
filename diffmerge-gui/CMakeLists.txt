@@ -1,4 +1,4 @@
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg)
 find_package(qcodeedit 1.1 REQUIRED)
 
 set(DIFFMERGE_GUI_SOURCES
@@ -29,6 +29,8 @@ set(DIFFMERGE_GUI_SOURCES
     src/dirview/DirDiffWidget.cpp
 )
 
+qt_add_resources(DIFFMERGE_GUI_SOURCES res/resources.qrc)
+
 add_executable(diffmerge-gui ${DIFFMERGE_GUI_SOURCES})
 
 target_include_directories(diffmerge-gui PRIVATE src)
@@ -38,6 +40,7 @@ target_link_libraries(diffmerge-gui
         diffcore::diffcore
         Qt6::Core
         Qt6::Gui
+        Qt6::Svg
         Qt6::Widgets
         qcodeedit::qcodeedit
 )

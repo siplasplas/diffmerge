@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QFontDatabase>
 #include <QHeaderView>
+#include <QIcon>
 #include <QLabel>
 #include <QStandardItemModel>
 #include <QTreeView>
@@ -87,31 +88,31 @@ void DirDiffWidget::setDirectories(const QString& leftPath,
 void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
     m_model->removeRows(0, m_model->rowCount());
 
+    static const QIcon folderIcon(QStringLiteral(":/icons/folder.svg"));
+
     for (int i = 0; i < entries.size(); ++i) {
         const DirDiffEntry& e = entries[i];
 
         // Indent name with non-breaking spaces to simulate tree depth
         const QString indent = QString(e.depth * 2, QChar(0x00A0));
-        const QString prefix = e.isDir ? QStringLiteral("\u25b8 ")  // ▸
-                                       : QStringLiteral("  ");
-        const QString name   = indent + prefix + e.relativePath.section(
-                                   QLatin1Char('/'), -1);
+        const QString name   = indent + e.relativePath.section(QLatin1Char('/'), -1);
 
         auto* nameItem   = new QStandardItem(name);
         auto* statusItem = new QStandardItem(labelForStatus(e.status));
 
-        nameItem->setData(i, Qt::UserRole);  // store entry index
+        nameItem->setData(i, Qt::UserRole);
+
+        if (e.isDir) {
+            nameItem->setIcon(folderIcon);
+            QFont f = nameItem->font();
+            f.setBold(true);
+            nameItem->setFont(f);
+        }
 
         const QColor bg = colorForStatus(e.status);
         if (bg.isValid()) {
             nameItem->setBackground(bg);
             statusItem->setBackground(bg);
-        }
-
-        if (e.isDir) {
-            QFont f = nameItem->font();
-            f.setBold(true);
-            nameItem->setFont(f);
         }
 
         m_model->appendRow({nameItem, statusItem});
