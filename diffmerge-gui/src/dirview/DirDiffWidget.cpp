@@ -56,7 +56,7 @@ void DirDiffWidget::setupUi() {
 
     m_view = new QTreeView(this);
     m_view->setModel(m_model);
-    m_view->setRootIsDecorated(false);
+    m_view->setRootIsDecorated(true);
     m_view->setUniformRowHeights(true);
     m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -90,12 +90,18 @@ void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
 
     static const QIcon folderIcon(QStringLiteral(":/icons/folder.svg"));
 
+    // Stack of parent items indexed by depth; depth 0 uses invisibleRootItem.
+    QVector<QStandardItem*> parentStack;
+    parentStack.append(m_model->invisibleRootItem());
+
     for (int i = 0; i < entries.size(); ++i) {
         const DirDiffEntry& e = entries[i];
 
-        // Indent name with non-breaking spaces to simulate tree depth
-        const QString indent = QString(e.depth * 2, QChar(0x00A0));
-        const QString name   = indent + e.relativePath.section(QLatin1Char('/'), -1);
+        // Trim the parent stack to the current depth
+        while (parentStack.size() > e.depth + 1)
+            parentStack.removeLast();
+
+        const QString name = e.relativePath.section(QLatin1Char('/'), -1);
 
         auto* nameItem   = new QStandardItem(name);
         auto* statusItem = new QStandardItem(labelForStatus(e.status));
@@ -115,12 +121,17 @@ void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
             statusItem->setBackground(bg);
         }
 
-        m_model->appendRow({nameItem, statusItem});
+        parentStack.last()->appendRow({nameItem, statusItem});
+
+        if (e.isDir)
+            parentStack.append(nameItem);
     }
+
+    m_view->expandAll();
 }
 
 void DirDiffWidget::onActivated(const QModelIndex& index) {
-    const QModelIndex nameIdx = m_model->index(index.row(), 0);
+    const QModelIndex nameIdx = index.sibling(index.row(), 0);
     const int entryIdx = nameIdx.data(Qt::UserRole).toInt();
     if (entryIdx < 0 || entryIdx >= m_entries.size()) return;
 
