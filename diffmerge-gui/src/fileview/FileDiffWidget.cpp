@@ -250,6 +250,11 @@ void FileDiffWidget::updateNavLabel() {
     m_nextButton->setEnabled(total > 0);
 }
 
+void FileDiffWidget::setPaths(const QString& leftPath, const QString& rightPath) {
+    m_leftPathEdit->setText(leftPath);
+    m_rightPathEdit->setText(rightPath);
+}
+
 bool FileDiffWidget::loadFromPaths(const QString& leftPath,
                                    const QString& rightPath) {
     auto readFile = [&](const QString& path, QStringList& out) -> bool {

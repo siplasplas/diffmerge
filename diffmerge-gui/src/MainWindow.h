@@ -18,6 +18,10 @@ public:
                    bool fromDir = false);
     void loadDirectories(const QString& leftPath, const QString& rightPath);
 
+    // Show view and pre-fill paths without triggering a diff/scan.
+    void prefillFiles(const QString& leftPath, const QString& rightPath = {});
+    void prefillDirs(const QString& leftPath,  const QString& rightPath = {});
+
 private slots:
     void onOpenFiles();
     void onOpenDirectories();

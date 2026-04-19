@@ -32,6 +32,9 @@ public:
     // Returns false and shows an error if either file cannot be read.
     bool loadFromPaths(const QString& leftPath, const QString& rightPath);
 
+    // Fill path edits without loading (used for command-line pre-fill).
+    void setPaths(const QString& leftPath, const QString& rightPath);
+
     // Fraction of viewport height at which the sync line sits (0 < t < 1).
     void setSyncThreshold(double fraction);
     double syncThreshold() const;

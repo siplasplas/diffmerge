@@ -95,6 +95,16 @@ void MainWindow::loadDirectories(const QString& leftPath, const QString& rightPa
     m_stack->setCurrentWidget(m_dirWidget);
 }
 
+void MainWindow::prefillFiles(const QString& leftPath, const QString& rightPath) {
+    m_diffWidget->setPaths(leftPath, rightPath);
+    m_stack->setCurrentWidget(m_diffWidget);
+}
+
+void MainWindow::prefillDirs(const QString& leftPath, const QString& rightPath) {
+    m_dirWidget->setPaths(leftPath, rightPath);
+    m_stack->setCurrentWidget(m_dirWidget);
+}
+
 void MainWindow::onFileActivated(const QString& leftPath, const QString& rightPath) {
     if (leftPath.isEmpty() || rightPath.isEmpty()) {
         showError(QStringLiteral("File exists only on one side:\n%1\n%2")

@@ -102,6 +102,11 @@ void DirDiffWidget::setupUi() {
     connect(m_view, &QTreeView::activated, this, &DirDiffWidget::onActivated);
 }
 
+void DirDiffWidget::setPaths(const QString& leftPath, const QString& rightPath) {
+    m_leftPathEdit->setText(leftPath);
+    m_rightPathEdit->setText(rightPath);
+}
+
 void DirDiffWidget::setDirectories(const QString& leftPath,
                                    const QString& rightPath) {
     m_leftPathEdit->setText(leftPath);

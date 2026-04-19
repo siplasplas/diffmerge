@@ -18,6 +18,9 @@ public:
 
     void setDirectories(const QString& leftPath, const QString& rightPath);
 
+    // Fill path edits without scanning (used for command-line pre-fill).
+    void setPaths(const QString& leftPath, const QString& rightPath);
+
     QString leftPath()  const { return m_leftPath; }
     QString rightPath() const { return m_rightPath; }
 
