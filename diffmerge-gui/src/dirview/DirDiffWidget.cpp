@@ -92,8 +92,8 @@ void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {
 
         // Indent name with non-breaking spaces to simulate tree depth
         const QString indent = QString(e.depth * 2, QChar(0x00A0));
-        const QString prefix = e.isDir ? QStringLiteral("\xF0\x9F\x93\x81 ")  // 📁
-                                       : QStringLiteral("    ");
+        const QString prefix = e.isDir ? QStringLiteral("\u25b8 ")  // ▸
+                                       : QStringLiteral("  ");
         const QString name   = indent + prefix + e.relativePath.section(
                                    QLatin1Char('/'), -1);
 
