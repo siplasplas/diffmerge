@@ -7,6 +7,20 @@ heuristics.
 
 The GUI currently provides read-only comparison. Editing and merging are planned.
 
+## License
+
+DiffMerge's own code, including its libraries, applications and examples, is
+licensed under the **GNU Lesser General Public License, version 3 only
+(LGPL-3.0-only)**. See [LICENSE](LICENSE) for the LGPL-3 additional permissions
+and [COPYING](COPYING) for the incorporated GPL-3 terms.
+
+Under section 6 of LGPL-3.0, Andrzej Borucki, or a person he publicly designates,
+is the proxy who may authorize a future LGPL version by a public statement.
+Future versions are not automatically allowed; an accepted version becomes an
+additional option, while LGPL-3.0 remains available. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and proxy policy.
+Third-party code and dependencies retain their respective licenses.
+
 ## Requirements
 
 - CMake 3.21 or newer.

@@ -62,3 +62,7 @@ write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/DiffMergeConfigVer
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/DiffMergeConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/DiffMergeConfigVersion.cmake"
     DESTINATION "${DIFFMERGE_PACKAGE_DIR}")
+
+# Ship the complete license terms and project policy with installed artifacts.
+install(FILES LICENSE COPYING CONTRIBUTING.md
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/DiffMerge)
