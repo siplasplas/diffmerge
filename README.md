@@ -18,6 +18,10 @@ Narzędzie do porównywania plików tekstowych. Składa się z:
 - CMake ≥ 3.21
 - Qt 6 (moduły Core, Gui, Widgets, Test)
 - Kompilator C++20 (GCC 10+, Clang 11+, MSVC 19.29+)
+- qcodeedit ≥ 1.6.0 dla GUI — CMake najpierw szuka zainstalowanego pakietu.
+  Jeśli go nie znajdzie, pobiera tag `v1.6.0` z
+  https://github.com/siplasplas/qcodeedit.git przez FetchContent (wymaga Git
+  i dostępu do sieci przy pierwszej konfiguracji).
 
 ### Linux (Ubuntu/Debian)
 ```bash
@@ -40,6 +44,11 @@ mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Debug ..
 cmake --build . -j
 ```
+
+Jeśli qcodeedit jest zainstalowane poza standardowymi ścieżkami, podaj
+`-DCMAKE_PREFIX_PATH=/ścieżka/do/instalacji` przy konfiguracji. Pobrana
+biblioteka jest budowana bez demo, testów i komponentów Kate. Budowanie
+z `-DDIFFMERGE_BUILD_GUI=OFF` nie wymaga qcodeedit.
 
 Powstanie:
 - `libdiffcore/libdiffcore.a` — biblioteka statyczna

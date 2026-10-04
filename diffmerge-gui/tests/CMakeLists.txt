@@ -1,5 +1,4 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
-find_package(qcodeedit 1.1 REQUIRED)
 
 # AlignedLineModel is a pure logic class; test it in isolation by
 # compiling the two source files we need directly into the test binary.

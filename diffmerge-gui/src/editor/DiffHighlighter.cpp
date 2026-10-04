@@ -12,7 +12,7 @@ void DiffHighlighter::setData(const QVector<QVector<CharRange>>& changedRanges,
 }
 
 qce::HighlightState DiffHighlighter::initialState() const {
-    return {{0}};  // line counter starts at 0
+    return {{0}, {QStringList{}}};  // line counter starts at 0, no captures
 }
 
 void DiffHighlighter::highlightLine(const QString& /*line*/,
@@ -22,7 +22,7 @@ void DiffHighlighter::highlightLine(const QString& /*line*/,
     spans.clear();
     const int lineNum = stateIn.contextStack.isEmpty()
                         ? 0 : stateIn.contextStack.first();
-    stateOut.contextStack = {lineNum + 1};
+    stateOut = {{lineNum + 1}, {QStringList{}}};
 
     if (lineNum < 0 || lineNum >= m_ranges.size()) return;
     for (const auto& cr : m_ranges[lineNum]) {
