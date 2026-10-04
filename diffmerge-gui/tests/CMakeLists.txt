@@ -1,95 +1,12 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
 
-add_executable(test_diff_editor
-    test_diff_editor.cpp
-    ../src/common/ColorScheme.cpp
-    ../src/editor/DiffEditor.cpp
-    ../src/editor/DiffHighlighter.cpp
-    ../src/fileview/AlignedLineModel.cpp
-    ../src/fileview/DiffConnectorSplitter.cpp
-    ../src/fileview/FileDiffWidget.cpp
-    ../src/fileview/ScrollSyncMapper.cpp
-    ../src/editor/IntraLineDiffEngine.cpp
-)
-target_link_libraries(test_diff_editor PRIVATE
-    diffcore::diffcore Qt6::Test Qt6::Widgets qcodeedit::qcodeedit
-)
-add_test(NAME test_diff_editor COMMAND test_diff_editor)
-set_tests_properties(test_diff_editor PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-)
+foreach(test IN ITEMS test_diff_editor test_aligned_model test_scroll_sync_mapper test_intra_line_diff)
+    add_executable(${test} ${test}.cpp)
+    target_link_libraries(${test} PRIVATE DiffMerge::Widgets Qt6::Test)
+    add_test(NAME ${test} COMMAND ${test})
+endforeach()
+# Connector geometry is an internal implementation detail tested here.
+set_tests_properties(test_diff_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# AlignedLineModel is a pure logic class; test it in isolation by
-# compiling the two source files we need directly into the test binary.
-add_executable(test_aligned_model
-    test_aligned_model.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/fileview/AlignedLineModel.cpp
-)
-
-target_include_directories(test_aligned_model PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
-
-target_link_libraries(test_aligned_model
-    PRIVATE
-        diffcore::diffcore
-        Qt6::Core
-        Qt6::Test
-)
-
-add_test(NAME test_aligned_model COMMAND test_aligned_model)
-
-add_executable(test_scroll_sync_mapper
-    test_scroll_sync_mapper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/fileview/ScrollSyncMapper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/fileview/AlignedLineModel.cpp
-)
-target_include_directories(test_scroll_sync_mapper PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
-target_link_libraries(test_scroll_sync_mapper
-    PRIVATE
-        diffcore::diffcore
-        Qt6::Core
-        Qt6::Test
-)
-add_test(NAME test_scroll_sync_mapper COMMAND test_scroll_sync_mapper)
-
-add_executable(test_intra_line_diff
-    test_intra_line_diff.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/editor/IntraLineDiffEngine.cpp
-)
-target_include_directories(test_intra_line_diff PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
-target_link_libraries(test_intra_line_diff
-    PRIVATE
-        diffcore::diffcore
-        Qt6::Core
-        Qt6::Test
-)
-add_test(NAME test_intra_line_diff COMMAND test_intra_line_diff)
-
-# screenshot_tool is a developer helper, not a test - it renders the
-# FileDiffWidget offscreen and saves a PNG.
-set(GUI_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-add_executable(screenshot_tool
-    screenshot_tool.cpp
-    ${GUI_SRC_DIR}/common/ColorScheme.cpp
-    ${GUI_SRC_DIR}/editor/DiffEditor.cpp
-    ${GUI_SRC_DIR}/editor/DiffHighlighter.cpp
-    ${GUI_SRC_DIR}/editor/IntraLineDiffEngine.cpp
-    ${GUI_SRC_DIR}/fileview/AlignedLineModel.cpp
-    ${GUI_SRC_DIR}/fileview/FileDiffWidget.cpp
-    ${GUI_SRC_DIR}/fileview/DiffConnectorSplitter.cpp
-    ${GUI_SRC_DIR}/fileview/ScrollSyncMapper.cpp
-)
-target_include_directories(screenshot_tool PRIVATE ${GUI_SRC_DIR})
-target_link_libraries(screenshot_tool
-    PRIVATE
-        diffcore::diffcore
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Widgets
-        qcodeedit::qcodeedit
-)
+add_executable(screenshot_tool screenshot_tool.cpp)
+target_link_libraries(screenshot_tool PRIVATE DiffMerge::Widgets)

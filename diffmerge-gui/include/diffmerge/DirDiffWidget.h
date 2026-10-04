@@ -2,7 +2,8 @@
 
 #include <QWidget>
 
-#include "DirDiffModel.h"
+#include <diffmerge/DirDiffModel.h>
+#include <diffmerge/AlignedLineModel.h>
 
 class QTreeView;
 class QStandardItemModel;
@@ -21,10 +22,14 @@ public:
     // Fill path edits without scanning (used for command-line pre-fill).
     void setPaths(const QString& leftPath, const QString& rightPath);
 
+    // Apply a host-selected path and rescan when both paths are present.
+    void setPath(Side side, const QString& path);
+
     QString leftPath()  const { return m_leftPath; }
     QString rightPath() const { return m_rightPath; }
 
 signals:
+    void directoryBrowseRequested(Side side, const QString& currentPath);
     void fileActivated(const QString& leftFilePath, const QString& rightFilePath);
     // Emitted after reload so MainWindow can update its title.
     void directoriesChanged(const QString& leftPath, const QString& rightPath);

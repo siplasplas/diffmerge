@@ -5,7 +5,7 @@
 
 #include <diffcore/DiffEngine.h>
 
-#include "../src/editor/IntraLineDiffEngine.h"
+#include <diffmerge/IntraLineDiffEngine.h>
 
 using namespace diffmerge::gui;
 using Range = IntraLineDiffEngine::CharRange;

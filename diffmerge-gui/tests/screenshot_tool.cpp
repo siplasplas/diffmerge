@@ -8,7 +8,7 @@
 #include <QTextStream>
 #include <QTimer>
 
-#include "../src/fileview/FileDiffWidget.h"
+#include <diffmerge/FileDiffWidget.h>
 
 static QStringList loadLines(const QString& path) {
     QStringList lines;

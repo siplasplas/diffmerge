@@ -1,4 +1,4 @@
-#include "ScrollSyncMapper.h"
+#include <diffmerge/ScrollSyncMapper.h>
 
 #include <cmath>
 

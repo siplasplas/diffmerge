@@ -18,7 +18,7 @@
 #include <qce/StyleSpan.h>
 #include <qce/TextAttribute.h>
 
-#include "IntraLineDiffEngine.h"
+#include <diffmerge/IntraLineDiffEngine.h>
 
 namespace diffmerge::gui {
 

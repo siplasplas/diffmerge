@@ -13,7 +13,9 @@ The GUI currently provides read-only comparison. Editing and merging are planned
 - A C++20 compiler.
 - Qt 6.2 or newer: Core for the library and CLI; Gui, Widgets and Svg for the GUI;
   Network for the corpus downloader; Test when building tests.
-- qcodeedit 1.6.0 or newer for the GUI. CMake first looks for an installed package.
+- qt-extra v2.3.0 for the desktop application, fetched from
+  https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
+- qcodeedit 1.6.0 or newer for the widgets and GUI. CMake first looks for an installed package.
   If none is compatible, FetchContent downloads tag `v1.6.0` from
   https://github.com/siplasplas/qcodeedit.git. This requires Git and network access
   on the first configuration.
@@ -29,13 +31,16 @@ cmake --build build --parallel
 
 For a qcodeedit installation outside standard search paths, add
 `-DCMAKE_PREFIX_PATH=/path/to/install` to the configuration command. The fetched
-library is built without its demo, tests or Kate components. Disabling the GUI
+library is built without its demo, tests or Kate components. Disabling both the GUI and widgets
 removes the qcodeedit dependency.
 
-All build options below default to `ON`:
+All build options below default to `ON` for a standalone build. When included
+with `add_subdirectory()`, only the core and widgets are enabled by default;
+applications, tools and tests stay disabled.
 
 | Option | Builds |
 | --- | --- |
+| `DIFFMERGE_BUILD_WIDGETS` | Embeddable Qt6 widgets library |
 | `DIFFMERGE_BUILD_GUI` | Desktop application |
 | `DIFFMERGE_BUILD_CLI` | Command-line file comparison |
 | `DIFFMERGE_BUILD_CORPUS_DL` | Corpus download and annotation tools |
@@ -46,7 +51,7 @@ For example, build only the core library and CLI, with tests:
 
 ```bash
 cmake -S . -B build-cli \
-  -DDIFFMERGE_BUILD_GUI=OFF \
+  -DDIFFMERGE_BUILD_GUI=OFF -DDIFFMERGE_BUILD_WIDGETS=OFF \
   -DDIFFMERGE_BUILD_CORPUS_DL=OFF \
   -DDIFFMERGE_BUILD_SLIDER_EVAL=OFF
 cmake --build build-cli --parallel
@@ -169,6 +174,92 @@ to enable the GUI's spacing-aware alignment without hiding differences. The
 library defaults to strict alignment; the GUI enables refinement by default.
 Refinement preserves matching anchors instead of applying slider heuristics.
 Its edit cost describes the resulting alignment and is not necessarily minimal.
+
+## Embedding in a Qt6 application
+
+The desktop executable and reusable widgets share the same implementation.
+Two static libraries are available; both propagate the C++20 requirement:
+
+| CMake target | Purpose | Dependencies |
+| --- | --- | --- |
+| `DiffMerge::Core` | Line and generic sequence diff algorithms | Qt6 Core |
+| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg, qcodeedit >= 1.6.0 |
+
+For a source dependency (including CMake FetchContent), use:
+
+```cmake
+add_subdirectory(external/diffmerge)
+target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
+```
+
+This builds the libraries without the standalone applications, tools or tests.
+To use only the core, set `DIFFMERGE_BUILD_WIDGETS=OFF` before adding the directory.
+The legacy source target `diffcore::diffcore` is also retained.
+
+For an installed package:
+
+```bash
+cmake -S . -B build-lib -DDIFFMERGE_BUILD_GUI=OFF \
+  -DDIFFMERGE_BUILD_CLI=OFF -DDIFFMERGE_BUILD_CORPUS_DL=OFF \
+  -DDIFFMERGE_BUILD_SLIDER_EVAL=OFF -DDIFFMERGE_BUILD_TESTS=OFF \
+  -DCMAKE_INSTALL_PREFIX=/path/to/install
+cmake --build build-lib --parallel
+cmake --install build-lib
+```
+
+The consuming project then uses:
+
+```cmake
+find_package(DiffMerge 0.1 CONFIG REQUIRED COMPONENTS Widgets)
+target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
+```
+
+Pass `-DCMAKE_PREFIX_PATH=/path/to/install` when configuring the consumer.
+`COMPONENTS Core` loads only the algorithm library and requires neither Widgets
+nor qcodeedit. With no components specified, all available libraries are loaded.
+If qcodeedit was fetched, its package is installed alongside DiffMerge; an
+existing qcodeedit installation remains an external dependency.
+
+Public widget headers live under `include/diffmerge/`. For example, a history
+viewer can feed revision contents directly, without temporary files:
+
+```cpp
+#include <diffmerge/FileDiffWidget.h>
+
+auto* diff = new diffmerge::gui::FileDiffWidget(parent);
+diff->setPathBarVisible(false);
+diff->setNavigationBarVisible(false); // The host can provide its own controls.
+diff->setContent(parentRevisionLines, selectedRevisionLines);
+```
+
+`setContent()` takes original lines without newline delimiters, copies the
+content, and computes the comparison synchronously on the GUI thread. The
+library installs no keyboard shortcuts; hosts call `navigateToNext()` and
+`navigateToPrev()` and choose their own keys. The desktop application and example
+bind F7 / Shift+F7 to the focused comparison. Folding is not enabled in the diff
+editors. To customize the editor
+colors, include `<diffmerge/DiffEditor.h>` and `<diffmerge/ColorScheme.h>` and
+use `leftEditor()` / `rightEditor()`. `DirDiffWidget::fileActivated` provides
+paths for connecting directory browsing to a file comparison. `loadFromPaths()`
+emits `loadFailed(message)` on read failure; hosts loading revision blobs should
+use `setContent()`. Browse buttons emit `fileBrowseRequested` or
+`directoryBrowseRequested`; the host opens its preferred picker and calls
+`setPath(side, path)`. The desktop application uses qt-extra dialogs, while the
+libraries require no qt-extra and open no file or error dialogs.
+
+A small history-viewer example is included (it displays sample revisions,
+without a Git dependency):
+
+```bash
+cmake -S examples/embedded-diff -B build-example \
+  -DCMAKE_PREFIX_PATH=/path/to/install
+cmake --build build-example --parallel
+./build-example/embedded-diff
+```
+
+Alternatively, pass `-DDIFFMERGE_SOURCE_DIR=/path/to/diffmerge` to build the example
+against a checkout. `QT_QPA_PLATFORM=offscreen ./build-example/embedded-diff --smoke`
+checks embedding and resource loading without opening a window.
 
 ## Tests
 

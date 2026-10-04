@@ -1,6 +1,5 @@
-#include "DirDiffWidget.h"
+#include <diffmerge/DirDiffWidget.h>
 
-#include <QFileDialog>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -10,6 +9,10 @@
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+static void initializeDiffMergeResources() {
+    Q_INIT_RESOURCE(diffmerge_widgets);
+}
 
 namespace diffmerge::gui {
 
@@ -40,6 +43,7 @@ QString labelForStatus(DirEntryStatus s) {
 }  // namespace
 
 DirDiffWidget::DirDiffWidget(QWidget* parent) : QWidget(parent) {
+    initializeDiffMergeResources();
     setupUi();
 }
 
@@ -125,21 +129,16 @@ void DirDiffWidget::reload() {
 }
 
 void DirDiffWidget::onBrowseLeft() {
-    const QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select left directory"), m_leftPathEdit->text());
-    if (!dir.isEmpty()) {
-        m_leftPathEdit->setText(dir);
-        reload();
-    }
+    emit directoryBrowseRequested(Side::Left, m_leftPathEdit->text());
 }
 
 void DirDiffWidget::onBrowseRight() {
-    const QString dir = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select right directory"), m_rightPathEdit->text());
-    if (!dir.isEmpty()) {
-        m_rightPathEdit->setText(dir);
-        reload();
-    }
+    emit directoryBrowseRequested(Side::Right, m_rightPathEdit->text());
+}
+
+void DirDiffWidget::setPath(Side side, const QString& path) {
+    (side == Side::Left ? m_leftPathEdit : m_rightPathEdit)->setText(path);
+    reload();
 }
 
 void DirDiffWidget::populate(const QVector<DirDiffEntry>& entries) {

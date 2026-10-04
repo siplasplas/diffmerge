@@ -1,4 +1,4 @@
-#include "ColorScheme.h"
+#include <diffmerge/ColorScheme.h>
 
 #include <QApplication>
 #include <QPalette>

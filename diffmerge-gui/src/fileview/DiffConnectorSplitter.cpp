@@ -7,8 +7,8 @@
 
 #include <qce/CodeEditArea.h>
 
-#include "AlignedLineModel.h"
-#include "../editor/DiffEditor.h"
+#include <diffmerge/AlignedLineModel.h>
+#include <diffmerge/DiffEditor.h>
 
 namespace diffmerge::gui {
 

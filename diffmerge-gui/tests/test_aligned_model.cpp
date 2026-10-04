@@ -7,7 +7,7 @@
 
 #include <diffcore/DiffEngine.h>
 
-#include "../src/fileview/AlignedLineModel.h"
+#include <diffmerge/AlignedLineModel.h>
 
 using namespace diffmerge::gui;
 using diffcore::ChangeType;

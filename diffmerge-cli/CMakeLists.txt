@@ -20,3 +20,5 @@ target_link_libraries(diffmerge
 if(DIFFMERGE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+install(TARGETS diffmerge RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

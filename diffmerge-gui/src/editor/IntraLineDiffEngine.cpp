@@ -1,4 +1,4 @@
-#include "IntraLineDiffEngine.h"
+#include <diffmerge/IntraLineDiffEngine.h>
 
 #include <algorithm>
 

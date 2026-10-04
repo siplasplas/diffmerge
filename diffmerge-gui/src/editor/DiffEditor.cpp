@@ -1,4 +1,6 @@
-#include "DiffEditor.h"
+#include <diffmerge/DiffEditor.h>
+
+#include "DiffHighlighter.h"
 
 #include <QFontDatabase>
 #include <QEvent>

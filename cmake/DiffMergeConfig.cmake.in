@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 6.2 COMPONENTS Core)
+include("${CMAKE_CURRENT_LIST_DIR}/DiffMergeCoreTargets.cmake")
+set(DiffMerge_Core_FOUND TRUE)
+
+set(DiffMerge_Widgets_FOUND FALSE)
+if(@DIFFMERGE_BUILD_WIDGETS@)
+    if(NOT DiffMerge_FIND_COMPONENTS OR "Widgets" IN_LIST DiffMerge_FIND_COMPONENTS)
+        find_dependency(Qt6 6.2 COMPONENTS Gui Widgets Svg)
+        if(NOT TARGET qcodeedit::qcodeedit)
+            find_dependency(qcodeedit 1.6.0 CONFIG)
+        endif()
+        include("${CMAKE_CURRENT_LIST_DIR}/DiffMergeWidgetsTargets.cmake")
+        set(DiffMerge_Widgets_FOUND TRUE)
+    endif()
+endif()
+check_required_components(DiffMerge)

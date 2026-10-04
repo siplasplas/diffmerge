@@ -1,4 +1,4 @@
-#include "DirDiffModel.h"
+#include <diffmerge/DirDiffModel.h>
 
 #include <QDir>
 #include <QFileInfo>

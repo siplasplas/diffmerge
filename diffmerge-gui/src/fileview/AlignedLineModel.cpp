@@ -1,4 +1,4 @@
-#include "AlignedLineModel.h"
+#include <diffmerge/AlignedLineModel.h>
 
 #include <QStringList>
 #include <algorithm>

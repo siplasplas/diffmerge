@@ -15,13 +15,13 @@
 #include <qce/SimpleTextDocument.h>
 #include <qce/margins/LineNumberGutter.h>
 
-#include "../common/ColorScheme.h"
-#include "../fileview/AlignedLineModel.h"
-#include "DiffHighlighter.h"
-#include "IntraLineDiffEngine.h"
+#include <diffmerge/ColorScheme.h>
+#include <diffmerge/AlignedLineModel.h>
+#include <diffmerge/IntraLineDiffEngine.h>
 
 namespace diffmerge::gui {
 
+class DiffHighlighter;
 class ChangeBoundaryOverlay;
 class DiffLineNumberGutter;
 

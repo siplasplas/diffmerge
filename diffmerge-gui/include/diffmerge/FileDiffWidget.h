@@ -11,8 +11,8 @@
 
 #include <diffcore/DiffTypes.h>
 
-#include "AlignedLineModel.h"
-#include "ScrollSyncMapper.h"
+#include <diffmerge/AlignedLineModel.h>
+#include <diffmerge/ScrollSyncMapper.h>
 
 namespace diffmerge::gui {
 
@@ -29,12 +29,19 @@ public:
                     const QStringList& rightLines,
                     const diffcore::DiffOptions& opts = {.alignWhitespaceChanges = true});
 
+    // Hide application controls when the host supplies its own toolbar.
+    void setPathBarVisible(bool visible);
+    void setNavigationBarVisible(bool visible);
+
     // Load files from disk, update path bar, and show diff.
-    // Returns false and shows an error if either file cannot be read.
+    // Returns false and emits loadFailed if either file cannot be read.
     bool loadFromPaths(const QString& leftPath, const QString& rightPath);
 
     // Fill path edits without loading (used for command-line pre-fill).
     void setPaths(const QString& leftPath, const QString& rightPath);
+
+    // Apply a host-selected path and reload when both paths are present.
+    void setPath(Side side, const QString& path);
 
     // Fraction of viewport height at which the sync line sits (0 < t < 1).
     void setSyncThreshold(double fraction);
@@ -52,6 +59,8 @@ public slots:
 
 signals:
     void backRequested();
+    void fileBrowseRequested(Side side, const QString& currentPath);
+    void loadFailed(const QString& message);
     // Emitted after a successful loadFromPaths so MainWindow can update title.
     void pathsChanged(const QString& leftPath, const QString& rightPath);
 
@@ -63,6 +72,8 @@ private:
     void onBrowseRight();
     void reloadFromPathBar();
 
+    QWidget* m_pathBar = nullptr;
+    QWidget* m_navigationBar = nullptr;
     DiffEditor*   m_leftEditor  = nullptr;
     DiffEditor*   m_rightEditor = nullptr;
     DiffConnectorSplitter* m_splitter = nullptr;

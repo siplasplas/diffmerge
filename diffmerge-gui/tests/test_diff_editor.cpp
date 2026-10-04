@@ -5,13 +5,16 @@
 #include <QTest>
 #include <QVBoxLayout>
 #include <QPalette>
+#include <QShortcut>
+#include <QSignalSpy>
+#include <QTemporaryDir>
 
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
 
-#include "../src/editor/DiffEditor.h"
+#include <diffmerge/DiffEditor.h>
 #include "../src/fileview/DiffConnectorSplitter.h"
-#include "../src/fileview/FileDiffWidget.h"
+#include <diffmerge/FileDiffWidget.h>
 
 using namespace diffmerge::gui;
 using diffcore::ChangeType;
@@ -43,6 +46,18 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void failedFileLoadReportsToHostWithoutOpeningADialog() {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        FileDiffWidget widget;
+        QSignalSpy errors(&widget, &FileDiffWidget::loadFailed);
+        QVERIFY(!widget.loadFromPaths(directory.filePath("missing-left"),
+                                      directory.filePath("missing-right")));
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(errors.first().first().toString().contains("missing-left"));
+        QVERIFY(widget.findChildren<QShortcut*>().isEmpty());
+    }
+
     void largeUnequalBlocksClipAtViewportEdges_data() {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<int>("scrollTop");
@@ -102,7 +117,7 @@ private slots:
         QCOMPARE(colorHeight(handle->grab().toImage(), x, scheme.replaceBg), 0);
     }
 
-    void navigationKeysKeepConnectorsOnSelectedBlocks() {
+    void navigationCommandsKeepConnectorsOnSelectedBlocks() {
         QStringList left;
         for (int i = 0; i < 80; ++i) left.append(QStringLiteral("common-%1").arg(i));
         QStringList right = left;
@@ -138,17 +153,18 @@ private slots:
             QVERIFY(y >= 0 && y < image.height());
             QCOMPARE(image.pixelColor(image.width() / 2, y), color);
         };
+        QVERIFY(widget.findChildren<QShortcut*>().isEmpty());
         const auto scheme = widget.leftEditor()->colorScheme();
-        QTest::keyClick(leftArea, Qt::Key_F7);
+        widget.navigateToNext();
         QApplication::processEvents();
         QCOMPARE(label->text(), QStringLiteral("1 / 3"));
         checkConnector(0, 1, 0, 1, scheme.replaceBg);
-        QTest::keyClick(leftArea, Qt::Key_F7);
+        widget.navigateToNext();
         QApplication::processEvents();
         QCOMPARE(label->text(), QStringLiteral("2 / 3"));
         QCOMPARE(leftArea->cursorPosition().line, 25);
         checkConnector(25, 0, 25, 2, scheme.insertBg);
-        QTest::keyClick(leftArea, Qt::Key_F7);
+        widget.navigateToNext();
         QApplication::processEvents();
         QCOMPARE(label->text(), QStringLiteral("3 / 3"));
         QCOMPARE(leftArea->cursorPosition().line, 50);
@@ -158,7 +174,7 @@ private slots:
         splitter->setSizes({350, 650});
         QApplication::processEvents();
         checkConnector(50, 1, 52, 1, scheme.replaceBg);
-        QTest::keyClick(leftArea, Qt::Key_F7, Qt::ShiftModifier);
+        widget.navigateToPrev();
         QApplication::processEvents();
         QCOMPARE(label->text(), QStringLiteral("2 / 3"));
         checkConnector(25, 0, 25, 2, scheme.insertBg);
@@ -166,7 +182,7 @@ private slots:
         // Moving the caret manually makes navigation relative to that pane.
         rightArea->setFocus();
         rightArea->setCursorPosition({40, 0});
-        QTest::keyClick(rightArea, Qt::Key_F7);
+        widget.navigateToNext();
         QApplication::processEvents();
         QCOMPARE(label->text(), QStringLiteral("3 / 3"));
     }

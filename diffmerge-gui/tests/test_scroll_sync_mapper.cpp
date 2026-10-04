@@ -5,8 +5,8 @@
 
 #include <diffcore/DiffEngine.h>
 
-#include "../src/fileview/AlignedLineModel.h"
-#include "../src/fileview/ScrollSyncMapper.h"
+#include <diffmerge/AlignedLineModel.h>
+#include <diffmerge/ScrollSyncMapper.h>
 
 using namespace diffmerge::gui;
 

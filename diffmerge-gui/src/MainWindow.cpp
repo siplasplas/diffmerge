@@ -1,11 +1,12 @@
 #include "MainWindow.h"
 
-#include <QFileDialog>
+#include <qxfiledialog.h>
+#include <QShortcut>
 #include <QMenuBar>
 #include <QMessageBox>
 
-#include "dirview/DirDiffWidget.h"
-#include "fileview/FileDiffWidget.h"
+#include <diffmerge/DirDiffWidget.h>
+#include <diffmerge/FileDiffWidget.h>
 
 namespace diffmerge::gui {
 
@@ -13,6 +14,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_stack      = new QStackedWidget(this);
     m_diffWidget = new FileDiffWidget(m_stack);
     m_dirWidget  = new DirDiffWidget(m_stack);
+
+    auto* next = new QShortcut(Qt::Key_F7, m_diffWidget);
+    next->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(next, &QShortcut::activated, m_diffWidget, &FileDiffWidget::navigateToNext);
+    auto* previous = new QShortcut(Qt::SHIFT | Qt::Key_F7, m_diffWidget);
+    previous->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(previous, &QShortcut::activated, m_diffWidget, &FileDiffWidget::navigateToPrev);
+    connect(m_diffWidget, &FileDiffWidget::loadFailed, this, &MainWindow::showError);
+    connect(m_diffWidget, &FileDiffWidget::fileBrowseRequested, this,
+        [this](Side side, const QString& currentPath) {
+            const auto path = QxFileDialog::getOpenFileName(this,
+                side == Side::Left ? QStringLiteral("Select left file")
+                                   : QStringLiteral("Select right file"), currentPath);
+            if (!path.isEmpty()) m_diffWidget->setPath(side, path);
+        });
+    connect(m_dirWidget, &DirDiffWidget::directoryBrowseRequested, this,
+        [this](Side side, const QString& currentPath) {
+            const auto path = QxFileDialog::getExistingDirectory(this,
+                side == Side::Left ? QStringLiteral("Select left directory")
+                                   : QStringLiteral("Select right directory"), currentPath);
+            if (!path.isEmpty()) m_dirWidget->setPath(side, path);
+        });
 
     m_stack->addWidget(m_dirWidget);
     m_stack->addWidget(m_diffWidget);
@@ -64,21 +87,21 @@ void MainWindow::showError(const QString& message) {
 }
 
 void MainWindow::onOpenFiles() {
-    const QString left = QFileDialog::getOpenFileName(
-        this, QStringLiteral("Select left file"));
+    const QString left = QxFileDialog::getOpenFileName(
+        this, QStringLiteral("Select left file"), {});
     if (left.isEmpty()) return;
-    const QString right = QFileDialog::getOpenFileName(
-        this, QStringLiteral("Select right file"));
+    const QString right = QxFileDialog::getOpenFileName(
+        this, QStringLiteral("Select right file"), {});
     if (right.isEmpty()) return;
     loadFiles(left, right);
 }
 
 void MainWindow::onOpenDirectories() {
-    const QString left = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select left directory"));
+    const QString left = QxFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select left directory"), {});
     if (left.isEmpty()) return;
-    const QString right = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("Select right directory"));
+    const QString right = QxFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select right directory"), {});
     if (right.isEmpty()) return;
     loadDirectories(left, right);
 }

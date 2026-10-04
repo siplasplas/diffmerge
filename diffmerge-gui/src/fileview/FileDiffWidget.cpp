@@ -1,14 +1,11 @@
-#include "FileDiffWidget.h"
+#include <diffmerge/FileDiffWidget.h>
 
 #include <QFile>
-#include <QFileDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QScrollBar>
 #include <QScopedValueRollback>
-#include <QShortcut>
 #include <QStyle>
 #include <QTextStream>
 #include <QVBoxLayout>
@@ -19,8 +16,8 @@
 #include <qce/CodeEditArea.h>
 #include <qce/ViewportState.h>
 
-#include "../editor/DiffEditor.h"
-#include "../editor/IntraLineDiffEngine.h"
+#include <diffmerge/DiffEditor.h>
+#include <diffmerge/IntraLineDiffEngine.h>
 #include "DiffConnectorSplitter.h"
 
 namespace diffmerge::gui {
@@ -35,6 +32,14 @@ FileDiffWidget::~FileDiffWidget() {
     delete m_splitter;
 }
 
+void FileDiffWidget::setPathBarVisible(bool visible) {
+    m_pathBar->setVisible(visible);
+}
+
+void FileDiffWidget::setNavigationBarVisible(bool visible) {
+    m_navigationBar->setVisible(visible);
+}
+
 void FileDiffWidget::setupUi() {
     auto* vLayout = new QVBoxLayout(this);
     vLayout->setContentsMargins(0, 0, 0, 0);
@@ -42,6 +47,7 @@ void FileDiffWidget::setupUi() {
 
     // Navigation bar
     auto* navBar    = new QWidget(this);
+    m_navigationBar = navBar;
     navBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* navLayout = new QHBoxLayout(navBar);
     navLayout->setContentsMargins(2, 2, 2, 2);
@@ -66,13 +72,13 @@ void FileDiffWidget::setupUi() {
 
     m_prevButton = new QToolButton(navBar);
     m_prevButton->setIcon(style()->standardIcon(QStyle::SP_ArrowUp));
-    m_prevButton->setToolTip(QStringLiteral("Previous change (Shift+F7)"));
+    m_prevButton->setToolTip(QStringLiteral("Previous change"));
     m_prevButton->setAutoRaise(true);
     navLayout->addWidget(m_prevButton);
 
     m_nextButton = new QToolButton(navBar);
     m_nextButton->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
-    m_nextButton->setToolTip(QStringLiteral("Next change (F7)"));
+    m_nextButton->setToolTip(QStringLiteral("Next change"));
     m_nextButton->setAutoRaise(true);
     navLayout->addWidget(m_nextButton);
 
@@ -87,14 +93,9 @@ void FileDiffWidget::setupUi() {
     connect(m_prevButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToPrev);
     connect(m_nextButton, &QToolButton::clicked, this, &FileDiffWidget::navigateToNext);
 
-    auto* nextShortcut = new QShortcut(Qt::Key_F7, this);
-    connect(nextShortcut, &QShortcut::activated, this, &FileDiffWidget::navigateToNext);
-
-    auto* prevShortcut = new QShortcut(Qt::ShiftModifier | Qt::Key_F7, this);
-    connect(prevShortcut, &QShortcut::activated, this, &FileDiffWidget::navigateToPrev);
-
     // Path bar
     auto* pathBar    = new QWidget(this);
+    m_pathBar = pathBar;
     pathBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* pathLayout = new QHBoxLayout(pathBar);
     pathLayout->setContentsMargins(4, 3, 4, 3);
@@ -255,7 +256,7 @@ void FileDiffWidget::navigateToHunk(int idx) {
     m_leftEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, leftDoc  - leftOffset));
     m_rightEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, rightDoc - rightOffset));
 
-    // Move caret to hunk start so next F7/Shift+F7 is relative to it
+    // Move caret to the selected change for subsequent host navigation.
     const int leftDocCount  = m_leftEditor->edit()->area()->document()->lineCount();
     const int rightDocCount = m_rightEditor->edit()->area()->document()->lineCount();
     m_leftEditor->edit()->area()->setCursorPosition(
@@ -289,8 +290,7 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     auto readFile = [&](const QString& path, QStringList& out) -> bool {
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QMessageBox::critical(this, QStringLiteral("Error"),
-                QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
+            emit loadFailed(QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
             return false;
         }
         QTextStream in(&f);
@@ -310,21 +310,16 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
 }
 
 void FileDiffWidget::onBrowseLeft() {
-    const QString path = QFileDialog::getOpenFileName(
-        this, QStringLiteral("Select left file"), m_leftPathEdit->text());
-    if (!path.isEmpty()) {
-        m_leftPathEdit->setText(path);
-        reloadFromPathBar();
-    }
+    emit fileBrowseRequested(Side::Left, m_leftPathEdit->text());
 }
 
 void FileDiffWidget::onBrowseRight() {
-    const QString path = QFileDialog::getOpenFileName(
-        this, QStringLiteral("Select right file"), m_rightPathEdit->text());
-    if (!path.isEmpty()) {
-        m_rightPathEdit->setText(path);
-        reloadFromPathBar();
-    }
+    emit fileBrowseRequested(Side::Right, m_rightPathEdit->text());
+}
+
+void FileDiffWidget::setPath(Side side, const QString& path) {
+    (side == Side::Left ? m_leftPathEdit : m_rightPathEdit)->setText(path);
+    reloadFromPathBar();
 }
 
 void FileDiffWidget::reloadFromPathBar() {

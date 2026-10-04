@@ -20,7 +20,7 @@
 
 #include <diffcore/DiffTypes.h>
 
-#include "AlignedLineModel.h"  // for Side enum
+#include <diffmerge/AlignedLineModel.h>  // for Side enum
 
 namespace diffmerge::gui {
 

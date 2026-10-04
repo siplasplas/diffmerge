@@ -20,51 +20,60 @@ else()
     message(STATUS "DiffMerge: using installed qcodeedit ${qcodeedit_VERSION}")
 endif()
 
-set(DIFFMERGE_GUI_SOURCES
-    src/main.cpp
-    src/MainWindow.h
-    src/MainWindow.cpp
-
-    src/common/ColorScheme.h
+set(DIFFMERGE_WIDGET_SOURCES
     src/common/ColorScheme.cpp
-
-    src/editor/DiffEditor.h
     src/editor/DiffEditor.cpp
     src/editor/DiffHighlighter.h
     src/editor/DiffHighlighter.cpp
-    src/editor/IntraLineDiffEngine.h
     src/editor/IntraLineDiffEngine.cpp
-
-    src/fileview/AlignedLineModel.h
     src/fileview/AlignedLineModel.cpp
-    src/fileview/FileDiffWidget.h
     src/fileview/FileDiffWidget.cpp
     src/fileview/DiffConnectorSplitter.h
     src/fileview/DiffConnectorSplitter.cpp
-    src/fileview/ScrollSyncMapper.h
     src/fileview/ScrollSyncMapper.cpp
-
-    src/dirview/DirDiffModel.h
     src/dirview/DirDiffModel.cpp
-    src/dirview/DirDiffWidget.h
     src/dirview/DirDiffWidget.cpp
+    include/diffmerge/ColorScheme.h
+    include/diffmerge/DiffEditor.h
+    include/diffmerge/IntraLineDiffEngine.h
+    include/diffmerge/AlignedLineModel.h
+    include/diffmerge/FileDiffWidget.h
+    include/diffmerge/ScrollSyncMapper.h
+    include/diffmerge/DirDiffModel.h
+    include/diffmerge/DirDiffWidget.h
 )
 
-qt_add_resources(DIFFMERGE_GUI_SOURCES res/resources.qrc)
+# Named resource and explicit initialization keep icons available in static consumers.
+qt_add_resources(DIFFMERGE_WIDGET_SOURCES res/diffmerge_widgets.qrc)
+add_library(diffmerge-widgets STATIC ${DIFFMERGE_WIDGET_SOURCES})
+add_library(DiffMerge::Widgets ALIAS diffmerge-widgets)
+set_target_properties(diffmerge-widgets PROPERTIES EXPORT_NAME Widgets POSITION_INDEPENDENT_CODE ON)
+target_compile_features(diffmerge-widgets PUBLIC cxx_std_20)
+target_include_directories(diffmerge-widgets PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(diffmerge-widgets PUBLIC
+    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg)
 
-add_executable(diffmerge-gui ${DIFFMERGE_GUI_SOURCES})
+if(DIFFMERGE_BUILD_GUI)
+    include(FetchContent)
+    set(QT_EXTRA_BUILD_DEMO OFF)
+    set(QT_VERSION_MAJOR 6)
+    FetchContent_Declare(qt_extra
+        GIT_REPOSITORY https://github.com/siplasplas/qt-extra.git
+        GIT_TAG v2.3.0
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(qt_extra)
+    add_executable(diffmerge-gui src/main.cpp src/MainWindow.cpp src/MainWindow.h)
+    target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra)
+    install(TARGETS diffmerge-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
-target_include_directories(diffmerge-gui PRIVATE src)
-
-target_link_libraries(diffmerge-gui
-    PRIVATE
-        diffcore::diffcore
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Svg
-        Qt6::Widgets
-        qcodeedit::qcodeedit
-)
+install(TARGETS diffmerge-widgets EXPORT DiffMergeWidgetsTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/diffmerge DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT DiffMergeWidgetsTargets NAMESPACE DiffMerge::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/DiffMerge)
 
 if(DIFFMERGE_BUILD_TESTS)
     add_subdirectory(tests)
