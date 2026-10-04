@@ -229,7 +229,7 @@ cmake --install build-lib
 The consuming project then uses:
 
 ```cmake
-find_package(DiffMerge 0.1 CONFIG REQUIRED COMPONENTS Widgets)
+find_package(DiffMerge 1.0 CONFIG REQUIRED COMPONENTS Widgets)
 target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
 ```
 
