@@ -641,6 +641,59 @@ private slots:
         QCOMPARE(label->text(), QStringLiteral("1 / 2"));
     }
 
+    // Projected views paint their gutter row by row. Unchanged rows keep the gutter background instead of the
+    // black of an invalid colour, folded rows take the placeholder colour, and the unified view marks old rows
+    // red and new rows green. Both editors used here have their gutter left of the text.
+    void projectedGuttersKeepTheirBackground() {
+        QStringList left, right;
+        for (int i = 0; i < 20; ++i) left.append(QStringLiteral("same %1").arg(i));
+        right = left;
+        left[10] = QStringLiteral("old line");
+        right[10] = QStringLiteral("new line");
+        const auto gutterRow = [](DiffEditor* editor, int row) {
+            const QImage image = editor->grab().toImage();
+            const qreal scale = image.devicePixelRatio();
+            const QPoint viewport = editor->edit()->area()->viewport()->mapTo(editor, QPoint());
+            const auto& vp = editor->edit()->area()->viewportState();
+            const int y = viewport.y() + vp.contentOffsetY + (row - vp.firstVisibleLine) * vp.lineHeight
+                        + vp.lineHeight / 2;
+            QVector<QColor> colors;
+            for (int x = 0; x < viewport.x(); ++x) colors.append(image.pixelColor(qRound(x * scale), qRound(y * scale)));
+            return colors;
+        };
+        const auto rowOf = [](DiffEditor* editor, auto matches) {
+            const auto& rows = editor->displayRows();
+            for (int i = 0; i < rows.size(); ++i) if (matches(rows[i])) return i;
+            return -1;
+        };
+        for (bool dark : {false, true}) {
+            const auto scheme = dark ? ColorScheme::darkDefault() : ColorScheme::lightDefault();
+            FileDiffWidget widget;
+            widget.resize(800, 400);
+            widget.setContent(left, right);
+            widget.setUnchangedLinesSkipped(true);
+            for (ViewMode mode : {ViewMode::Unified, ViewMode::SideBySide}) {
+                widget.setViewMode(mode);
+                DiffEditor* editor = mode == ViewMode::Unified ? widget.unifiedEditor() : widget.rightEditor();
+                editor->setColorScheme(scheme);
+                widget.show();
+                QApplication::processEvents();
+                const int equal = rowOf(editor, [](const ViewRow& r) { return !r.hiddenCount && r.type == ChangeType::Equal; });
+                const int folded = rowOf(editor, [](const ViewRow& r) { return r.hiddenCount > 0; });
+                QVERIFY(equal >= 0 && folded >= 0);
+                QVERIFY(!gutterRow(editor, equal).contains(QColor(Qt::black)));
+                QVERIFY(gutterRow(editor, equal).contains(scheme.gutterBg));
+                QVERIFY(gutterRow(editor, folded).contains(scheme.placeholderBg));
+                if (mode != ViewMode::Unified) continue;
+                const int removed = rowOf(editor, [](const ViewRow& r) { return r.type != ChangeType::Equal && r.rightLine < 0; });
+                const int added = rowOf(editor, [](const ViewRow& r) { return r.type != ChangeType::Equal && r.leftLine < 0; });
+                QVERIFY(removed >= 0 && added >= 0);
+                QVERIFY(gutterRow(editor, removed).contains(scheme.removedBg));
+                QVERIFY(gutterRow(editor, added).contains(scheme.addedBg));
+            }
+        }
+    }
+
     void systemPaletteChangesUpdateBlockAndConnectorColors() {
         struct PaletteRestore {
             QPalette saved = QApplication::palette();
