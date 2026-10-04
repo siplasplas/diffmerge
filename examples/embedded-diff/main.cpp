@@ -49,9 +49,9 @@ int main(int argc, char** argv) {
             const auto token = cancellation;
             const auto job = ++generation;
             using namespace diffmerge::gui;
-            const auto before = TextSnapshot::fromText("a:=2;\nfinish();\n", "Parent revision");
+            const auto before = TextSnapshot::fromText("a:=2;\nfinish();\n", "Parent revision", "sample.cpp");
             const auto after = selected == second
-                ? TextSnapshot::fromText("prepare();\na := 2;\nfinish();", "Selected revision") : before;
+                ? TextSnapshot::fromText("prepare();\na := 2;\nfinish();", "Selected revision", "sample.cpp") : before;
             auto* watcher = new QFutureWatcher<PrepareResult>(&window);
             QObject::connect(watcher, &QFutureWatcher<PrepareResult>::finished, diff, [&, watcher, job] {
                 const auto result = watcher->result();

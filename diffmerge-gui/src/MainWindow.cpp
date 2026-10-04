@@ -4,6 +4,10 @@
 #include <QShortcut>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSettings>
+#include <QStatusBar>
+#include <QTimer>
+#include <qce/kate/KateDataDownloader.h>
 
 #include <diffmerge/DirDiffWidget.h>
 #include <diffmerge/FileDiffWidget.h>
@@ -45,6 +49,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupMenus();
     resize(1200, 700);
     setWindowTitle(QStringLiteral("DiffMerge"));
+    QTimer::singleShot(0, this, &MainWindow::offerSyntaxDownload);
 
     connect(m_dirWidget, &DirDiffWidget::fileActivated,
             this, &MainWindow::onFileActivated);
@@ -80,6 +85,49 @@ void MainWindow::setupMenus() {
     auto* quitAction = fileMenu->addAction(QStringLiteral("&Quit"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
+
+    auto* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
+    auto* syntaxAction = toolsMenu->addAction(QStringLiteral("Update Syntax Definitions..."));
+    connect(syntaxAction, &QAction::triggered, this, &MainWindow::updateSyntaxData);
+}
+
+qce::kate::KateDataDownloader* MainWindow::syntaxDownloader() {
+    if (m_syntaxDownloader) return m_syntaxDownloader;
+    m_syntaxDownloader = new qce::kate::KateDataDownloader(this);
+    connect(m_syntaxDownloader, &qce::kate::KateDataDownloader::progress, this,
+        [this](int done, int total) {
+            statusBar()->showMessage(QStringLiteral("Downloading syntax definitions: %1/%2").arg(done).arg(total));
+        });
+    connect(m_syntaxDownloader, &qce::kate::KateDataDownloader::finished, this,
+        [this](bool ok, int downloaded, int failed) {
+            m_diffWidget->reloadSyntaxDefinitions();
+            statusBar()->showMessage(ok
+                ? QStringLiteral("Syntax definitions up to date (%1 files downloaded)").arg(downloaded)
+                : QStringLiteral("Syntax definitions incomplete: %1 downloaded, %2 failed").arg(downloaded).arg(failed), 8000);
+        });
+    return m_syntaxDownloader;
+}
+
+void MainWindow::offerSyntaxDownload() {
+    if (!syntaxDownloader()->mustDownload()) return;
+    QSettings settings;
+    if (settings.value(QStringLiteral("syntaxDownloadDeclined"), false).toBool()) return;
+    const auto answer = QMessageBox::question(this, QStringLiteral("Syntax Definitions"),
+        QStringLiteral("Download Kate syntax definitions %1 and color themes from kate-editor.org and invent.kde.org?\n\nThey will be stored in:\n%2")
+            .arg(qce::kate::supportedSyntaxVersion().toString(), syntaxDownloader()->dataDir()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (answer != QMessageBox::Yes) {
+        settings.setValue(QStringLiteral("syntaxDownloadDeclined"), true);
+        return;
+    }
+    updateSyntaxData();
+}
+
+void MainWindow::updateSyntaxData() {
+    QSettings().remove(QStringLiteral("syntaxDownloadDeclined"));
+    if (syntaxDownloader()->busy()) return;
+    statusBar()->showMessage(QStringLiteral("Downloading syntax definitions…"));
+    syntaxDownloader()->start();
 }
 
 void MainWindow::showError(const QString& message) {

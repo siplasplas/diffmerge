@@ -29,7 +29,8 @@ Third-party code and dependencies retain their respective licenses.
   Network for the corpus downloader; Test when building tests.
 - qt-extra v2.3.0 for the desktop application, fetched from
   https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
-- qcodeedit 1.6.0 or newer for the widgets and GUI. CMake first looks for an installed package.
+- qcodeedit and qcodeedit-kate 1.6.0 or newer for the widgets and GUI; the desktop
+  application also uses qcodeedit-katedata (Qt6 Network). CMake first looks for installed packages.
   If none is compatible, FetchContent downloads tag `v1.6.0` from
   https://github.com/siplasplas/qcodeedit.git. This requires Git and network access
   on the first configuration.
@@ -45,7 +46,10 @@ cmake --build build --parallel
 
 For a qcodeedit installation outside standard search paths, add
 `-DCMAKE_PREFIX_PATH=/path/to/install` to the configuration command. The fetched
-library is built without its demo, tests or Kate components. Disabling both the GUI and widgets
+library is built without its demo or tests, with the Kate XML companion enabled.
+The Kate downloader and Qt6 Network are needed only by the desktop application.
+Missing companions are fetched even when the core editor is already installed.
+Disabling both the GUI and widgets
 removes the qcodeedit dependency.
 
 All build options below default to `ON` for a standalone build. When included
@@ -129,6 +133,44 @@ Directory comparison shows a tree with `same`, `different`, `only left` and
 Activate a file present on both sides to open its text comparison; use
 **Directories** to return to the tree.
 
+### Syntax highlighting
+
+File comparisons select Kate XML syntax definitions independently for each side
+using the file name. Syntax foreground colors and font styles remain visible over
+the existing diff block and character backgrounds. Comments and strings retain
+their syntax state across original document lines. Colors adapt to the light or
+dark diff scheme. Folding stays disabled, including syntax fold markers.
+
+The desktop application checks qcodeedit's shared Kate data at startup using the
+local manifests and XML/theme files. If data is missing or incomplete, it offers
+to download the supported Kate definitions and themes from kate-editor.org and
+invent.kde.org. Downloads are asynchronous, with status-bar progress; open
+comparisons refresh afterward. A declined offer is remembered. **Tools > Update
+Syntax Definitions...** retries the download even after a previous refusal.
+Without definitions or when offline, comparison and diff highlighting still work.
+
+The data directory is supplied by qcodeedit (`qce::kate::dataDir()`), normally
+`~/.local/share/qcodeedit/kate-<major>.<minor>/` on Linux, with XML files in `syntax/`.
+`QCE_KATE_DATA_DIR` selects an alternate directory. The widgets only read local
+syntax data: they do not download, write the index, ask questions or add Qt Network
+to an embedding application. Hosts manage updates and call
+`FileDiffWidget::reloadSyntaxDefinitions()` when local definitions change.
+
+For in-memory comparisons, `TextSnapshot::fileName` is an optional syntax hint,
+separate from the arbitrary display label:
+
+```cpp
+auto snapshot = diffmerge::gui::TextSnapshot::fromText(
+    sourceText, "Selected revision", "src/example.cpp");
+```
+
+`loadFromPaths()` supplies the real file names automatically. With `setContent()`,
+call `setSyntaxFileName(Side::Left, "example.cpp")` and the equivalent for the
+right side afterward. Replacing or clearing the comparison resets its syntax hints
+from the new snapshots. An unknown file name or absent XML uses plain text plus
+diff colors. XML loading and editor syntax highlighting happen on the GUI thread;
+worker comparison preparation stays independent of syntax data and GUI resources.
+
 ### Current limitations
 
 - Files cannot be edited and changes cannot be applied between panes.
@@ -202,7 +244,7 @@ Two static libraries are available; both propagate the C++20 requirement:
 | CMake target | Purpose | Dependencies |
 | --- | --- | --- |
 | `DiffMerge::Core` | Line and generic sequence diff algorithms | Qt6 Core |
-| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg, qcodeedit >= 1.6.0 |
+| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg, qcodeedit + qcodeedit-kate >= 1.6.0 |
 
 For a source dependency (including CMake FetchContent), use:
 
@@ -229,7 +271,7 @@ cmake --install build-lib
 The consuming project then uses:
 
 ```cmake
-find_package(DiffMerge 1.0 CONFIG REQUIRED COMPONENTS Widgets)
+find_package(DiffMerge 1.1 CONFIG REQUIRED COMPONENTS Widgets)
 target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
 ```
 
@@ -327,9 +369,10 @@ covers the requested lines, or the EOF boundary, until cleared or replaced.
 
 Snapshots omit line terminators but retain per-line LF/CRLF/CR metadata and optional
 final-newline state. `fromText("")` is an empty file; `fromText("\n")` contains one
-empty terminated line. Legacy `QStringList` input has unknown metadata. Side labels,
-line endings and missing final newline appear in a separate plain-text status row,
-without synthetic content. End-of-line differences do not create textual change
+empty terminated line. Legacy `QStringList` input has unknown metadata. Labels,
+line endings and final-newline state remain available through the snapshot API;
+the comparison widget does not display a metadata row or insert synthetic content.
+End-of-line differences do not create textual change
 blocks. Binary detection, decoding, repository access and revision identity belong
 to the host.
 

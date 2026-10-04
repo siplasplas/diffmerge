@@ -4,6 +4,8 @@
 #include <QMainWindow>
 #include <QStackedWidget>
 
+namespace qce::kate { class KateDataDownloader; }
+
 namespace diffmerge::gui {
 
 class FileDiffWidget;
@@ -30,7 +32,11 @@ private slots:
 private:
     void setupMenus();
     void showError(const QString& message);
+    void offerSyntaxDownload();
+    void updateSyntaxData();
+    qce::kate::KateDataDownloader* syntaxDownloader();
 
+    qce::kate::KateDataDownloader* m_syntaxDownloader = nullptr;
     QStackedWidget* m_stack      = nullptr;
     FileDiffWidget* m_diffWidget = nullptr;
     DirDiffWidget*  m_dirWidget  = nullptr;

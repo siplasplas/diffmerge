@@ -1,6 +1,7 @@
 #include <diffmerge/DiffEditor.h>
 
 #include "DiffHighlighter.h"
+#include "SyntaxLoader.h"
 
 #include <QFontDatabase>
 #include <QEvent>
@@ -134,6 +135,7 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     m_edit->setDocument(m_doc);
     m_edit->area()->setReadOnly(true);
     m_edit->area()->setWordWrap(false);
+    m_edit->area()->setFoldingProvider(nullptr);
     m_boundaries = new ChangeBoundaryOverlay(m_edit->area(), m_side);
 
     const QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -193,13 +195,29 @@ void DiffEditor::setRevealOverlay(std::optional<diffcore::LineRange> range, cons
     m_boundaries->setRevealOverlay(range, boundaries);
 }
 
+void DiffEditor::setSyntaxFileName(const QString& fileName) {
+    if (m_syntaxFileName == fileName) return;
+    m_syntaxFileName = fileName;
+    reloadSyntaxDefinitions();
+}
+
+void DiffEditor::reloadSyntaxDefinitions() {
+    if (!m_highlighter) m_highlighter = std::make_unique<DiffHighlighter>();
+    // Detach the old palette before replacing its owned syntax rules.
+    m_edit->area()->setHighlighter(nullptr);
+    m_highlighter->setSyntax(loadSyntax(m_syntaxFileName, m_scheme.darkTheme, m_syntaxLanguage));
+    applyHighlighter();
+}
+
 void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_followSystemPalette = false;
     applyColorScheme(scheme);
 }
 
 void DiffEditor::applyColorScheme(const ColorScheme& scheme) {
+    const bool syntaxThemeChanged = m_scheme.darkTheme != scheme.darkTheme;
     m_scheme = scheme;
+    if (syntaxThemeChanged) reloadSyntaxDefinitions();
     m_lineNumbers->setData(m_model, m_scheme);
     if (m_highlighter) {
         m_highlighter->setData(m_intraLineDiffs, scheme.replaceCharBg);
@@ -235,7 +253,7 @@ void DiffEditor::applyHighlighter() {
         m_intraLineDiffs.begin(), m_intraLineDiffs.end(),
         [](const QVector<IntraLineDiffEngine::CharRange>& v) { return !v.isEmpty(); });
 
-    if (!hasAny) {
+    if (!hasAny && (!m_highlighter || !m_highlighter->hasSyntax())) {
         m_edit->area()->setHighlighter(nullptr);
         m_highlighter.reset();
         return;

@@ -174,9 +174,9 @@ private slots:
         const auto cancelled = prepareComparison({}, {}, {}, token);
         QCOMPARE(cancelled.status, PreparationStatus::Cancelled);
         QVERIFY(!cancelled.comparison);
-        for (auto malformed : {TextSnapshot{{"embedded\nnewline"}, {}, {}, {}},
-                               TextSnapshot{{}, true, {}, {}},
-                               TextSnapshot{{"x"}, false, {LineEnding::LF}, {}}}) {
+        for (auto malformed : {TextSnapshot{{"embedded\nnewline"}, {}, {}, {}, {}},
+                               TextSnapshot{{}, true, {}, {}, {}},
+                               TextSnapshot{{"x"}, false, {LineEnding::LF}, {}, {}}}) {
             const auto result = prepareComparison(malformed, {});
             QCOMPARE(result.status, PreparationStatus::Error);
             QVERIFY(!result.comparison);
@@ -277,15 +277,16 @@ private slots:
         widget.setComparison(result.comparison);
         QVERIFY(widget.revealText(Side::Left, {0, 3, 1}));
         QVERIFY(!widget.revealText(Side::Left, {0, 4, 1}));
-        auto* metadata = widget.findChild<QLabel*>("diffTextMetadata");
-        QVERIFY(metadata);
-        QVERIFY(metadata->text().contains("parent"));
-        QVERIFY(metadata->text().contains("No final newline"));
-        QVERIFY(metadata->text().contains("CRLF"));
+        QVERIFY(!widget.findChild<QLabel*>("diffTextMetadata"));
+        const auto& leftSnapshot = widget.comparison()->snapshot(Side::Left);
+        const auto& rightSnapshot = widget.comparison()->snapshot(Side::Right);
+        QCOMPARE(leftSnapshot.label, QString("parent"));
+        QCOMPARE(leftSnapshot.finalNewline, std::optional<bool>(false));
+        QCOMPARE(rightSnapshot.lineEndings, QVector<LineEnding>{LineEnding::CRLF});
         QCOMPARE(widget.leftEditor()->edit()->document()->lineCount(), 1);
         QCOMPARE(widget.rightEditor()->edit()->document()->lineCount(), 1);
         widget.clearComparison();
-        QVERIFY(metadata->isHidden());
+        QVERIFY(!widget.comparison());
     }
 
     void failedFileLoadReportsToHostWithoutOpeningADialog() {

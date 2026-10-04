@@ -2,7 +2,7 @@
 //   - Scrollbar on outer edge (Left pane: left; Right pane: right)
 //   - LineNumberGutter on inner edge (Left pane: right rail; Right pane: left rail)
 //   - Per-line background colors via setLineBackgroundProvider
-//   - DiffHighlighter for character-level highlighting within Replace lines
+//   - Kate syntax colors composed with character-level diff backgrounds
 
 #ifndef DIFFMERGE_GUI_DIFFEDITOR_H
 #define DIFFMERGE_GUI_DIFFEDITOR_H
@@ -35,6 +35,11 @@ public:
     void setAlignedModel(const AlignedLineModel* model);
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
     void setColorScheme(const ColorScheme& scheme);
+    // GUI-thread only. The file name selects installed Kate XML rules.
+    void setSyntaxFileName(const QString& fileName);
+    QString syntaxFileName() const { return m_syntaxFileName; }
+    QString syntaxLanguage() const { return m_syntaxLanguage; }
+    void reloadSyntaxDefinitions();
     // Transient overlays, separate from comparison colors.
     void setRevealOverlay(std::optional<diffcore::LineRange> range,
                           const QVector<int>& searchBoundaries = {});
@@ -54,6 +59,8 @@ private:
     void applyHighlighter();
     void applyColorScheme(const ColorScheme& scheme);
 
+    QString m_syntaxFileName;
+    QString m_syntaxLanguage;
     Side m_side;
     ColorScheme m_scheme;
     bool m_followSystemPalette = true;

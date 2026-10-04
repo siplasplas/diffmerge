@@ -123,12 +123,6 @@ void FileDiffWidget::setupUi() {
     pathLayout->addWidget(m_rightBrowse);
 
     vLayout->addWidget(pathBar);
-    m_metadataLabel = new QLabel(this);
-    m_metadataLabel->setObjectName(QStringLiteral("diffTextMetadata"));
-    m_metadataLabel->setTextFormat(Qt::PlainText);
-    m_metadataLabel->setMargin(4);
-    m_metadataLabel->hide();
-    vLayout->addWidget(m_metadataLabel);
 
     connect(m_leftBrowse,    &QToolButton::clicked,      this, &FileDiffWidget::onBrowseLeft);
     connect(m_rightBrowse,   &QToolButton::clicked,      this, &FileDiffWidget::onBrowseRight);
@@ -139,7 +133,7 @@ void FileDiffWidget::setupUi() {
     m_leftEditor  = new DiffEditor(Side::Left);
     m_rightEditor = new DiffEditor(Side::Right);
     m_splitter = new DiffConnectorSplitter(m_leftEditor, m_rightEditor, m_model, this);
-    vLayout->addWidget(m_splitter);
+    vLayout->addWidget(m_splitter, 1);
 
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
@@ -214,10 +208,11 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
         m_leftEditor->setIntraLineDiffs(m_comparison->highlights().leftRanges);
         m_rightEditor->setIntraLineDiffs(m_comparison->highlights().rightRanges);
     }
+    m_leftEditor->setSyntaxFileName(m_comparison ? m_comparison->snapshot(Side::Left).fileName : QString{});
+    m_rightEditor->setSyntaxFileName(m_comparison ? m_comparison->snapshot(Side::Right).fileName : QString{});
     m_splitter->setModel(m_model);
     m_currentHunk = -1;
     m_navigationSide = Side::Left;
-    updateMetadataLabel();
     updateNavLabel();
     m_installationTime = std::chrono::steady_clock::now() - start;
     emit comparisonChanged(changeCount());
@@ -389,6 +384,15 @@ void FileDiffWidget::clearSearchHighlights() {
     refreshSearchHighlights();
 }
 
+void FileDiffWidget::setSyntaxFileName(Side side, const QString& fileName) {
+    (side == Side::Left ? m_leftEditor : m_rightEditor)->setSyntaxFileName(fileName);
+}
+
+void FileDiffWidget::reloadSyntaxDefinitions() {
+    m_leftEditor->reloadSyntaxDefinitions();
+    m_rightEditor->reloadSyntaxDefinitions();
+}
+
 void FileDiffWidget::refreshSearchHighlights() {
     for (Side side : {Side::Left, Side::Right}) {
         auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
@@ -410,31 +414,6 @@ void FileDiffWidget::refreshSearchHighlights() {
     }
 }
 
-void FileDiffWidget::updateMetadataLabel() {
-    QStringList descriptions;
-    if (m_comparison) for (Side side : {Side::Left, Side::Right}) {
-        const auto& snapshot = m_comparison->snapshot(side);
-        QStringList parts;
-        if (!snapshot.label.isEmpty()) parts.append(snapshot.label);
-        if (snapshot.finalNewline) {
-            if (snapshot.lines.isEmpty()) parts.append(QStringLiteral("Empty file"));
-            else parts.append(*snapshot.finalNewline ? QStringLiteral("Final newline") : QStringLiteral("No final newline"));
-        }
-        QStringList endings;
-        for (auto ending : snapshot.lineEndings) {
-            QString name;
-            if (ending == LineEnding::LF) name = "LF";
-            else if (ending == LineEnding::CRLF) name = "CRLF";
-            else if (ending == LineEnding::CR) name = "CR";
-            if (!name.isEmpty() && !endings.contains(name)) endings.append(name);
-        }
-        if (!endings.isEmpty()) parts.append(endings.join('/'));
-        if (!parts.isEmpty()) descriptions.append((side == Side::Left ? QStringLiteral("Left: ") : QStringLiteral("Right: ")) + parts.join(" — "));
-    }
-    m_metadataLabel->setText(descriptions.join("    |    "));
-    m_metadataLabel->setVisible(!descriptions.isEmpty());
-}
-
 void FileDiffWidget::setPaths(const QString& leftPath, const QString& rightPath) {
     m_leftPathEdit->setText(leftPath);
     m_rightPathEdit->setText(rightPath);
@@ -450,7 +429,7 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
         }
         QTextStream in(&f);
         try {
-            out = TextSnapshot::fromText(in.readAll(), path);
+            out = TextSnapshot::fromText(in.readAll(), path, path);
             return true;
         } catch (const std::exception& error) {
             emit loadFailed(QString::fromUtf8(error.what()));

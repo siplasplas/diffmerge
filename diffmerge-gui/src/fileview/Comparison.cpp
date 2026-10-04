@@ -5,10 +5,11 @@
 
 namespace diffmerge::gui {
 
-TextSnapshot TextSnapshot::fromText(const QString& text, const QString& label) {
+TextSnapshot TextSnapshot::fromText(const QString& text, const QString& label, const QString& fileName) {
     if (text.size() > INT_MAX - 3) throw std::length_error("Text exceeds integer coordinates");
     TextSnapshot snapshot;
     snapshot.label = label;
+    snapshot.fileName = fileName;
     snapshot.finalNewline = false;
     int start = 0;
     for (int i = 0; i < text.size(); ++i) {

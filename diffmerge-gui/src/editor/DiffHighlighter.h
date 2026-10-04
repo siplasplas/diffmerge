@@ -1,15 +1,11 @@
-// DiffHighlighter highlights character-level changes within Replace lines.
-//
-// Implements qce::IHighlighter.  Uses HighlightState.contextStack[0] as a
-// line counter (incremented on every call to highlightLine) so we know which
-// doc line we are rendering without needing a separate line-index parameter.
-//
-// For each doc line, StyleSpans are emitted for every changed CharRange with
-// the configured "strong" background color (replaceCharBg from ColorScheme).
+// Compose syntax foreground/font styles with character-diff backgrounds.
+// The final state stack entry holds the original document line number;
+// preceding entries retain the complete syntax context and captures.
 
 #ifndef DIFFMERGE_GUI_DIFFHIGHLIGHTER_H
 #define DIFFMERGE_GUI_DIFFHIGHLIGHTER_H
 
+#include <memory>
 #include <QColor>
 #include <QVector>
 
@@ -33,6 +29,9 @@ public:
     void setData(const QVector<QVector<CharRange>>& changedRanges,
                  const QColor& strongBg);
 
+    void setSyntax(std::unique_ptr<qce::IHighlighter> syntax);
+    bool hasSyntax() const { return bool(m_syntax); }
+
     // qce::IHighlighter
     qce::HighlightState initialState() const override;
     void highlightLine(const QString& line,
@@ -42,8 +41,12 @@ public:
     const QVector<qce::TextAttribute>& attributes() const override;
 
 private:
+    void rebuildAttributes();
+    std::unique_ptr<qce::IHighlighter> m_syntax;
+    QColor m_strongBg;
+    int m_syntaxAttributeCount = 0;
     QVector<QVector<CharRange>>  m_ranges;
-    QVector<qce::TextAttribute>  m_attrs;   // index 0 = strong background
+    QVector<qce::TextAttribute>  m_attrs;   // Syntax, plain diff, then syntax with diff backgrounds.
 };
 
 }  // namespace diffmerge::gui

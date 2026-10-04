@@ -1,12 +1,18 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
 
-foreach(test IN ITEMS test_diff_editor test_aligned_model test_scroll_sync_mapper test_intra_line_diff)
+foreach(test IN ITEMS test_diff_editor test_aligned_model test_scroll_sync_mapper test_intra_line_diff test_syntax_highlighting)
     add_executable(${test} ${test}.cpp)
     target_link_libraries(${test} PRIVATE DiffMerge::Widgets Qt6::Test)
     add_test(NAME ${test} COMMAND ${test})
 endforeach()
 # Connector geometry is an internal implementation detail tested here.
-set_tests_properties(test_diff_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+target_link_libraries(test_syntax_highlighting PRIVATE qcodeedit::kate)
+if(DIFFMERGE_BUILD_GUI)
+    target_sources(test_syntax_highlighting PRIVATE ../src/MainWindow.cpp ../src/MainWindow.h)
+    target_link_libraries(test_syntax_highlighting PRIVATE qt-extra qcodeedit::katedata)
+    target_compile_definitions(test_syntax_highlighting PRIVATE DIFFMERGE_TEST_SYNTAX_STARTUP)
+endif()
+set_tests_properties(test_diff_editor test_syntax_highlighting PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(screenshot_tool screenshot_tool.cpp)
 target_link_libraries(screenshot_tool PRIVATE DiffMerge::Widgets)

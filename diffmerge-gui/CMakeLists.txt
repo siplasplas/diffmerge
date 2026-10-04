@@ -1,23 +1,51 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg)
 find_package(qcodeedit 1.6.0 CONFIG QUIET)
-if(NOT qcodeedit_FOUND)
-    include(FetchContent)
+if(qcodeedit_FOUND)
+    find_package(qcodeedit-kate 1.6.0 CONFIG QUIET)
+    if(DIFFMERGE_BUILD_GUI AND TARGET qcodeedit::kate)
+        find_package(qcodeedit-katedata 1.6.0 CONFIG QUIET)
+    endif()
+endif()
 
-    # Only the editor library is needed by DiffMerge.
+if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR
+   (DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata))
+    include(FetchContent)
     set(QCE_BUILD_DEMO OFF)
     set(QCE_BUILD_TESTS OFF)
-    set(QCE_BUILD_KATE OFF)
-    set(QCE_BUILD_KATE_DOWNLOADER OFF)
+    set(QCE_BUILD_KATE ON)
+    set(QCE_BUILD_KATE_DOWNLOADER ${DIFFMERGE_BUILD_GUI})
 
+    # An installed core can coexist with companions built from the same release.
+    if(TARGET qcodeedit::qcodeedit)
+        set(_qce_source_subdir SOURCE_SUBDIR diffmerge-companions-only)
+    else()
+        set(_qce_source_subdir)
+    endif()
     FetchContent_Declare(qcodeedit
         GIT_REPOSITORY https://github.com/siplasplas/qcodeedit.git
         GIT_TAG v1.6.0
         GIT_SHALLOW TRUE
+        ${_qce_source_subdir}
     )
     FetchContent_MakeAvailable(qcodeedit)
-    message(STATUS "DiffMerge: using fetched qcodeedit v1.6.0")
+    if(NOT TARGET qcodeedit::kate OR (DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata))
+        # The companion install templates are relative to the upstream project.
+        function(diffmerge_add_qce_companions)
+            set(PROJECT_SOURCE_DIR "${qcodeedit_SOURCE_DIR}")
+            set(PROJECT_VERSION 1.6.0)
+            if(NOT TARGET qcodeedit::kate)
+                add_subdirectory("${qcodeedit_SOURCE_DIR}/kate" "${qcodeedit_BINARY_DIR}/kate")
+            endif()
+            if(DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata)
+                find_package(Qt6 6.2 REQUIRED COMPONENTS Network)
+                add_subdirectory("${qcodeedit_SOURCE_DIR}/katedata" "${qcodeedit_BINARY_DIR}/katedata")
+            endif()
+        endfunction()
+        diffmerge_add_qce_companions()
+    endif()
+    message(STATUS "DiffMerge: using fetched qcodeedit components v1.6.0")
 else()
-    message(STATUS "DiffMerge: using installed qcodeedit ${qcodeedit_VERSION}")
+    message(STATUS "DiffMerge: using installed qcodeedit ${qcodeedit_VERSION} with Kate support")
 endif()
 
 set(DIFFMERGE_WIDGET_SOURCES
@@ -25,6 +53,8 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/DiffEditor.cpp
     src/editor/DiffHighlighter.h
     src/editor/DiffHighlighter.cpp
+    src/editor/SyntaxLoader.h
+    src/editor/SyntaxLoader.cpp
     src/editor/IntraLineDiffEngine.cpp
     src/fileview/Comparison.cpp
     src/fileview/AlignedLineModel.cpp
@@ -55,7 +85,7 @@ target_include_directories(diffmerge-widgets PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(diffmerge-widgets PUBLIC
-    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg)
+    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg qcodeedit::kate)
 
 if(DIFFMERGE_BUILD_GUI)
     include(FetchContent)
@@ -67,7 +97,7 @@ if(DIFFMERGE_BUILD_GUI)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(qt_extra)
     add_executable(diffmerge-gui src/main.cpp src/MainWindow.cpp src/MainWindow.h)
-    target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra)
+    target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra qcodeedit::katedata)
     install(TARGETS diffmerge-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 

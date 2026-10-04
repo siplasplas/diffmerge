@@ -21,7 +21,9 @@ struct TextSnapshot {
     std::optional<bool> finalNewline;
     QVector<LineEnding> lineEndings; // Empty = unknown, otherwise one per line.
     QString label; // Arbitrary host text; no path or revision interpretation.
-    static TextSnapshot fromText(const QString& text, const QString& label = {});
+    QString fileName; // Optional syntax hint, independent of the display label.
+    static TextSnapshot fromText(const QString& text, const QString& label = {},
+                                 const QString& fileName = {});
 };
 
 struct PreparationLimits {

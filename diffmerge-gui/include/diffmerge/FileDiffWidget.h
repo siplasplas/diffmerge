@@ -43,6 +43,9 @@ public:
     bool revealText(Side side, TextRange range, bool emphasize = false);
     bool setSearchHighlights(Side side, const QVector<TextRange>& ranges);
     void clearSearchHighlights();
+    // For in-memory content without snapshot file names. No file is opened.
+    void setSyntaxFileName(Side side, const QString& fileName);
+    void reloadSyntaxDefinitions();
     bool navigateToChange(int index);
     int changeCount() const;
     int currentChangeIndex() const { return m_currentHunk; } // -1 = no selection.
@@ -89,14 +92,12 @@ private:
     void setupUi();
     void navigateToHunk(int idx);
     void updateNavLabel();
-    void updateMetadataLabel();
     void refreshSearchHighlights();
     bool validTextRange(Side side, TextRange range) const;
     void onBrowseLeft();
     void onBrowseRight();
     void reloadFromPathBar();
 
-    QLabel* m_metadataLabel = nullptr;
     QVector<TextRange> m_leftSearch, m_rightSearch;
     std::optional<std::pair<Side, diffcore::LineRange>> m_emphasis;
     QWidget* m_pathBar = nullptr;
