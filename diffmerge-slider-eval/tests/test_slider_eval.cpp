@@ -52,7 +52,7 @@ private slots:
 
     void loadCsvFile_parsesMultipleLines() {
         QTemporaryFile f;
-        f.open();
+        QVERIFY2(f.open(), qPrintable(f.errorString()));
         QTextStream s(&f);
         s << "aaa111,+ 10 0\n";
         s << "bbb222,- 20 -1,+ 30 2\n";
