@@ -27,7 +27,7 @@ public:
 
     void setContent(const QStringList& leftLines,
                     const QStringList& rightLines,
-                    const diffcore::DiffOptions& opts = {});
+                    const diffcore::DiffOptions& opts = {.alignWhitespaceChanges = true});
 
     // Load files from disk, update path bar, and show diff.
     // Returns false and shows an error if either file cannot be read.

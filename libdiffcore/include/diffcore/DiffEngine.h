@@ -1,7 +1,11 @@
 // High-level diff API. Takes two sequences of lines (QStringList) and
 // produces a DiffResult that the GUI/CLI can render directly.
 //
-// Internally:
+// With alignWhitespaceChanges, unmatched intervals are refined using trimmed
+// and then space/tab-free keys. Exact anchors are retained and originals are
+// compared using the ignore options, so alignment never hides spacing changes.
+//
+// Internally (strict mode):
 //  1. LineInterner assigns integer IDs to unique (normalized) lines.
 //  2. The templated O(NP) engine computes an edit script over the IDs.
 //  3. Block results are translated into public Hunk objects, with an

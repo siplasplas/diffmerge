@@ -97,6 +97,10 @@ File comparison provides:
   scrolling, resizing and change navigation, with offscreen parts clipped.
 - A color scheme that follows the system's light or dark palette, including
   palette changes while the application is open.
+- Line matching first preserves exact matches, then refines unmatched blocks
+  ignoring indentation and trailing spaces/tabs, and finally interior spaces/tabs.
+  Original text is still compared: interior spacing and literal contents remain
+  visible changes. This does not equate lines split or joined by a formatter.
 - Editable path fields and file selection buttons for reloading comparisons.
 
 Directory comparison shows a tree with `same`, `different`, `only left` and
@@ -159,6 +163,12 @@ coordinates throw `std::length_error`. For `QString`, offsets count UTF-16 units
 for `std::string`, they count bytes.
 The GUI's current character comparison uses this adapter directly; word-level
 tokenization and refinement remain planned.
+
+For line comparisons, `DiffEngine` accepts `DiffOptions::alignWhitespaceChanges`
+to enable the GUI's spacing-aware alignment without hiding differences. The
+library defaults to strict alignment; the GUI enables refinement by default.
+Refinement preserves matching anchors instead of applying slider heuristics.
+Its edit cost describes the resulting alignment and is not necessarily minimal.
 
 ## Tests
 

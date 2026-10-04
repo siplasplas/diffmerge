@@ -47,6 +47,10 @@ struct DiffOptions {
     bool ignoreEolStyle = true;      // CRLF == LF (done during line splitting)
     bool mergeReplaceHunks = true;         // Merge adjacent Delete+Insert into Replace
     bool coalesceAdjacentSameType = true;  // Merge consecutive hunks of identical type
+    // Prefer exact, then edge-trimmed, then spacing-free line matches.
+    // Differences are still reported according to the ignore options above.
+    // Anchors stay fixed; slider heuristics are not applied in this mode.
+    bool alignWhitespaceChanges = false;
     bool applySliderHeuristics    = true;  // Shift Insert/Delete hunks to human-preferred boundaries
 };
 
@@ -55,7 +59,7 @@ struct DiffStats {
     int additions = 0;      // Inserted lines
     int deletions = 0;      // Deleted lines
     int modifications = 0;  // Replace hunks (counts as 1 per region)
-    int editDistance = 0;   // Raw line-level edit distance from engine
+    int editDistance = 0;   // Insert/delete cost; refined alignment need not be minimal
 };
 
 // Complete result of comparing two line sequences.

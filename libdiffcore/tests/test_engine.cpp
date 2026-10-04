@@ -17,6 +17,102 @@ class TestEngine : public QObject {
     Q_OBJECT
 
 private slots:
+    void spacingAlignmentPreservesInsertedLineAndFormatting() {
+        DiffOptions opts;
+        opts.alignWhitespaceChanges = true;
+        DiffEngine engine;
+        const QStringList left{"header", "  a:=2;", "  b:=3;", "footer"};
+        const QStringList right{"header", "new();", "    a := 2;", "    b := 3;  ", "footer"};
+        const auto result = engine.compute(left, right, opts);
+        QCOMPARE(result.hunks.size(), size_t(4));
+        QCOMPARE(result.hunks[1].type, ChangeType::Insert);
+        QCOMPARE(result.hunks[1].rightRange.start, 1);
+        QCOMPARE(result.hunks[1].rightRange.count, 1);
+        QCOMPARE(result.hunks[2].type, ChangeType::Replace);
+        QCOMPARE(result.hunks[2].leftRange.start, 1);
+        QCOMPARE(result.hunks[2].rightRange.start, 2);
+        QCOMPARE(result.hunks[2].leftRange.count, 2);
+        QCOMPARE(result.hunks[2].rightRange.count, 2);
+        QCOMPARE(result.stats.editDistance, 5);
+        const auto reverse = engine.compute(right, left, opts);
+        QCOMPARE(reverse.hunks[1].type, ChangeType::Delete);
+        QCOMPARE(reverse.hunks[2].leftRange.start, 2);
+        QCOMPARE(reverse.hunks[2].rightRange.start, 1);
+    }
+
+    void exactAndTrimmedAnchorsOutrankSpacingFreeMatches() {
+        DiffOptions opts;
+        opts.alignWhitespaceChanges = true;
+        DiffEngine engine;
+        auto result = engine.compute({"a b", "ab"}, {"ab"}, opts);
+        QCOMPARE(result.hunks.size(), size_t(2));
+        QCOMPARE(result.hunks[0].type, ChangeType::Delete);
+        QCOMPARE(result.hunks[1].type, ChangeType::Equal);
+        QCOMPARE(result.hunks[1].leftRange.start, 1);
+        result = engine.compute({"a b", " ab "}, {"    ab"}, opts);
+        QCOMPARE(result.hunks.size(), size_t(2));
+        QCOMPARE(result.hunks[0].type, ChangeType::Delete);
+        QCOMPARE(result.hunks[1].type, ChangeType::Replace);
+        QCOMPARE(result.hunks[1].leftRange.start, 1);
+    }
+
+    void spacingAlignmentDoesNotHideLiteralOrInteriorSpaces() {
+        DiffOptions opts;
+        opts.alignWhitespaceChanges = true;
+        DiffEngine engine;
+        for (const auto& pair : std::vector<std::pair<QString, QString>>{
+                 {"a b", "a  b"}, {"\"a b\"", "\"ab\""},
+                 {"'a b'", "'ab'"}, {"  x", "x"}, {"x  ", "x"}}) {
+            const auto result = engine.compute({pair.first}, {pair.second}, opts);
+            QVERIFY(!result.isIdentical());
+            QCOMPARE(result.hunks[0].type, ChangeType::Replace);
+            QCOMPARE(result.stats.editDistance, 2);
+        }
+        opts.ignoreTrailingWhitespace = true;
+        QVERIFY(engine.compute({"x  "}, {"x"}, opts).isIdentical());
+        QVERIFY(!engine.compute({"a b"}, {"a  b"}, opts).isIdentical());
+        opts.mergeReplaceHunks = false;
+        const auto unmerged = engine.compute({"a:=2;"}, {"a := 2;"}, opts);
+        QCOMPARE(unmerged.hunks.size(), size_t(2));
+        QCOMPARE(unmerged.hunks[0].type, ChangeType::Delete);
+        QCOMPARE(unmerged.hunks[1].type, ChangeType::Insert);
+    }
+
+    void spacingAlignmentHasOrderedCompleteRanges() {
+        // Exhaust short sequences with duplicate/ambiguous spacing keys.
+        const QStringList alphabet{"x", " x ", "x x", "xx"};
+        std::vector<QStringList> sequences{{}};
+        for (const auto& a : alphabet) {
+            sequences.push_back({a});
+            for (const auto& b : alphabet) sequences.push_back({a, b});
+        }
+        DiffOptions opts;
+        opts.alignWhitespaceChanges = true;
+        DiffEngine engine;
+        for (bool merge : {false, true}) {
+            opts.mergeReplaceHunks = merge;
+            for (const auto& left : sequences) for (const auto& right : sequences) {
+                const auto result = engine.compute(left, right, opts);
+                int l = 0, r = 0, cost = 0;
+                for (const auto& h : result.hunks) {
+                    QCOMPARE(h.leftRange.start, l);
+                    QCOMPARE(h.rightRange.start, r);
+                    QVERIFY(h.leftRange.count || h.rightRange.count);
+                    if (h.type == ChangeType::Equal) {
+                        QCOMPARE(h.leftRange.count, h.rightRange.count);
+                        for (int i = 0; i < h.leftRange.count; ++i)
+                            QCOMPARE(left[l + i], right[r + i]);
+                    } else cost += h.leftRange.count + h.rightRange.count;
+                    l = h.leftRange.end();
+                    r = h.rightRange.end();
+                }
+                QCOMPARE(l, left.size());
+                QCOMPARE(r, right.size());
+                QCOMPARE(result.stats.editDistance, cost);
+            }
+        }
+    }
+
     void sequenceSupportsCharactersTokensAndViews() {
         auto chars = SequenceDiff::compute(std::string("abc"), std::string("axc"));
         QCOMPARE(chars.editDistance, 2);

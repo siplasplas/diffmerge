@@ -17,7 +17,9 @@ private:
     IntraLineDiffEngine::Result build(const QStringList& left,
                                       const QStringList& right) {
         diffcore::DiffEngine engine;
-        const auto diff = engine.compute(left, right);
+        diffcore::DiffOptions opts;
+        opts.alignWhitespaceChanges = true;
+        const auto diff = engine.compute(left, right, opts);
         return IntraLineDiffEngine::compute(diff, left, right);
     }
 
@@ -28,6 +30,16 @@ private:
     }
 
 private slots:
+
+    void reformattedLinesAfterInsertionKeepTheirOwnCharacterChanges() {
+        const auto result = build({"a:=2;", "\"a b\""},
+                                  {"inserted();", "a := 2;", "\"ab\""});
+        QVERIFY(result.leftRanges[0].isEmpty());
+        QVERIFY(hasRange(result.rightRanges[1], 1, 1));
+        QVERIFY(hasRange(result.rightRanges[1], 4, 1));
+        QVERIFY(hasRange(result.leftRanges[1], 2, 1));
+        QVERIFY(result.rightRanges[2].isEmpty());
+    }
 
     void whitespaceChangesKeepExactCharacterPositions() {
         // Empty-line slider heuristics must never relocate character changes.
