@@ -168,14 +168,23 @@ diffmerge/
 
 Korpus: diff-slider-tools, ~5 400 sliderów.
 
-| shift | bez heurystyk | z heurystykami |
-|------:|------:|------:|
-| −1 |    1 |   104 |
-|  0 | 1741 |  4970 |
-|  1 | 3392 |   173 |
-|  2 |  208 |   102 |
-|  3 |   50 |    31 |
-|  4 |   20 |     7 |
+```text
+bez heurystyk
+    -1       1  #
+     0    1741  #############
+     1    3392  ########################
+     2     208  ##
+     3      50  #
+     4      20  #
+
+a z heurystykami
+    -1     104  #
+     0    4970  ####################################
+     1     173  ##
+     2     102  #
+     3      31  #
+     4       7  #
+```
 
 Shift = 0 oznacza trafienie w ludzką preferencję.  
 Heurystyki poprawiły trafność z ~32 % do ~91 %.
