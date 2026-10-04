@@ -106,8 +106,10 @@ File comparison provides:
   scrollbars on the outer edges.
 - Synchronized scrolling across corresponding changes.
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
-- Line backgrounds for insertions, deletions and replacements, plus stronger
-  character-level highlighting within replacements.
+- Three-level comparison: line alignment, word matching within replacement
+  blocks, then character comparison within corresponding changed words.
+  Insertions, deletions and replacements have line backgrounds; changed text
+  fragments receive stronger highlighting, with added/removed words marked whole.
 - One-sided changes use green backgrounds in either pane and a green boundary
   line on the side without a block. Replacements use blue backgrounds.
 - The draggable center divider connects corresponding blocks with colored
@@ -180,8 +182,11 @@ merging and coalescing, both enabled by default. Comparison is exact, without
 normalization or line slider heuristics. Inputs too large for the engine's integer
 coordinates throw `std::length_error`. For `QString`, offsets count UTF-16 units;
 for `std::string`, they count bytes.
-The GUI's current character comparison uses this adapter directly; word-level
-tokenization and refinement remain planned.
+The GUI uses this adapter first for words within each replacement block, then
+for characters within corresponding changed words. Added or removed words are
+highlighted in full; punctuation and spacing remain significant. Word matching
+spans the block's lines and results map back to original UTF-16 editor columns.
+Splitting or joining words by changing only spacing highlights that spacing.
 
 For line comparisons, `DiffEngine` accepts `DiffOptions::alignWhitespaceChanges`
 to enable the GUI's spacing-aware alignment without hiding differences. The

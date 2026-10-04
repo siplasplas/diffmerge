@@ -31,6 +31,59 @@ private:
 
 private slots:
 
+    void insertedAndRemovedWordsDoNotMatchNeighborLetters() {
+        const auto removed = QStringLiteral("modyfikacja");
+        const auto left = QStringLiteral("Shift = 0 modyfikacja oznacza trafienie w ludzką preferencję.");
+        const auto right = QStringLiteral("Shift = 0 oznacza trafienie w ludzką preferencję.");
+        const auto result = build({left}, {right});
+        const int start = left.indexOf(removed);
+        QVector<bool> marked(left.size(), false);
+        for (const auto& range : result.leftRanges[0])
+            for (int i = range.start; i < range.start + range.length; ++i) marked[i] = true;
+        for (int i = start; i < start + removed.size(); ++i) QVERIFY(marked[i]);
+        for (int i = 0; i < left.size(); ++i)
+            if (i < start - 1 || i > start + removed.size()) QVERIFY(!marked[i]);
+        QVERIFY(result.rightRanges[0].isEmpty());
+        const auto reverse = build({right}, {left});
+        QVERIFY(reverse.leftRanges[0].isEmpty());
+        QCOMPARE(reverse.rightRanges[0].size(), result.leftRanges[0].size());
+        for (int i = 0; i < result.leftRanges[0].size(); ++i) {
+            QCOMPARE(reverse.rightRanges[0][i].start, result.leftRanges[0][i].start);
+            QCOMPARE(reverse.rightRanges[0][i].length, result.leftRanges[0][i].length);
+        }
+    }
+
+    void wordMatchingSpansLinesAndProjectsOriginalColumns() {
+        const QStringList left{"alpha removedword", "beta old_name = 12;"};
+        const QStringList right{"alpha", "beta new_name = 13;"};
+        diffcore::DiffResult diff;
+        diff.hunks = {{diffcore::ChangeType::Replace, {0, 2}, {0, 2}}};
+        const auto result = IntraLineDiffEngine::compute(diff, left, right);
+        int removedLetters = 0;
+        for (const auto& range : result.leftRanges[0]) {
+            QVERIFY(range.start >= 5);
+            removedLetters += range.length;
+        }
+        QVERIFY(removedLetters >= QStringLiteral("removedword").size());
+        QVERIFY(result.rightRanges[0].isEmpty());
+        QVERIFY(hasRange(result.leftRanges[1], 5, 3));
+        QVERIFY(hasRange(result.rightRanges[1], 5, 3));
+        QVERIFY(hasRange(result.leftRanges[1], 17, 1));
+        QVERIFY(hasRange(result.rightRanges[1], 17, 1));
+        for (const auto& range : result.leftRanges[1])
+            QVERIFY(range.start == 5 || range.start == 17);
+    }
+
+    void supplementaryCharactersAndCombiningMarksKeepUtf16Offsets() {
+        const auto left = QString::fromUtf8("😀 café_name");
+        const auto right = QString::fromUtf8("😀 cafè_name");
+        const auto result = build({left}, {right});
+        QVERIFY(hasRange(result.leftRanges[0], 7, 1));
+        QVERIFY(hasRange(result.rightRanges[0], 7, 1));
+        QCOMPARE(result.leftRanges[0].size(), 1);
+        QCOMPARE(result.rightRanges[0].size(), 1);
+    }
+
     void reformattedLinesAfterInsertionKeepTheirOwnCharacterChanges() {
         const auto result = build({"a:=2;", "\"a b\""},
                                   {"inserted();", "a := 2;", "\"ab\""});
@@ -170,5 +223,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestIntraLineDiff)
+QTEST_GUILESS_MAIN(TestIntraLineDiff)
 #include "test_intra_line_diff.moc"
