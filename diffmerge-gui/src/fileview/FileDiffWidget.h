@@ -17,6 +17,7 @@
 namespace diffmerge::gui {
 
 class DiffEditor;
+class DiffConnectorSplitter;
 
 class FileDiffWidget : public QWidget {
     Q_OBJECT
@@ -64,6 +65,7 @@ private:
 
     DiffEditor*   m_leftEditor  = nullptr;
     DiffEditor*   m_rightEditor = nullptr;
+    DiffConnectorSplitter* m_splitter = nullptr;
     QToolButton*  m_backButton  = nullptr;
     QFrame*       m_backSep     = nullptr;
     QToolButton*  m_prevButton  = nullptr;

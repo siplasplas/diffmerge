@@ -6,6 +6,7 @@ add_executable(test_diff_editor
     ../src/editor/DiffEditor.cpp
     ../src/editor/DiffHighlighter.cpp
     ../src/fileview/AlignedLineModel.cpp
+    ../src/fileview/DiffConnectorSplitter.cpp
 )
 target_link_libraries(test_diff_editor PRIVATE
     diffcore::diffcore Qt6::Test Qt6::Widgets qcodeedit::qcodeedit
@@ -77,6 +78,7 @@ add_executable(screenshot_tool
     ${GUI_SRC_DIR}/editor/IntraLineDiffEngine.cpp
     ${GUI_SRC_DIR}/fileview/AlignedLineModel.cpp
     ${GUI_SRC_DIR}/fileview/FileDiffWidget.cpp
+    ${GUI_SRC_DIR}/fileview/DiffConnectorSplitter.cpp
     ${GUI_SRC_DIR}/fileview/ScrollSyncMapper.cpp
 )
 target_include_directories(screenshot_tool PRIVATE ${GUI_SRC_DIR})

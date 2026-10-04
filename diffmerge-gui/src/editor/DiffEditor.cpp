@@ -116,6 +116,7 @@ void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_edit->area()->viewport()->update();
     m_boundaries->setBoundaries(m_model ? m_model->changeBlocks()
                                        : QVector<ChangeBlock>{}, m_scheme);
+    emit colorSchemeChanged();
 }
 
 void DiffEditor::applyModel() {

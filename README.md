@@ -91,6 +91,8 @@ File comparison provides:
   character-level highlighting within replacements.
 - One-sided changes use green backgrounds in either pane and a green boundary
   line on the side without a block. Replacements use blue backgrounds.
+- The draggable center divider connects corresponding blocks with colored
+  curves, narrowing to a line when a block exists on only one side.
 - A color scheme selected from the system's light or dark palette.
 - Editable path fields and file selection buttons for reloading comparisons.
 
@@ -147,7 +149,7 @@ The default configuration registers nine test suites:
 | `test_aligned_model` | Shared block ranges, empty-side boundaries and aligned rows |
 | `test_scroll_sync_mapper` | Scroll position mapping |
 | `test_intra_line_diff` | Character ranges within replacements |
-| `test_diff_editor` | Change colors, missing-side boundaries and viewport updates |
+| `test_diff_editor` | Change colors, boundaries, connectors and viewport updates |
 | `test_cli` | CLI integration through QProcess |
 | `test_slider_parser` | Corpus metadata parsing |
 | `test_slider_eval` | Evaluation logic |

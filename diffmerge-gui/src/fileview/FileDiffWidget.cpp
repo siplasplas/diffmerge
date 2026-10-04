@@ -8,7 +8,6 @@
 #include <QMessageBox>
 #include <QScrollBar>
 #include <QShortcut>
-#include <QSplitter>
 #include <QStyle>
 #include <QTextStream>
 #include <QVBoxLayout>
@@ -21,6 +20,7 @@
 
 #include "../editor/DiffEditor.h"
 #include "../editor/IntraLineDiffEngine.h"
+#include "DiffConnectorSplitter.h"
 
 namespace diffmerge::gui {
 
@@ -29,7 +29,10 @@ FileDiffWidget::FileDiffWidget(QWidget* parent)
     setupUi();
 }
 
-FileDiffWidget::~FileDiffWidget() = default;
+FileDiffWidget::~FileDiffWidget() {
+    // The divider reads the model while painting; destroy it before the model.
+    delete m_splitter;
+}
 
 void FileDiffWidget::setupUi() {
     auto* vLayout = new QVBoxLayout(this);
@@ -122,14 +125,10 @@ void FileDiffWidget::setupUi() {
     connect(m_rightPathEdit, &QLineEdit::returnPressed,  this, &FileDiffWidget::reloadFromPathBar);
 
     // Editors
-    auto* splitter = new QSplitter(Qt::Horizontal, this);
-    m_leftEditor  = new DiffEditor(Side::Left,  splitter);
-    m_rightEditor = new DiffEditor(Side::Right, splitter);
-    splitter->addWidget(m_leftEditor);
-    splitter->addWidget(m_rightEditor);
-    splitter->setSizes({1, 1});
-    splitter->setChildrenCollapsible(false);
-    vLayout->addWidget(splitter);
+    m_leftEditor  = new DiffEditor(Side::Left);
+    m_rightEditor = new DiffEditor(Side::Right);
+    m_splitter = new DiffConnectorSplitter(m_leftEditor, m_rightEditor, m_model.get(), this);
+    vLayout->addWidget(m_splitter);
 
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
@@ -171,6 +170,7 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     const auto charDiff = IntraLineDiffEngine::compute(result, leftLines, rightLines);
     m_leftEditor->setIntraLineDiffs(charDiff.leftRanges);
     m_rightEditor->setIntraLineDiffs(charDiff.rightRanges);
+    m_splitter->updateConnections();
 
     m_currentHunk = -1;
     updateNavLabel();

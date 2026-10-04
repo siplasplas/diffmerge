@@ -39,6 +39,8 @@ set(DIFFMERGE_GUI_SOURCES
     src/fileview/AlignedLineModel.cpp
     src/fileview/FileDiffWidget.h
     src/fileview/FileDiffWidget.cpp
+    src/fileview/DiffConnectorSplitter.h
+    src/fileview/DiffConnectorSplitter.cpp
     src/fileview/ScrollSyncMapper.h
     src/fileview/ScrollSyncMapper.cpp
 

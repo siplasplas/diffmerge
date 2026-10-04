@@ -35,6 +35,10 @@ public:
 
     Side side() const { return m_side; }
     qce::CodeEdit* edit() const { return m_edit; }
+    const ColorScheme& colorScheme() const { return m_scheme; }
+
+signals:
+    void colorSchemeChanged();
 
 private:
     void applyModel();
