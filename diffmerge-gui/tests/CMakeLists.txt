@@ -7,7 +7,11 @@ foreach(test IN ITEMS test_diff_editor test_aligned_model test_scroll_sync_mappe
 endforeach()
 # Connector geometry is an internal implementation detail tested here.
 target_link_libraries(test_syntax_highlighting PRIVATE qcodeedit::kate)
+target_link_libraries(test_diff_editor PRIVATE qcodeedit::kate)
 if(DIFFMERGE_BUILD_GUI)
+    target_sources(test_diff_editor PRIVATE ../src/MainWindow.cpp ../src/MainWindow.h)
+    target_link_libraries(test_diff_editor PRIVATE qt-extra qcodeedit::katedata)
+    target_compile_definitions(test_diff_editor PRIVATE DIFFMERGE_TEST_VIEW_MENU)
     target_sources(test_syntax_highlighting PRIVATE ../src/MainWindow.cpp ../src/MainWindow.h)
     target_link_libraries(test_syntax_highlighting PRIVATE qt-extra qcodeedit::katedata)
     target_compile_definitions(test_syntax_highlighting PRIVATE DIFFMERGE_TEST_SYNTAX_STARTUP)

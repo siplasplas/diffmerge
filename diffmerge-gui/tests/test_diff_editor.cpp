@@ -8,6 +8,16 @@
 #include <QShortcut>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QFile>
+#ifdef DIFFMERGE_TEST_VIEW_MENU
+#include "../src/MainWindow.h"
+#include <QMenuBar>
+#include <QMenu>
+#include <QSettings>
+#endif
+#include <QDir>
+#include <qce/kate/KatePaths.h>
+#include "../src/editor/SyntaxLoader.h"
 #include <future>
 #include <limits>
 #include <qce/ExtraSelection.h>
@@ -49,6 +59,187 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+#ifdef DIFFMERGE_TEST_VIEW_MENU
+    void desktopViewMenuPersistsSelection() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto name=QApplication::applicationName(), organization=QApplication::organizationName();
+        const auto format=QSettings::defaultFormat();
+        struct Restore {
+            QString name, organization; QSettings::Format format;
+            ~Restore() { QApplication::setApplicationName(name); QApplication::setOrganizationName(organization); QSettings::setDefaultFormat(format); }
+        } restore{name,organization,format};
+        QApplication::setApplicationName("ViewMenuTest"); QApplication::setOrganizationName("DiffMergeTests");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+        {
+            MainWindow window;
+            QMenu* view=nullptr;
+            for(auto* action:window.menuBar()->actions()) if(action->text()=="&View") view=action->menu();
+            QVERIFY(view);
+            QAction* unified=nullptr; QAction* side=nullptr; QAction* skip=nullptr;
+            for(auto* action:view->actions()) {
+                if(action->text()=="Unified") unified=action;
+                if(action->text()=="Side by Side") side=action;
+                if(action->text()=="Skip unchanged lines") skip=action;
+            }
+            QVERIFY(unified && side && skip); QVERIFY(side->isChecked());
+            unified->trigger(); skip->trigger();
+            auto* widget=window.findChild<FileDiffWidget*>(); QVERIFY(widget);
+            QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
+            QVERIFY(!side->isChecked());
+        }
+        MainWindow second;
+        const auto* widget=second.findChild<FileDiffWidget*>(); QVERIFY(widget);
+        QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
+    }
+#endif
+
+    void unifiedSyntaxComesFromWholeOriginalSides() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const QString previous=qce::kate::dataDir();
+        struct Restore { QString path; ~Restore() { qce::kate::setDataDirOverride(path); } } restore{previous};
+        qce::kate::setDataDirOverride(directory.path());
+        QVERIFY(QDir(directory.path()).mkpath("syntax"));
+        QFile definition(directory.filePath("syntax/test.xml")); QVERIFY(definition.open(QIODevice::WriteOnly));
+        const QByteArray xml=R"XML(<language name="Projection Test" section="Tests" extensions="*.projection" version="1" kateversion="5.0">
+<highlighting><contexts>
+<context name="Normal" attribute="Normal" lineEndContext="#stay"><StringDetect String="/*" attribute="Comment" context="Comment"/><WordDetect String="if" attribute="Keyword"/></context>
+<context name="Comment" attribute="Comment" lineEndContext="#stay"><StringDetect String="*/" attribute="Comment" context="#pop"/></context>
+</contexts><itemDatas><itemData name="Normal" defStyleNum="dsNormal"/><itemData name="Comment" defStyleNum="dsComment"/><itemData name="Keyword" defStyleNum="dsKeyword"/></itemDatas></highlighting></language>)XML";
+        QCOMPARE(definition.write(xml),xml.size()); definition.close();
+        TextSnapshot left,right; left.lines={"/*","body","*/","if old"}; right.lines={"plain","body","*/","if new"};
+        left.fileName=right.fileName="sample.projection";
+        auto prepared=prepareComparison(left,right); QVERIFY(prepared.comparison);
+        for(bool dark:{false,true}) {
+            FileDiffWidget widget; widget.setComparison(prepared.comparison); widget.setViewMode(ViewMode::Unified);
+            widget.unifiedEditor()->setColorScheme(dark ? ColorScheme::darkDefault() : ColorScheme::lightDefault());
+            const auto* highlighter=widget.unifiedEditor()->edit()->area()->highlighter(); QVERIFY(highlighter);
+            auto state=highlighter->initialState();
+            QVector<QVector<qce::StyleSpan>> spans;
+            const auto& rows=widget.unifiedEditor()->displayRows();
+            for(int i=0;i<rows.size();++i) {
+                QVector<qce::StyleSpan> lineSpans; qce::HighlightState next;
+                highlighter->highlightLine(widget.unifiedEditor()->edit()->area()->document()->lineAt(i),state,lineSpans,next);
+                spans.append(lineSpans); state=next;
+            }
+            QString language;
+            auto syntax=loadSyntax(right.fileName,dark,language); QVERIFY(syntax);
+            auto originalState=syntax->initialState(); QVector<qce::StyleSpan> body;
+            for(int i=0;i<2;++i) { qce::HighlightState next; syntax->highlightLine(right.lines[i],originalState,body,next); originalState=next; }
+            int bodyRow=-1, removedRow=-1, addedRow=-1;
+            for(int i=0;i<rows.size();++i) {
+                if(rows[i].rightLine==1) bodyRow=i;
+                if(rows[i].leftLine==3 && rows[i].rightLine<0) removedRow=i;
+                if(rows[i].rightLine==3) addedRow=i;
+            }
+            QVERIFY(bodyRow>=0 && removedRow>=0 && addedRow>=0);
+            QVERIFY(!body.isEmpty() && !spans[bodyRow].isEmpty());
+            QCOMPARE(highlighter->attributes()[spans[bodyRow][0].attributeId].foreground,syntax->attributes()[body[0].attributeId].foreground);
+            for(int row:{removedRow,addedRow}) {
+                bool strong=false, keyword=false;
+                for(const auto& span:spans[row]) {
+                    const auto& attr=highlighter->attributes()[span.attributeId];
+                    strong |= attr.background == widget.unifiedEditor()->colorScheme().replaceCharBg;
+                    keyword |= attr.bold;
+                }
+                QVERIFY(strong); QVERIFY(keyword);
+            }
+            QVERIFY(!widget.unifiedEditor()->edit()->area()->foldingProvider());
+        }
+    }
+
+    void unifiedRowsAndOriginalMappings() {
+        for (const auto& pair : {std::pair<QStringList,QStringList>{{"old"},{"new"}}, {{},{"new"}}, {{"old"},{}}, {{},{}}}) {
+            TextSnapshot left, right; left.lines=pair.first; right.lines=pair.second;
+            auto prepared=prepareComparison(left,right); QVERIFY(prepared.comparison);
+            ViewProjection projection; projection.build(*prepared.comparison);
+            int removed=0, added=0;
+            for (int i=0;i<projection.rows().size();++i) {
+                const auto& r=projection.rows()[i];
+                if (r.leftLine>=0) { QCOMPARE(projection.rowFor(Side::Left,r.leftLine),i); ++removed; }
+                if (r.rightLine>=0) { QCOMPARE(projection.rowFor(Side::Right,r.rightLine),i); ++added; }
+            }
+            QCOMPARE(removed,pair.first.size()); QCOMPARE(added,pair.second.size());
+            FileDiffWidget widget; widget.setComparison(prepared.comparison); widget.setViewMode(ViewMode::Unified);
+            QCOMPARE(widget.unifiedEditor()->displayRows().size(),projection.rows().size());
+            if (!pair.first.isEmpty() && !pair.second.isEmpty()) {
+                QCOMPARE(projection.rows()[0].rightLine,-1); QCOMPARE(projection.rows()[1].leftLine,-1);
+                QVERIFY(widget.navigateToChange(0));
+                QCOMPARE(widget.unifiedEditor()->edit()->area()->cursorPosition().line,0);
+                QVERIFY(widget.revealText(Side::Right,{0,1,1}));
+                QCOMPARE(widget.unifiedEditor()->edit()->area()->cursorPosition().line,1);
+                QCOMPARE(widget.unifiedEditor()->edit()->area()->cursorPosition().column,1);
+                QVERIFY(widget.setSearchHighlights(Side::Left,{{0,0,1}}));
+                QVERIFY(widget.setSearchHighlights(Side::Right,{{0,0,1}}));
+                const auto selections=widget.unifiedEditor()->edit()->area()->extraSelections();
+                QCOMPARE(selections.size(),2); QCOMPARE(selections[0].start.line,0); QCOMPARE(selections[1].start.line,1);
+            }
+        }
+    }
+    void contextFoldsRevealAndTwinOpening() {
+        QStringList left; for(int i=0;i<100;++i) left.append(QStringLiteral("line %1").arg(i));
+        auto right=left; right[40]="changed"; right[44]="also changed";
+        FileDiffWidget widget; widget.resize(800,250); widget.setContent(left,right);
+        widget.setViewMode(ViewMode::Unified); widget.setUnchangedLinesSkipped(true); widget.show();
+        QApplication::processEvents();
+        auto rows=widget.unifiedEditor()->displayRows();
+        QCOMPARE(rows.first().hiddenCount,37); QCOMPARE(rows.last().hiddenCount,52);
+        QCOMPARE(rows[1].leftLine,37);
+        int folds=0; for(const auto& r:rows) if(r.hiddenCount) ++folds; QCOMPARE(folds,2);
+        QVERIFY(widget.revealText(Side::Right,{10,2,2},true));
+        rows=widget.unifiedEditor()->displayRows(); QCOMPARE(rows.first().hiddenCount,0);
+        QCOMPARE(widget.unifiedEditor()->edit()->area()->cursorPosition().line,10);
+        QVERIFY(widget.setSearchHighlights(Side::Left,{{90,0,2}}));
+        for(const auto& r:widget.unifiedEditor()->displayRows()) QCOMPARE(r.hiddenCount,0);
+        widget.setUnchangedLinesSkipped(false); widget.setUnchangedLinesSkipped(true);
+        // Existing search/reveal overlays reopen their equal runs.
+        for(const auto& r:widget.unifiedEditor()->displayRows()) QCOMPARE(r.hiddenCount,0);
+        widget.clearSearchHighlights();
+        widget.setUnchangedLinesSkipped(false); widget.setUnchangedLinesSkipped(true);
+        widget.setViewMode(ViewMode::SideBySide);
+        QCOMPARE(widget.leftEditor()->displayRows().first().hiddenCount,37);
+        QCOMPARE(widget.rightEditor()->displayRows().first().hiddenCount,37);
+        widget.leftEditor()->edit()->area()->verticalScrollBar()->setValue(0);
+        QApplication::processEvents();
+        const auto vp=widget.leftEditor()->edit()->area()->viewportState();
+        QTest::mouseClick(widget.leftEditor()->edit()->area()->viewport(),Qt::LeftButton,Qt::NoModifier,QPoint(20,vp.contentOffsetY+vp.lineHeight/2));
+        QCOMPARE(widget.leftEditor()->displayRows().first().hiddenCount,0);
+        QCOMPARE(widget.rightEditor()->displayRows().first().hiddenCount,0);
+        QVERIFY(widget.navigateToChange(0));
+        QCOMPARE(widget.leftEditor()->originalLine(widget.leftEditor()->edit()->area()->cursorPosition().line),40);
+        widget.setContextLines(0); QCOMPARE(widget.contextLines(),0);
+        for (bool dark : {false, true}) {
+            const auto scheme = dark ? ColorScheme::darkDefault() : ColorScheme::lightDefault();
+            widget.leftEditor()->setColorScheme(scheme); widget.rightEditor()->setColorScheme(scheme);
+            QVERIFY(widget.navigateToChange(0)); widget.resize(900,300); QApplication::processEvents();
+            auto* splitter=widget.findChild<QSplitter*>(); QVERIFY(splitter);
+            auto* handle=splitter->handle(1);
+            const auto image=handle->grab().toImage();
+            QVERIFY(colorHeight(image,image.width()/2,scheme.replaceBg)>0);
+            QCOMPARE(widget.leftEditor()->originalLine(widget.leftEditor()->edit()->area()->cursorPosition().line),40);
+        }
+    }
+    void extremeContextKeepsAllLines() {
+        FileDiffWidget widget;
+        widget.setContent({"a", "b", "c"}, {"a", "changed", "c"});
+        widget.setUnchangedLinesSkipped(true);
+        widget.setContextLines(std::numeric_limits<int>::max());
+        QCOMPARE(widget.leftEditor()->edit()->document()->lineCount(), 3);
+        for (const auto& row : widget.leftEditor()->displayRows()) QCOMPARE(row.hiddenCount, 0);
+    }
+    void switchingModesPreservesOriginalAnchor() {
+        QStringList left; for(int i=0;i<100;++i) left.append(QString::number(i));
+        auto right=left; right[10]="different";
+        FileDiffWidget widget; widget.resize(800,200); widget.setContent(left,right); widget.show(); QApplication::processEvents();
+        widget.rightEditor()->edit()->area()->verticalScrollBar()->setValue(50);
+        const int original=widget.rightEditor()->edit()->area()->viewportState().firstVisibleLine;
+        widget.setViewMode(ViewMode::Unified); QApplication::processEvents();
+        const int row=widget.unifiedEditor()->edit()->area()->viewportState().firstVisibleLine;
+        QCOMPARE(widget.unifiedEditor()->displayRows()[row].rightLine,original);
+        widget.setViewMode(ViewMode::SideBySide); QApplication::processEvents();
+        QCOMPARE(widget.rightEditor()->edit()->area()->viewportState().firstVisibleLine,original);
+    }
+
     void preparedAndSynchronousViewsAgree_data() {
         QTest::addColumn<QStringList>("left");
         QTest::addColumn<QStringList>("right");

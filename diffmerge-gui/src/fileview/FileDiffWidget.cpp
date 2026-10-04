@@ -134,6 +134,18 @@ void FileDiffWidget::setupUi() {
     m_rightEditor = new DiffEditor(Side::Right);
     m_splitter = new DiffConnectorSplitter(m_leftEditor, m_rightEditor, m_model, this);
     vLayout->addWidget(m_splitter, 1);
+    m_unifiedEditor = new DiffEditor(Side::Right, this);
+    vLayout->addWidget(m_unifiedEditor, 1);
+    m_unifiedEditor->hide();
+    for (auto* editor : {m_leftEditor, m_rightEditor, m_unifiedEditor}) {
+        connect(editor, &DiffEditor::foldClicked, this, [this](int start) {
+            m_openedFolds.insert(start); rebuildProjection();
+        });
+    }
+    connect(m_unifiedEditor->edit()->area(), &qce::CodeEditArea::cursorPositionChanged, this, [this] {
+        if (m_navigating) return;
+        m_currentHunk = -1; updateNavLabel();
+    });
 
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
@@ -150,24 +162,26 @@ void FileDiffWidget::setupUi() {
 
     connect(leftEdit->area(), &qce::CodeEditArea::viewportChanged,
             this, [this, rightEdit](const qce::ViewportState& vp) {
-        if (m_syncingScroll) return;
+        if (m_syncingScroll || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = rightEdit->area()->document()->lineCount();
-        const int otherTop   = m_syncMapper.computeOtherTop(
-            Side::Left, vp.firstVisibleLine, vp.visibleLineCount(), otherCount,
-            rightEdit->area()->viewportState().visibleLineCount());
+        const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
+        const int original = m_leftEditor->originalLine(sourceAnchor);
+        const int target = m_rightEditor->displayLine(int(m_syncMapper.correspondingLine(Side::Left, original)));
+        const int otherTop = std::clamp(target - int(rightEdit->area()->viewportState().visibleLineCount()*m_syncMapper.threshold()), 0, std::max(0, otherCount-1));
         rightEdit->area()->verticalScrollBar()->setValue(otherTop);
         m_syncingScroll = false;
     });
 
     connect(rightEdit->area(), &qce::CodeEditArea::viewportChanged,
             this, [this, leftEdit](const qce::ViewportState& vp) {
-        if (m_syncingScroll) return;
+        if (m_syncingScroll || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = leftEdit->area()->document()->lineCount();
-        const int otherTop   = m_syncMapper.computeOtherTop(
-            Side::Right, vp.firstVisibleLine, vp.visibleLineCount(), otherCount,
-            leftEdit->area()->viewportState().visibleLineCount());
+        const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
+        const int original = m_rightEditor->originalLine(sourceAnchor);
+        const int target = m_leftEditor->displayLine(int(m_syncMapper.correspondingLine(Side::Right, original)));
+        const int otherTop = std::clamp(target - int(leftEdit->area()->viewportState().visibleLineCount()*m_syncMapper.threshold()), 0, std::max(0, otherCount-1));
         leftEdit->area()->verticalScrollBar()->setValue(otherTop);
         m_syncingScroll = false;
     });
@@ -211,6 +225,8 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
     m_leftEditor->setSyntaxFileName(m_comparison ? m_comparison->snapshot(Side::Left).fileName : QString{});
     m_rightEditor->setSyntaxFileName(m_comparison ? m_comparison->snapshot(Side::Right).fileName : QString{});
     m_splitter->setModel(m_model);
+    m_openedFolds.clear();
+    rebuildProjection();
     m_currentHunk = -1;
     m_navigationSide = Side::Left;
     updateNavLabel();
@@ -230,7 +246,16 @@ void FileDiffWidget::navigateToNext() {
     const Side side = m_rightEditor->edit()->area()->hasFocus() ? Side::Right
                     : m_leftEditor->edit()->area()->hasFocus() ? Side::Left : m_navigationSide;
     const auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
-    const int cursorLine = area->cursorPosition().line;
+    int cursorLine = (side == Side::Left ? m_leftEditor : m_rightEditor)->originalLine(area->cursorPosition().line);
+    if (m_viewMode == ViewMode::Unified) {
+        const int row = m_unifiedEditor->edit()->area()->cursorPosition().line;
+        if (row >= 0 && row < m_projection.rows().size()) {
+            const auto& r = m_projection.rows()[row];
+            cursorLine = side == Side::Left ? r.leftLine : r.rightLine;
+            if (cursorLine < 0) cursorLine = int(m_syncMapper.correspondingLine(side == Side::Left ? Side::Right : Side::Left,
+                side == Side::Left ? r.rightLine : r.leftLine));
+        }
+    }
     for (int i = 0; i < blocks.size(); ++i) {
         if (blocks[i].range(side).start >= cursorLine) {
             navigateToHunk(i);
@@ -250,7 +275,16 @@ void FileDiffWidget::navigateToPrev() {
     const Side side = m_rightEditor->edit()->area()->hasFocus() ? Side::Right
                     : m_leftEditor->edit()->area()->hasFocus() ? Side::Left : m_navigationSide;
     const auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
-    const int cursorLine = area->cursorPosition().line;
+    int cursorLine = (side == Side::Left ? m_leftEditor : m_rightEditor)->originalLine(area->cursorPosition().line);
+    if (m_viewMode == ViewMode::Unified) {
+        const int row = m_unifiedEditor->edit()->area()->cursorPosition().line;
+        if (row >= 0 && row < m_projection.rows().size()) {
+            const auto& r = m_projection.rows()[row];
+            cursorLine = side == Side::Left ? r.leftLine : r.rightLine;
+            if (cursorLine < 0) cursorLine = int(m_syncMapper.correspondingLine(side == Side::Left ? Side::Right : Side::Left,
+                side == Side::Left ? r.rightLine : r.leftLine));
+        }
+    }
     for (int i = blocks.size() - 1; i >= 0; --i) {
         if (blocks[i].range(side).start <= cursorLine) {
             navigateToHunk(i);
@@ -269,8 +303,16 @@ void FileDiffWidget::navigateToHunk(int idx) {
     const auto& block = blocks[idx];
     const int hunkSpan = std::max(block.leftRange.count, block.rightRange.count);
 
-    const int leftDoc  = block.leftRange.start;
-    const int rightDoc = block.rightRange.start;
+    const int leftDoc  = m_leftEditor->displayLine(block.leftRange.start);
+    const int rightDoc = m_rightEditor->displayLine(block.rightRange.start);
+    if (m_viewMode == ViewMode::Unified) {
+        const Side side = block.leftRange.count ? Side::Left : Side::Right;
+        const int row = unifiedLine(side, block.range(side).start);
+        auto* area = m_unifiedEditor->edit()->area();
+        area->setCursorPosition({row, 0});
+        area->verticalScrollBar()->setValue(std::max(0, row-int(area->viewportState().visibleLineCount()*0.4)));
+        updateNavLabel(); return;
+    }
 
     // Place hunk at ~40% from top; reduce to 20% for large hunks
     const int visible = m_leftEditor->edit()->area()->viewportState().visibleLineCount();
@@ -332,6 +374,7 @@ bool FileDiffWidget::revealLines(Side side, diffcore::LineRange range, bool emph
         return false;
     QScopedValueRollback<bool> navigating(m_navigating, true);
     QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    openContaining(side, range);
     auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
     auto* other = (side == Side::Left ? m_rightEditor : m_leftEditor)->edit()->area();
     const int mapped = static_cast<int>(m_syncMapper.correspondingLine(side, range.start));
@@ -339,8 +382,11 @@ bool FileDiffWidget::revealLines(Side side, diffcore::LineRange range, bool emph
         pane->verticalScrollBar()->setValue(std::max(0, line - static_cast<int>(pane->viewportState().visibleLineCount() * 0.4)));
         pane->setCursorPosition({std::min(line, std::max(0, pane->document()->lineCount() - 1)), 0});
     };
-    position(area, range.start);
-    position(other, mapped);
+    if (m_viewMode == ViewMode::Unified) position(m_unifiedEditor->edit()->area(), unifiedLine(side, range.start));
+    else {
+        position(area, (side == Side::Left ? m_leftEditor : m_rightEditor)->displayLine(range.start));
+        position(other, (side == Side::Left ? m_rightEditor : m_leftEditor)->displayLine(mapped));
+    }
     m_navigationSide = side;
     m_currentHunk = -1;
     m_emphasis = emphasize ? std::make_optional(std::make_pair(side, range)) : std::nullopt;
@@ -364,7 +410,9 @@ bool FileDiffWidget::revealText(Side side, TextRange range, bool emphasize) {
     if (!revealLines(side, {range.line, range.length == 0 ? 0 : 1}, emphasize)) return false;
     if (!atEnd) {
         QScopedValueRollback<bool> navigating(m_navigating, true);
-        (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area()->setCursorPosition({range.line, range.column});
+        auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+        if (m_viewMode == ViewMode::Unified) m_unifiedEditor->edit()->area()->setCursorPosition({unifiedLine(side, range.line), range.column});
+        else editor->edit()->area()->setCursorPosition({editor->displayLine(range.line), range.column});
     }
     return true;
 }
@@ -372,6 +420,7 @@ bool FileDiffWidget::revealText(Side side, TextRange range, bool emphasize) {
 bool FileDiffWidget::setSearchHighlights(Side side, const QVector<TextRange>& ranges) {
     for (const auto& range : ranges) if (!validTextRange(side, range)) return false;
     if (!m_comparison) return false;
+    for (const auto& range : ranges) openContaining(side, {range.line, 1});
     (side == Side::Left ? m_leftSearch : m_rightSearch) = ranges;
     refreshSearchHighlights();
     return true;
@@ -386,14 +435,18 @@ void FileDiffWidget::clearSearchHighlights() {
 
 void FileDiffWidget::setSyntaxFileName(Side side, const QString& fileName) {
     (side == Side::Left ? m_leftEditor : m_rightEditor)->setSyntaxFileName(fileName);
+    rebuildProjection();
 }
 
 void FileDiffWidget::reloadSyntaxDefinitions() {
     m_leftEditor->reloadSyntaxDefinitions();
     m_rightEditor->reloadSyntaxDefinitions();
+    rebuildProjection();
 }
 
 void FileDiffWidget::refreshSearchHighlights() {
+    QVector<qce::ExtraSelection> unifiedSelections;
+    QVector<int> unifiedBoundaries;
     for (Side side : {Side::Left, Side::Right}) {
         auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
         if (!editor) continue;
@@ -401,16 +454,35 @@ void FileDiffWidget::refreshSearchHighlights() {
         QVector<int> boundaries;
         const auto& ranges = side == Side::Left ? m_leftSearch : m_rightSearch;
         for (const auto& range : ranges) {
-            if (!range.length) { boundaries.append(range.line); continue; }
+            const int row = editor->displayLine(range.line);
+            const int unifiedRow = unifiedLine(side, range.line);
+            if (!range.length) { boundaries.append(row); unifiedBoundaries.append(unifiedRow); continue; }
             qce::ExtraSelection selection;
-            selection.start = {range.line, range.column};
-            selection.end = {range.line, range.column + range.length};
+            selection.start = {row, range.column};
+            selection.end = {row, range.column + range.length};
             selection.background = QColor(255, 210, 40, 120);
             selections.append(selection);
+            selection.start.line = unifiedRow; selection.end.line = unifiedRow;
+            unifiedSelections.append(selection);
         }
         editor->edit()->area()->setExtraSelections(selections);
-        editor->setRevealOverlay(m_emphasis && m_emphasis->first == side
-            ? std::make_optional(m_emphasis->second) : std::nullopt, boundaries);
+        std::optional<diffcore::LineRange> emphasis;
+        if (m_emphasis && m_emphasis->first == side) {
+            const auto r = m_emphasis->second;
+            emphasis = {editor->displayLine(r.start), editor->displayLine(r.end())-editor->displayLine(r.start)};
+        }
+        editor->setRevealOverlay(emphasis, boundaries);
+    }
+    if (m_unifiedEditor) {
+        m_unifiedEditor->edit()->area()->setExtraSelections(unifiedSelections);
+        std::optional<diffcore::LineRange> emphasis;
+        if (m_emphasis) {
+            const auto [side, r] = *m_emphasis;
+            const int first = unifiedLine(side, r.start);
+            const int last = r.count ? unifiedLine(side, r.end()-1)+1 : first;
+            emphasis = {first, last-first};
+        }
+        m_unifiedEditor->setRevealOverlay(emphasis, unifiedBoundaries);
     }
 }
 
@@ -481,6 +553,114 @@ void FileDiffWidget::setSyncThreshold(double fraction) {
 
 double FileDiffWidget::syncThreshold() const {
     return m_syncMapper.threshold();
+}
+
+
+int FileDiffWidget::unifiedLine(Side side, int line) const { return m_projection.rowFor(side, line); }
+void FileDiffWidget::setViewMode(ViewMode mode) {
+    if (m_viewMode == mode) return;
+    Side anchorSide = Side::Right;
+    int anchor = 0;
+    if (m_viewMode == ViewMode::Unified) {
+        const int row = m_unifiedEditor->edit()->area()->viewportState().firstVisibleLine;
+        if (row >= 0 && row < m_projection.rows().size()) {
+            const auto& r = m_projection.rows()[row];
+            anchorSide = r.rightLine >= 0 ? Side::Right : Side::Left;
+            anchor = anchorSide == Side::Right ? r.rightLine : r.leftLine;
+        }
+    } else {
+        anchorSide = m_leftEditor->edit()->area()->hasFocus() ? Side::Left : Side::Right;
+        const auto* editor = anchorSide == Side::Left ? m_leftEditor : m_rightEditor;
+        anchor = editor->originalLine(editor->edit()->area()->viewportState().firstVisibleLine);
+    }
+    m_viewMode = mode;
+    rebuildProjection();
+    layout()->activate();
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    if (mode == ViewMode::Unified) m_unifiedEditor->edit()->area()->verticalScrollBar()->setValue(unifiedLine(anchorSide, anchor));
+    else {
+        const int other = int(m_syncMapper.correspondingLine(anchorSide, anchor));
+        m_leftEditor->edit()->area()->verticalScrollBar()->setValue(m_leftEditor->displayLine(anchorSide == Side::Left ? anchor : other));
+        m_rightEditor->edit()->area()->verticalScrollBar()->setValue(m_rightEditor->displayLine(anchorSide == Side::Right ? anchor : other));
+    }
+    emit viewModeChanged(mode);
+}
+void FileDiffWidget::setUnchangedLinesSkipped(bool skipped) {
+    if (m_skipUnchanged == skipped) return;
+    m_skipUnchanged = skipped; m_openedFolds.clear(); rebuildProjection();
+    emit unchangedLinesSkippedChanged(skipped);
+}
+void FileDiffWidget::setContextLines(int lines) {
+    lines = std::max(0, lines);
+    if (m_contextLines == lines) return;
+    m_contextLines = lines; m_openedFolds.clear(); rebuildProjection();
+}
+void FileDiffWidget::openContaining(Side side, diffcore::LineRange range) {
+    bool changed = false;
+    for (const auto& row : m_projection.rows()) {
+        if (!row.hiddenCount) continue;
+        const int first = side == Side::Left ? row.leftLine : row.rightLine;
+        if (range.start < first+row.hiddenCount && range.start+std::max(1, range.count) > first) {
+            m_openedFolds.insert(row.leftLine); changed = true;
+        }
+    }
+    if (changed) rebuildProjection();
+}
+void FileDiffWidget::rebuildProjection() {
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    const int leftAnchor = m_leftEditor->originalLine(m_leftEditor->edit()->area()->viewportState().firstVisibleLine);
+    const int rightAnchor = m_rightEditor->originalLine(m_rightEditor->edit()->area()->viewportState().firstVisibleLine);
+    const int unifiedTop = m_unifiedEditor->edit()->area()->viewportState().firstVisibleLine;
+    Side unifiedSide = Side::Right;
+    int unifiedAnchor = rightAnchor;
+    if (unifiedTop >= 0 && unifiedTop < m_projection.rows().size()) {
+        const auto& r = m_projection.rows()[unifiedTop];
+        unifiedSide = r.rightLine >= 0 ? Side::Right : Side::Left;
+        unifiedAnchor = unifiedSide == Side::Right ? r.rightLine : r.leftLine;
+    }
+    m_splitter->setVisible(m_viewMode == ViewMode::SideBySide);
+    m_unifiedEditor->setVisible(m_viewMode == ViewMode::Unified);
+    if (!m_comparison) {
+        m_projection = {};
+        m_unifiedEditor->setAlignedModel(nullptr); return;
+    }
+    m_projection.build(*m_comparison, m_skipUnchanged, m_contextLines, m_openedFolds);
+    // Persistent host highlights must never land on placeholder text after
+    // changing context or enabling skipping.
+    bool opened = false;
+    for (const auto& row : m_projection.rows()) {
+        if (!row.hiddenCount) continue;
+        const auto overlaps = [&](Side side, diffcore::LineRange range) {
+            const int first = side == Side::Left ? row.leftLine : row.rightLine;
+            return range.start < first+row.hiddenCount && range.start+std::max(1, range.count) > first;
+        };
+        bool needed = m_emphasis && overlaps(m_emphasis->first, m_emphasis->second);
+        for (const auto& range : m_leftSearch) needed |= overlaps(Side::Left, {range.line, 1});
+        for (const auto& range : m_rightSearch) needed |= overlaps(Side::Right, {range.line, 1});
+        if (needed) { m_openedFolds.insert(row.leftLine); opened = true; }
+    }
+    if (opened) m_projection.build(*m_comparison, m_skipUnchanged, m_contextLines, m_openedFolds);
+    if (m_viewMode == ViewMode::Unified) {
+        m_unifiedEditor->setSyntaxFileName(m_rightEditor->syntaxFileName());
+        m_unifiedEditor->setProjection(m_comparison, m_projection.rows(), true, m_leftEditor->syntaxFileName());
+    } else m_unifiedEditor->setAlignedModel(nullptr);
+    for (Side side : {Side::Left, Side::Right}) {
+        auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+        if (m_skipUnchanged) {
+            QVector<ViewRow> rows;
+            for (const auto& row : m_projection.rows()) if ((side == Side::Left ? row.leftLine : row.rightLine) >= 0) rows.append(row);
+            editor->setProjection(m_comparison, rows, false);
+        } else if (editor->hasProjection()) {
+            editor->setAlignedModel(m_model);
+            editor->setIntraLineDiffs(side == Side::Left ? m_comparison->highlights().leftRanges : m_comparison->highlights().rightRanges);
+            editor->reloadSyntaxDefinitions();
+        }
+    }
+    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(m_leftEditor->displayLine(leftAnchor));
+    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(m_rightEditor->displayLine(rightAnchor));
+    m_unifiedEditor->edit()->area()->verticalScrollBar()->setValue(unifiedLine(unifiedSide, unifiedAnchor));
+    refreshSearchHighlights(); m_splitter->updateConnections();
 }
 
 }  // namespace diffmerge::gui

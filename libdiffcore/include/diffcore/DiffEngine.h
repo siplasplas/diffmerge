@@ -23,8 +23,25 @@
 
 namespace diffcore {
 
+// Nonpositive limits are unlimited. The atomic flag is borrowed for the call.
+struct CountLimits {
+    int maxEditDistance = 0;
+    int timeLimitMs = 0;
+    const std::atomic_bool* cancel = nullptr;
+};
+struct ChangeCounts {
+    enum class Status { Complete, TooManyDifferences, TimedOut, Cancelled };
+    Status status = Status::Complete;
+    int added = 0;
+    int removed = 0; // Counts are valid only for Complete.
+};
 class DiffEngine {
 public:
+    // Exact normalized-line O(NP) counting, without trace, hunks or sliders.
+    // Formatting alignment affects presentation only and is not used here.
+    ChangeCounts countChanges(const QStringList& left, const QStringList& right,
+                             const DiffOptions& opts = {}, const CountLimits& limits = {},
+                             CancellationToken cancellation = {});
     DiffResult compute(const QStringList& left,
                        const QStringList& right,
                        const DiffOptions& opts = {},

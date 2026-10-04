@@ -6,7 +6,7 @@ set(DIFFMERGE_SOURCE_DIR "" CACHE PATH "Optional DiffMerge source checkout")
 if(DIFFMERGE_SOURCE_DIR)
     add_subdirectory("${DIFFMERGE_SOURCE_DIR}" diffmerge)
 else()
-    find_package(DiffMerge 1.1 CONFIG REQUIRED COMPONENTS Widgets)
+    find_package(DiffMerge 1.2 CONFIG REQUIRED COMPONENTS Widgets)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent)

@@ -104,6 +104,20 @@ place executables in a configuration subdirectory such as `Debug/`.
 Use **File > Open two files...** or **File > Open two directories...** to switch
 views. Passing a single path pre-fills the left path field.
 
+**View > Side by Side / Unified** switches file presentation. The desktop app
+remembers this choice and **View > Skip unchanged lines**. Unified shows old
+and new line numbers and `−`/`+` markers in its gutter; the document contains
+only code, so copying code does not include these markers. Removed lines precede
+added lines within each changed region. Both modes retain word and character
+highlighting and syntax colors computed over each complete original file.
+
+Skipping replaces equal runs outside the context with `⋯ N unchanged lines —
+click to show`. The default context is three lines around changes. Clicking a
+placeholder expands the run in both side-by-side panes. Navigation, reveal and
+search continue to use original file coordinates; reveal and search expand any
+needed hidden lines. Switching modes preserves the top visible original line.
+Function folding remains disabled.
+
 File comparison provides:
 
 - Two read-only qcodeedit panes with line numbers on the inner edges and vertical
@@ -139,7 +153,8 @@ File comparisons select Kate XML syntax definitions independently for each side
 using the file name. Syntax foreground colors and font styles remain visible over
 the existing diff block and character backgrounds. Comments and strings retain
 their syntax state across original document lines. Colors adapt to the light or
-dark diff scheme. Folding stays disabled, including syntax fold markers.
+dark diff scheme. Syntax folding and its markers stay disabled; equal-line
+placeholders are managed separately by the comparison view.
 
 The desktop application checks qcodeedit's shared Kate data at startup using the
 local manifests and XML/theme files. If data is missing or incomplete, it offers
@@ -203,6 +218,28 @@ implemented in the CLI.
 | `-h`, `--help` | Show help |
 
 Exit codes are `0` for identical files, `1` for differences and `2` for errors.
+
+## Bounded change counting
+
+`DiffEngine::countChanges(left, right, options, limits, cancellation)` counts
+added and removed lines using the O(NP) search without recording a path, hunks
+or slider adjustments. Memory is linear in the input. It trims equal prefixes
+and suffixes and can stop with `TooManyDifferences`, `TimedOut` or `Cancelled`;
+counts are valid only when the status is `Complete`.
+
+```cpp
+diffcore::CountLimits limits{.maxEditDistance = 2000, .timeLimitMs = 100};
+const auto counts = diffcore::DiffEngine{}.countChanges(before, after, {}, limits);
+if (counts.status == diffcore::ChangeCounts::Status::Complete) {
+    // counts.added and counts.removed are available.
+}
+```
+
+Nonpositive limits are unlimited. The time limit covers normalization and search.
+Cancellation accepts a copied `CancellationToken` or a borrowed atomic flag in
+`CountLimits::cancel`, which must remain alive for the call. Normalization follows
+`DiffOptions`; `alignWhitespaceChanges` only affects presentation in full diffs,
+so bounded counting uses exact normalized-line matches.
 
 ## Core sequence API
 
@@ -271,7 +308,7 @@ cmake --install build-lib
 The consuming project then uses:
 
 ```cmake
-find_package(DiffMerge 1.1 CONFIG REQUIRED COMPONENTS Widgets)
+find_package(DiffMerge 1.2 CONFIG REQUIRED COMPONENTS Widgets)
 target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
 ```
 
@@ -290,6 +327,9 @@ viewer can feed revision contents directly, without temporary files:
 auto* diff = new diffmerge::gui::FileDiffWidget(parent);
 diff->setPathBarVisible(false);
 diff->setNavigationBarVisible(false); // The host can provide its own controls.
+diff->setViewMode(diffmerge::gui::ViewMode::Unified);
+diff->setUnchangedLinesSkipped(true);
+diff->setContextLines(3);
 diff->setContent(parentRevisionLines, selectedRevisionLines);
 ```
 
@@ -371,7 +411,8 @@ Snapshots omit line terminators but retain per-line LF/CRLF/CR metadata and opti
 final-newline state. `fromText("")` is an empty file; `fromText("\n")` contains one
 empty terminated line. Legacy `QStringList` input has unknown metadata. Labels,
 line endings and final-newline state remain available through the snapshot API;
-the comparison widget does not display a metadata row or insert synthetic content.
+the comparison widget does not display a metadata row. Original documents
+retain their code; projected displays add only unchanged-line placeholders.
 End-of-line differences do not create textual change
 blocks. Binary detection, decoding, repository access and revision identity belong
 to the host.
@@ -381,7 +422,8 @@ and GUI installation separately. GUI document installation and stored aligned
 rows/highlights still consume time and memory; this implementation does not
 virtualize large documents.
 
-One local Release-build measurement (Linux, Qt 6.10, offscreen, one run) requested
+A baseline measurement before view projections (Linux, Qt 6.10, Release build,
+offscreen, one run) requested
 cancellation after 1 ms of worker time, with a higher trace budget so cancellation
 could be observed rather than hitting that budget first:
 
@@ -394,7 +436,9 @@ For 10,000 equal short lines per side, preparation took 1.82 ms and GUI installa
 0.14 ms, excluding the subsequent first paint. Peak resident memory for the whole
 benchmark process, including Qt and earlier workloads, was about 39 MiB; this is
 not an isolated model allocation measurement. These observations describe that
-run, not hard latency or memory guarantees.
+run, not hard latency or memory guarantees. Version 1.2 also builds display maps
+and caches original-side syntax when a projected view is needed; the installation
+timing above is a historical baseline, not a measurement of these new modes.
 
 A small history-viewer example is included (it displays sample revisions,
 without a Git dependency):
@@ -409,6 +453,16 @@ cmake --build build-example --parallel
 Alternatively, pass `-DDIFFMERGE_SOURCE_DIR=/path/to/diffmerge` to build the example
 against a checkout. `QT_QPA_PLATFORM=offscreen ./build-example/embedded-diff --smoke`
 checks embedding and resource loading without opening a window.
+
+### Presentation API
+
+`FileDiffWidget::viewMode()` and `unchangedLinesSkipped()` report the current
+settings; `viewModeChanged` and `unchangedLinesSkippedChanged` notify the host.
+`contextLines()` defaults to 3; negative values passed to `setContextLines()`
+are clamped to zero. Widgets do not create shortcuts or save preferences.
+`unifiedEditor()` exposes the unified pane for the same optional customization
+as `leftEditor()` and `rightEditor()`. All public reveal/search coordinates are
+still original UTF-16 file coordinates, regardless of the displayed mode.
 
 ## Tests
 

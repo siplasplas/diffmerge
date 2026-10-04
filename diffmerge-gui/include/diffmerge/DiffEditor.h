@@ -13,9 +13,11 @@
 #include <optional>
 
 #include <qce/CodeEdit.h>
+#include <qce/IHighlighter.h>
 #include <qce/SimpleTextDocument.h>
 #include <qce/margins/LineNumberGutter.h>
 
+#include <diffmerge/ViewProjection.h>
 #include <diffmerge/ColorScheme.h>
 #include <diffmerge/AlignedLineModel.h>
 #include <diffmerge/IntraLineDiffEngine.h>
@@ -44,21 +46,37 @@ public:
     void setRevealOverlay(std::optional<diffcore::LineRange> range,
                           const QVector<int>& searchBoundaries = {});
 
+    void setProjection(std::shared_ptr<const PreparedComparison> comparison,
+                       const QVector<ViewRow>& rows, bool unified, const QString& leftSyntaxFileName = {});
+    bool hasProjection() const { return bool(m_projectedComparison); }
+    int displayLine(int originalLine) const;
+    int originalLine(int displayLine) const;
+    const QVector<ViewRow>& displayRows() const { return m_rows; }
+
     Side side() const { return m_side; }
     qce::CodeEdit* edit() const { return m_edit; }
     const ColorScheme& colorScheme() const { return m_scheme; }
 
 signals:
     void colorSchemeChanged();
+    void foldClicked(int leftLine);
 
 protected:
     void changeEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void applyModel();
     void applyHighlighter();
     void applyColorScheme(const ColorScheme& scheme);
 
+    void applyProjection();
+    std::shared_ptr<const PreparedComparison> m_projectedComparison;
+    QVector<ViewRow> m_rows;
+    QVector<int> m_originalToDisplay;
+    bool m_unified = false;
+    std::unique_ptr<qce::IHighlighter> m_projectedHighlighter;
+    QString m_leftSyntaxFileName;
     QString m_syntaxFileName;
     QString m_syntaxLanguage;
     Side m_side;

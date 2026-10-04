@@ -14,6 +14,7 @@
 #include <diffmerge/AlignedLineModel.h>
 #include <diffmerge/ScrollSyncMapper.h>
 #include <diffmerge/Comparison.h>
+#include <diffmerge/ViewProjection.h>
 
 namespace diffmerge::gui {
 
@@ -35,6 +36,14 @@ public:
     void clearComparison() { setComparison(nullptr); }
     std::shared_ptr<const PreparedComparison> comparison() const { return m_comparison; }
     std::chrono::nanoseconds lastInstallationTime() const { return m_installationTime; }
+
+    void setViewMode(ViewMode mode);
+    ViewMode viewMode() const { return m_viewMode; }
+    void setUnchangedLinesSkipped(bool skipped);
+    bool unchangedLinesSkipped() const { return m_skipUnchanged; }
+    void setContextLines(int lines);
+    int contextLines() const { return m_contextLines; }
+    DiffEditor* unifiedEditor() const { return m_unifiedEditor; }
 
     // Original coordinates, never indices from another diff implementation.
     // Invalid inputs return false and leave the view unchanged. count == 0
@@ -80,6 +89,8 @@ public slots:
     void navigateToPrev();
 
 signals:
+    void viewModeChanged(ViewMode mode);
+    void unchangedLinesSkippedChanged(bool skipped);
     void backRequested();
     void fileBrowseRequested(Side side, const QString& currentPath);
     void loadFailed(const QString& message);
@@ -89,6 +100,15 @@ signals:
     void pathsChanged(const QString& leftPath, const QString& rightPath);
 
 private:
+    void rebuildProjection();
+    void openContaining(Side side, diffcore::LineRange range);
+    int unifiedLine(Side side, int line) const;
+    ViewMode m_viewMode = ViewMode::SideBySide;
+    bool m_skipUnchanged = false;
+    int m_contextLines = 3;
+    QSet<int> m_openedFolds;
+    ViewProjection m_projection;
+    DiffEditor* m_unifiedEditor = nullptr;
     void setupUi();
     void navigateToHunk(int idx);
     void updateNavLabel();

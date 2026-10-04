@@ -11,6 +11,8 @@
 
 #include <span>
 #include <string>
+#include <thread>
+#include <random>
 
 using namespace diffcore;
 
@@ -28,6 +30,42 @@ class TestEngine : public QObject {
     Q_OBJECT
 
 private slots:
+    void boundedCountsAgreeWithDiff() {
+        std::mt19937 random(42);
+        DiffEngine engine;
+        for (int sample = 0; sample < 300; ++sample) {
+            QStringList left, right;
+            for (int i = int(random()%20); i > 0; --i) left.append(QString::number(random()%5));
+            for (int i = int(random()%20); i > 0; --i) right.append(QString::number(random()%5));
+            DiffOptions options; options.applySliderHeuristics = false;
+            const auto diff = engine.compute(left, right, options);
+            const auto counts = engine.countChanges(left, right, options);
+            QCOMPARE(counts.status, ChangeCounts::Status::Complete);
+            QCOMPARE(counts.added, diff.stats.additions);
+            QCOMPARE(counts.removed, diff.stats.deletions);
+            const auto bounded = engine.countChanges(left, right, options, {.maxEditDistance = 3});
+            QCOMPARE(bounded.status, counts.added+counts.removed > 3 ? ChangeCounts::Status::TooManyDifferences : ChangeCounts::Status::Complete);
+        }
+        QCOMPARE(engine.countChanges({}, {"a", "b"}, {}, {.maxEditDistance=1}).status, ChangeCounts::Status::TooManyDifferences);
+        const auto normalized = engine.countChanges({" A  "}, {"a"}, {.ignoreWhitespace=true, .ignoreCase=true});
+        QCOMPARE(normalized.added, 0); QCOMPARE(normalized.removed, 0);
+    }
+    void boundedCountsStop() {
+        DiffEngine engine;
+        std::atomic_bool flag(true);
+        QCOMPARE(engine.countChanges({}, {}, {}, {.cancel=&flag}).status, ChangeCounts::Status::Cancelled);
+        CancellationToken token; token.requestCancellation();
+        QCOMPARE(engine.countChanges({"a"}, {"a"}, {}, {}, token).status, ChangeCounts::Status::Cancelled);
+        QStringList left, right;
+        for (int i=0; i<3000; ++i) { left.append(QString::number(i%2)); right.append(QString::number((i/100)%2)); }
+        QCOMPARE(engine.countChanges(left, right, {}, {.timeLimitMs=1}).status, ChangeCounts::Status::TimedOut);
+        flag.store(false);
+        std::thread cancel([&flag] { std::this_thread::sleep_for(std::chrono::milliseconds(1)); flag.store(true); });
+        const auto stopped = engine.countChanges(left, right, {}, {.cancel=&flag});
+        cancel.join();
+        QCOMPARE(stopped.status, ChangeCounts::Status::Cancelled);
+    }
+
     void cancellationIsCheckedInsideSequenceComparison() {
         for (bool identical : {false, true}) {
             CancellationToken token;

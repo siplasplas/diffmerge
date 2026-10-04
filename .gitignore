@@ -22,3 +22,6 @@ compile_commands.json
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Working handoff notes
+HANDOFF*.md

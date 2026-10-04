@@ -57,10 +57,10 @@ protected:
         const qreal middle = w / 2;
         const auto& scheme = m_left->colorScheme();
         for (const auto& block : m_model->changeBlocks()) {
-            const qreal lt = yFor(block.leftRange.start, left, leftOrigin);
-            const qreal lb = yFor(block.leftRange.end(), left, leftOrigin);
-            const qreal rt = yFor(block.rightRange.start, right, rightOrigin);
-            const qreal rb = yFor(block.rightRange.end(), right, rightOrigin);
+            const qreal lt = yFor(m_left->displayLine(block.leftRange.start), left, leftOrigin);
+            const qreal lb = yFor(m_left->displayLine(block.leftRange.end()), left, leftOrigin);
+            const qreal rt = yFor(m_right->displayLine(block.rightRange.start), right, rightOrigin);
+            const qreal rb = yFor(m_right->displayLine(block.rightRange.end()), right, rightOrigin);
             // Keep offscreen endpoints intact: clipping must not flatten curves.
             if (std::max(lb, rb) < clipTop || std::min(lt, rt) >= clipBottom)
                 continue;

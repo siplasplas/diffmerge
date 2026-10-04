@@ -190,4 +190,67 @@ DiffResult DiffEngine::compute(const QStringList& left,
     return result;
 }
 
+
+ChangeCounts DiffEngine::countChanges(const QStringList& left, const QStringList& right,
+                                      const DiffOptions& opts, const CountLimits& limits,
+                                      CancellationToken cancellation) {
+    ChangeCounts result;
+    ComputationControl control(std::move(cancellation));
+    control.setExternalCancellation(limits.cancel);
+    if (limits.timeLimitMs > 0) control.setDeadline(std::chrono::steady_clock::now() + std::chrono::milliseconds(limits.timeLimitMs));
+    try {
+        control.step();
+        if (left.size() > INT_MAX-3-right.size()) throw std::length_error("Too many lines to count");
+        LineInterner interner;
+        auto ids = interner.intern(left, right, opts, &control);
+        auto& a = ids.leftIds;
+        auto& b = ids.rightIds;
+        int prefix = 0;
+        while (prefix < int(a.size()) && prefix < int(b.size()) && a[prefix] == b[prefix]) { control.step(); ++prefix; }
+        int m = int(a.size())-prefix, n = int(b.size())-prefix;
+        while (m > 0 && n > 0 && a[prefix+m-1] == b[prefix+n-1]) { control.step(); --m; --n; }
+        const int originalM = m, originalN = n;
+        bool swapped = m > n;
+        if (swapped) { std::swap(a, b); std::swap(m, n); }
+        const auto exceeds = [&](int distance) { return limits.maxEditDistance > 0 && distance > limits.maxEditDistance; };
+        if (exceeds(n-m)) { result.status = ChangeCounts::Status::TooManyDifferences; return result; }
+        if (limits.maxEditDistance > 0) {
+            QHash<int, int> balances;
+            for (int i = 0; i < m; ++i) { control.step(); ++balances[a[prefix+i]]; }
+            for (int i = 0; i < n; ++i) { control.step(); --balances[b[prefix+i]]; }
+            int bound = 0;
+            for (int balance : balances) { control.step(); bound += std::abs(balance); }
+            if (exceeds(bound)) { result.status = ChangeCounts::Status::TooManyDifferences; return result; }
+        }
+        int distance = n+m;
+        if (m > 0) {
+            const int offset = m+1, delta = n-m;
+            std::vector<int> frontier(size_t(m+n+3), -1);
+            const auto extend = [&](int k) {
+                control.step();
+                int y = std::max(frontier[offset+k-1]+1, frontier[offset+k+1]);
+                int x = y-k;
+                while (x < m && y < n && a[prefix+x] == b[prefix+y]) { control.step(); ++x; ++y; }
+                frontier[offset+k] = y;
+            };
+            for (int p = 0;; ++p) {
+                control.step();
+                distance = delta+2*p;
+                if (exceeds(distance)) { result.status = ChangeCounts::Status::TooManyDifferences; return result; }
+                for (int k = -p; k < delta; ++k) extend(k);
+                for (int k = delta+p; k > delta; --k) extend(k);
+                extend(delta);
+                if (frontier[offset+delta] == n) break;
+            }
+        }
+        if (exceeds(distance)) { result.status = ChangeCounts::Status::TooManyDifferences; return result; }
+        control.step();
+        const int common = (originalM+originalN-distance)/2;
+        result.added = originalN-common; result.removed = originalM-common;
+    } catch (const ComputationStopped& stopped) {
+        result.status = stopped.reason == StopReason::Cancelled ? ChangeCounts::Status::Cancelled : ChangeCounts::Status::TimedOut;
+    }
+    return result;
+}
+
 }  // namespace diffcore

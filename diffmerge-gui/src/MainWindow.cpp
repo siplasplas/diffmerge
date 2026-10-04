@@ -2,6 +2,7 @@
 
 #include <qxfiledialog.h>
 #include <QShortcut>
+#include <QActionGroup>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
@@ -85,6 +86,32 @@ void MainWindow::setupMenus() {
     auto* quitAction = fileMenu->addAction(QStringLiteral("&Quit"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
+
+    auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    auto* modes = new QActionGroup(this);
+    modes->setExclusive(true);
+    auto* sideBySide = viewMenu->addAction(QStringLiteral("Side by Side"));
+    auto* unified = viewMenu->addAction(QStringLiteral("Unified"));
+    for (auto* action : {sideBySide, unified}) { action->setCheckable(true); modes->addAction(action); }
+    QSettings settings;
+    const auto mode = settings.value(QStringLiteral("view/unified"), false).toBool() ? ViewMode::Unified : ViewMode::SideBySide;
+    m_diffWidget->setViewMode(mode);
+    (mode == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
+    connect(sideBySide, &QAction::triggered, this, [this] { m_diffWidget->setViewMode(ViewMode::SideBySide); });
+    connect(unified, &QAction::triggered, this, [this] { m_diffWidget->setViewMode(ViewMode::Unified); });
+    connect(m_diffWidget, &FileDiffWidget::viewModeChanged, this, [sideBySide, unified](ViewMode mode) {
+        (mode == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
+        QSettings().setValue(QStringLiteral("view/unified"), mode == ViewMode::Unified);
+    });
+    viewMenu->addSeparator();
+    auto* skip = viewMenu->addAction(QStringLiteral("Skip unchanged lines"));
+    skip->setCheckable(true);
+    skip->setChecked(settings.value(QStringLiteral("view/skipUnchanged"), false).toBool());
+    m_diffWidget->setUnchangedLinesSkipped(skip->isChecked());
+    connect(skip, &QAction::toggled, m_diffWidget, &FileDiffWidget::setUnchangedLinesSkipped);
+    connect(m_diffWidget, &FileDiffWidget::unchangedLinesSkippedChanged, this, [skip](bool value) {
+        skip->setChecked(value); QSettings().setValue(QStringLiteral("view/skipUnchanged"), value);
+    });
 
     auto* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
     auto* syntaxAction = toolsMenu->addAction(QStringLiteral("Update Syntax Definitions..."));

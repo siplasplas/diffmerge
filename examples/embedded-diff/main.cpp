@@ -68,7 +68,13 @@ int main(int argc, char** argv) {
                 diff->setSearchHighlights(Side::Right, {{0, 0, 3}});
                 qInfo() << "Preparation ms:" << result.preparationTime.count() / 1e6
                         << "installation ms:" << diff->lastInstallationTime().count() / 1e6;
-                if (smoke) app.quit();
+                if (smoke) {
+                    diff->setViewMode(ViewMode::Unified);
+                    diff->setUnchangedLinesSkipped(true);
+                    if (!diff->navigateToChange(0) || !diff->revealText(Side::Right, {0, 0, 3})) { app.exit(1); return; }
+                    diff->setViewMode(ViewMode::SideBySide);
+                    app.quit();
+                }
             });
             watcher->setFuture(QtConcurrent::run([before, after, token] {
                 return prepareComparison(before, after, {}, token);

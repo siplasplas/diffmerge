@@ -56,6 +56,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/SyntaxLoader.h
     src/editor/SyntaxLoader.cpp
     src/editor/IntraLineDiffEngine.cpp
+    src/fileview/ViewProjection.cpp
     src/fileview/Comparison.cpp
     src/fileview/AlignedLineModel.cpp
     src/fileview/FileDiffWidget.cpp
