@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-#include "internal/Diff.h"
+#include <diffcore/detail/Diff.h>
 
 using namespace diffcore::internal;
 

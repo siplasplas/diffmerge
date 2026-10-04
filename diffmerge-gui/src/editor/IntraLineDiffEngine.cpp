@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include <diffcore/DiffEngine.h>
+#include <diffcore/SequenceDiff.h>
 
 namespace diffmerge::gui {
 
@@ -11,15 +11,8 @@ IntraLineDiffEngine::diffLinePair(const QString& left, const QString& right) {
     LinePairResult out;
     if (left.isEmpty() && right.isEmpty()) return out;
 
-    // Convert strings to single-character QStringList for the diff engine.
-    QStringList lChars, rChars;
-    lChars.reserve(left.length());
-    rChars.reserve(right.length());
-    for (const QChar& c : left)  lChars.append(QString(c));
-    for (const QChar& c : right) rChars.append(QString(c));
-
-    diffcore::DiffEngine engine;
-    const auto result = engine.compute(lChars, rChars);
+    // QString elements are UTF-16 units, matching the editor's column offsets.
+    const auto result = diffcore::SequenceDiff::compute(left, right);
 
     for (const auto& h : result.hunks) {
         switch (h.type) {

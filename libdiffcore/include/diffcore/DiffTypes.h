@@ -17,7 +17,8 @@ enum class ChangeType {
     Replace   // Corresponding regions differ (Delete + Insert paired)
 };
 
-// Half-open range of lines: [start, start + count).
+// Half-open range: [start, start + count). Units are lines in DiffEngine
+// and input elements in SequenceDiff.
 // For empty ranges (count == 0), start is the insertion point.
 struct LineRange {
     int start = 0;

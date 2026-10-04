@@ -6,6 +6,10 @@
 #include <QTest>
 
 #include "diffcore/DiffEngine.h"
+#include "diffcore/SequenceDiff.h"
+
+#include <span>
+#include <string>
 
 using namespace diffcore;
 
@@ -13,6 +17,108 @@ class TestEngine : public QObject {
     Q_OBJECT
 
 private slots:
+    void sequenceSupportsCharactersTokensAndViews() {
+        auto chars = SequenceDiff::compute(std::string("abc"), std::string("axc"));
+        QCOMPARE(chars.editDistance, 2);
+        QCOMPARE(chars.hunks.size(), size_t(3));
+        QCOMPARE(chars.hunks[1].type, ChangeType::Replace);
+        QCOMPARE(chars.hunks[1].leftRange.start, 1);
+        QCOMPARE(chars.hunks[1].rightRange.count, 1);
+
+        struct Token {
+            std::string text;
+            bool operator==(const Token&) const = default;
+        };
+        const std::vector<Token> left{{"return"}, {"oldName"}, {";"}};
+        const std::vector<Token> right{{"return"}, {"newName"}, {";"}, {"extra"}};
+        const auto tokens = SequenceDiff::compute(std::span<const Token>(left),
+                                                   std::span<const Token>(right));
+        QCOMPARE(tokens.leftSize, 3);
+        QCOMPARE(tokens.rightSize, 4);
+        QCOMPARE(tokens.editDistance, 3);
+        QCOMPARE(tokens.hunks.front().type, ChangeType::Equal);
+        QCOMPARE(tokens.hunks.back().type, ChangeType::Insert);
+        QCOMPARE(tokens.hunks.back().rightRange.start, 3);
+
+        const auto unicode = SequenceDiff::compute(QStringLiteral("zażółć"),
+                                                      QStringLiteral("zażółĆ"));
+        QCOMPARE(unicode.editDistance, 2);
+        QCOMPARE(unicode.hunks.back().leftRange.start, 5);
+        const auto raw = SequenceDiff::compute(std::string("a"), std::string("b"), {false, false});
+        QCOMPARE(raw.editDistance, 2);
+        for (const auto& h : raw.hunks) QVERIFY(h.type != ChangeType::Replace);
+    }
+
+    void sequenceScriptsReconstructInputsAndHaveMinimalDistance() {
+        // Exhaustive short inputs exercise repeats, swaps, empty inputs and all
+        // merge options. A separate dynamic-programming oracle checks distance.
+        std::vector<std::vector<int>> sequences;
+        for (int length = 0; length <= 4; ++length) {
+            for (int bits = 0; bits < (1 << length); ++bits) {
+                std::vector<int> seq;
+                for (int i = 0; i < length; ++i) seq.push_back((bits >> i) & 1);
+                sequences.push_back(std::move(seq));
+            }
+        }
+        for (const auto& left : sequences) {
+            for (const auto& right : sequences) {
+                const int m = static_cast<int>(left.size());
+                const int n = static_cast<int>(right.size());
+                std::vector<std::vector<int>> distance(m + 1, std::vector<int>(n + 1));
+                for (int i = 0; i <= m; ++i) distance[i][0] = i;
+                for (int j = 0; j <= n; ++j) distance[0][j] = j;
+                for (int i = 1; i <= m; ++i)
+                    for (int j = 1; j <= n; ++j)
+                        distance[i][j] = left[i - 1] == right[j - 1] ? distance[i - 1][j - 1]
+                            : 1 + std::min(distance[i - 1][j], distance[i][j - 1]);
+                for (bool merge : {false, true}) {
+                    for (bool coalesce : {false, true}) {
+                        const auto result = SequenceDiff::compute(left, right, {merge, coalesce});
+                        QCOMPARE(result.editDistance, distance[m][n]);
+                        QCOMPARE(result.isIdentical(), left == right);
+                        int l = 0, r = 0, edits = 0;
+                        std::vector<int> reconstructed;
+                        for (const auto& h : result.hunks) {
+                            QCOMPARE(h.leftRange.start, l);
+                            QCOMPARE(h.rightRange.start, r);
+                            QVERIFY(h.leftRange.count >= 0 && h.leftRange.end() <= m);
+                            QVERIFY(h.rightRange.count >= 0 && h.rightRange.end() <= n);
+                            if (h.type == ChangeType::Equal) {
+                                QCOMPARE(h.leftRange.count, h.rightRange.count);
+                                for (int i = 0; i < h.leftRange.count; ++i) {
+                                    QCOMPARE(left[l + i], right[r + i]);
+                                    reconstructed.push_back(left[l + i]);
+                                }
+                            } else {
+                                edits += h.leftRange.count + h.rightRange.count;
+                                if (h.type == ChangeType::Insert) QCOMPARE(h.leftRange.count, 0);
+                                if (h.type == ChangeType::Delete) QCOMPARE(h.rightRange.count, 0);
+                                reconstructed.insert(reconstructed.end(),
+                                    right.begin() + r, right.begin() + h.rightRange.end());
+                            }
+                            l = h.leftRange.end();
+                            r = h.rightRange.end();
+                        }
+                        QCOMPARE(l, m);
+                        QCOMPARE(r, n);
+                        QCOMPARE(edits, result.editDistance);
+                        QVERIFY(reconstructed == right);
+                    }
+                }
+            }
+        }
+    }
+
+    void sequenceRejectsUnrepresentableSize() {
+        struct OversizedSequence {
+            using value_type = int;
+            size_t size() const { return size_t(std::numeric_limits<int>::max()) + 1; }
+            value_type operator[](int) const { return 0; }
+        };
+        const OversizedSequence sequence;
+        QVERIFY_EXCEPTION_THROWN(SequenceDiff::compute(sequence, sequence), std::length_error);
+    }
+
     // --- Trivial cases ---
 
     void identicalFiles() {

@@ -29,6 +29,25 @@ private:
 
 private slots:
 
+    void whitespaceChangesKeepExactCharacterPositions() {
+        // Empty-line slider heuristics must never relocate character changes.
+        auto res = build({"a b"}, {"a  b"});
+        QVERIFY(res.leftRanges[0].isEmpty());
+        int covered = 0;
+        for (const auto& r : res.rightRanges[0]) {
+            QVERIFY(r.start == 1 || r.start == 2);
+            QCOMPARE(r.length, 1);
+            covered += r.length;
+        }
+        QCOMPARE(covered, 1);
+    }
+
+    void nonAsciiChangeUsesEditorOffsets() {
+        auto res = build({QStringLiteral("zażółć")}, {QStringLiteral("zażółĆ")});
+        QVERIFY(hasRange(res.leftRanges[0], 5, 1));
+        QVERIFY(hasRange(res.rightRanges[0], 5, 1));
+    }
+
     // No Replace hunks → all range lists empty.
     void noReplaceHunks_noCharHighlights() {
         const QStringList left{"a", "b"};

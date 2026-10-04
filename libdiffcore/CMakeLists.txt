@@ -4,18 +4,20 @@ set(DIFFCORE_PUBLIC_HEADERS
     include/diffcore/DiffTypes.h
     include/diffcore/LineInterner.h
     include/diffcore/DiffEngine.h
+    include/diffcore/SequenceDiff.h
     include/diffcore/SliderHeuristics.h
 )
 
 set(DIFFCORE_SOURCES
     src/LineInterner.cpp
     src/DiffEngine.cpp
+    src/SequenceDiff.cpp
     src/SliderHeuristics.cpp
 )
 
 set(DIFFCORE_INTERNAL_HEADERS
-    src/internal/Diff.h
-    src/internal/Structs.h
+    include/diffcore/detail/Diff.h
+    include/diffcore/detail/Structs.h
 )
 
 add_library(diffcore STATIC

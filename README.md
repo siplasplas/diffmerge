@@ -134,6 +134,29 @@ implemented in the CLI.
 
 Exit codes are `0` for identical files, `1` for differences and `2` for errors.
 
+## Core sequence API
+
+`diffcore::SequenceDiff::compute(left, right)` compares sequences of elements
+through the same O(NP) engine used for line comparison. Include
+`<diffcore/SequenceDiff.h>` and link `diffcore::diffcore`. Inputs can be strings,
+vectors of token IDs or equality-comparable tokens, or `std::span` views. Both
+inputs use the same container type with `value_type`, `size()` and indexing.
+
+```cpp
+const auto result = diffcore::SequenceDiff::compute(
+    std::string("oldName"), std::string("newName"));
+```
+
+The result contains hunks, `leftSize`, `rightSize` and an insert/delete
+`editDistance`. Hunk ranges index original input elements with half-open bounds;
+empty ranges mark insertion boundaries. `SequenceDiffOptions` controls replacement
+merging and coalescing, both enabled by default. Comparison is exact, without
+normalization or line slider heuristics. Inputs too large for the engine's integer
+coordinates throw `std::length_error`. For `QString`, offsets count UTF-16 units;
+for `std::string`, they count bytes.
+The GUI's current character comparison uses this adapter directly; word-level
+tokenization and refinement remain planned.
+
 ## Tests
 
 ```bash

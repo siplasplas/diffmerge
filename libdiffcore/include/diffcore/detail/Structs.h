@@ -1,4 +1,4 @@
-// Internal data structures used by the diff engine.
+// Implementation details used by the templated sequence diff engine.
 // These are implementation details; the public API exposes Hunk instead.
 
 #ifndef DIFFCORE_INTERNAL_STRUCTS_H

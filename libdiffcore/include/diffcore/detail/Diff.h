@@ -1,3 +1,4 @@
+// Implementation detail of SequenceDiff; use the public adapter instead.
 // Wu/Manber/Myers O(NP) diff engine - templated version.
 // Original algorithm from the paper computes edit distance only;
 // this implementation additionally collects visited points during
