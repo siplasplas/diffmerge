@@ -100,6 +100,10 @@ signals:
     void pathsChanged(const QString& leftPath, const QString& rightPath);
 
 private:
+    void updateHorizontalScrollRange();
+    bool m_syncingHorizontal = false;
+    int m_horizontalOffset = 0;
+    int m_leftColumns = 0, m_rightColumns = 0;
     void rebuildProjection();
     void openContaining(Side side, diffcore::LineRange range);
     int unifiedLine(Side side, int line) const;

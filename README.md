@@ -126,7 +126,10 @@ File comparison provides:
 
 - Two read-only qcodeedit panes with line numbers on the inner edges and vertical
   scrollbars on the outer edges.
-- Synchronized scrolling across corresponding changes.
+- Synchronized vertical scrolling across corresponding changes. Both side-by-side
+  panes also share the horizontal offset and scroll range: moving either scrollbar
+  or scrolling to the caret shifts both panes by the same number of columns, even
+  when the other pane contains only short lines.
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
 - Three-level comparison: line alignment, word matching within replacement
   blocks, then character comparison within corresponding changed words.
@@ -312,7 +315,7 @@ cmake --install build-lib
 The consuming project then uses:
 
 ```cmake
-find_package(DiffMerge 1.2 CONFIG REQUIRED COMPONENTS Widgets)
+find_package(DiffMerge 1.3 CONFIG REQUIRED COMPONENTS Widgets)
 target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
 ```
 

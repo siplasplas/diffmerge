@@ -1,6 +1,7 @@
 #include <diffmerge/FileDiffWidget.h>
 
 #include <QFile>
+#include <QFontMetrics>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -150,6 +151,30 @@ void FileDiffWidget::setupUi() {
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
 
+    for (auto* editor : {m_leftEditor, m_rightEditor}) {
+        auto* area = editor->edit()->area();
+        auto* bar = area->horizontalScrollBar();
+        connect(bar, &QScrollBar::valueChanged, this, [this, bar](int value) {
+            if (m_syncingHorizontal) return;
+            m_horizontalOffset = value;
+            QScopedValueRollback<bool> syncing(m_syncingHorizontal, true);
+            auto* other = (bar == m_leftEditor->edit()->area()->horizontalScrollBar()
+                          ? m_rightEditor : m_leftEditor)->edit()->area()->horizontalScrollBar();
+            other->setValue(value);
+        });
+        connect(bar, &QScrollBar::rangeChanged, this, [this] { updateHorizontalScrollRange(); });
+        connect(area, &qce::CodeEditArea::viewportChanged, this, [this] { updateHorizontalScrollRange(); });
+        auto* document = area->document();
+        const auto updateColumns = [this, editor, document] {
+            (editor == m_leftEditor ? m_leftColumns : m_rightColumns) = document->maxLineLength();
+            updateHorizontalScrollRange();
+        };
+        connect(document, &qce::ITextDocument::documentReset, this, updateColumns);
+        connect(document, &qce::ITextDocument::linesChanged, this, updateColumns);
+        connect(document, &qce::ITextDocument::linesInserted, this, updateColumns);
+        connect(document, &qce::ITextDocument::linesRemoved, this, updateColumns);
+    }
+
     for (auto* edit : {leftEdit, rightEdit}) {
         connect(edit->area(), &qce::CodeEditArea::cursorPositionChanged,
                 this, [this, edit] {
@@ -226,6 +251,9 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
     m_rightEditor->setSyntaxFileName(m_comparison ? m_comparison->snapshot(Side::Right).fileName : QString{});
     m_splitter->setModel(m_model);
     m_openedFolds.clear();
+    m_horizontalOffset = 0;
+    m_leftEditor->edit()->area()->horizontalScrollBar()->setValue(0);
+    m_rightEditor->edit()->area()->horizontalScrollBar()->setValue(0);
     rebuildProjection();
     m_currentHunk = -1;
     m_navigationSide = Side::Left;
@@ -556,6 +584,30 @@ double FileDiffWidget::syncThreshold() const {
 }
 
 
+void FileDiffWidget::updateHorizontalScrollRange() {
+    if (m_syncingHorizontal) return;
+    QScopedValueRollback<bool> syncing(m_syncingHorizontal, true);
+    const auto maximum = [](DiffEditor* editor, int columns) {
+        const auto* area = editor->edit()->area();
+        const int charWidth = QFontMetrics(area->font()).horizontalAdvance(QLatin1Char('M'));
+        const int visibleColumns = charWidth > 0 ? area->viewport()->width() / charWidth : 0;
+        return std::max(0, columns - visibleColumns);
+    };
+    const int sharedMaximum = std::max(maximum(m_leftEditor, m_leftColumns),
+                                       maximum(m_rightEditor, m_rightColumns));
+    if (m_leftEditor->edit()->area()->horizontalScrollBar()->maximum() == sharedMaximum &&
+        m_rightEditor->edit()->area()->horizontalScrollBar()->maximum() == sharedMaximum)
+        return; // A value change publishes its viewport before valueChanged reaches us.
+    m_horizontalOffset = std::clamp(m_horizontalOffset, 0, sharedMaximum);
+    for (auto* editor : {m_leftEditor, m_rightEditor}) {
+        auto* bar = editor->edit()->area()->horizontalScrollBar();
+        // qcodeedit recalculates its own range on document/viewport changes.
+        // Give both panes the union so short lines can move with long ones.
+        bar->setRange(0, sharedMaximum);
+        bar->setValue(m_horizontalOffset);
+    }
+}
+
 int FileDiffWidget::unifiedLine(Side side, int line) const { return m_projection.rowFor(side, line); }
 void FileDiffWidget::setViewMode(ViewMode mode) {
     if (m_viewMode == mode) return;
@@ -660,6 +712,7 @@ void FileDiffWidget::rebuildProjection() {
     m_leftEditor->edit()->area()->verticalScrollBar()->setValue(m_leftEditor->displayLine(leftAnchor));
     m_rightEditor->edit()->area()->verticalScrollBar()->setValue(m_rightEditor->displayLine(rightAnchor));
     m_unifiedEditor->edit()->area()->verticalScrollBar()->setValue(unifiedLine(unifiedSide, unifiedAnchor));
+    updateHorizontalScrollRange();
     refreshSearchHighlights(); m_splitter->updateConnections();
 }
 

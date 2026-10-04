@@ -59,6 +59,50 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void horizontalScrollingSharesRangeAndOffset_data() {
+        QTest::addColumn<bool>("longOnLeft");
+        QTest::newRow("long-left") << true;
+        QTest::newRow("long-right") << false;
+    }
+    void horizontalScrollingSharesRangeAndOffset() {
+        QFETCH(bool, longOnLeft);
+        FileDiffWidget widget;
+        widget.resize(850, 300);
+        const QStringList longLines{QString(300, 'x')}, shortLines{"short"};
+        widget.setContent(longOnLeft ? longLines : shortLines, longOnLeft ? shortLines : longLines);
+        widget.show(); QApplication::processEvents();
+        auto* longArea = (longOnLeft ? widget.leftEditor() : widget.rightEditor())->edit()->area();
+        auto* shortArea = (longOnLeft ? widget.rightEditor() : widget.leftEditor())->edit()->area();
+        auto* longBar = longArea->horizontalScrollBar();
+        auto* shortBar = shortArea->horizontalScrollBar();
+        QVERIFY(longBar->maximum() > 100);
+        QCOMPARE(shortBar->maximum(), longBar->maximum());
+        longBar->setValue(80);
+        QCOMPARE(longBar->value(), 80);
+        QCOMPARE(shortBar->value(), 80);
+        QCOMPARE(shortArea->viewportState().contentOffsetX, longArea->viewportState().contentOffsetX);
+        shortBar->setValue(30);
+        QCOMPARE(longBar->value(), 30);
+        QCOMPARE(shortArea->viewportState().contentOffsetX, longArea->viewportState().contentOffsetX);
+        longArea->setFocus(); longArea->setCursorPosition({0,0});
+        QTest::keyClick(longArea, Qt::Key_End);
+        QVERIFY(longBar->value() > 100);
+        QCOMPARE(shortBar->value(), longBar->value());
+        QCOMPARE(shortArea->viewportState().contentOffsetX, longArea->viewportState().contentOffsetX);
+        widget.resize(1100, 400); QApplication::processEvents();
+        QCOMPARE(shortBar->maximum(), longBar->maximum());
+        QCOMPARE(shortBar->value(), longBar->value());
+        QCOMPARE(shortArea->viewportState().contentOffsetX, longArea->viewportState().contentOffsetX);
+        widget.findChild<QSplitter*>()->setSizes({300,700}); QApplication::processEvents();
+        QCOMPARE(shortBar->maximum(), longBar->maximum());
+        longBar->setValue(70); QCOMPARE(shortBar->value(), 70);
+        widget.setUnchangedLinesSkipped(true); QApplication::processEvents();
+        QCOMPARE(shortBar->value(), longBar->value());
+        widget.setContent({"a"}, {"b"}); QApplication::processEvents();
+        QCOMPARE(longBar->maximum(), 0); QCOMPARE(shortBar->maximum(), 0);
+        QCOMPARE(longBar->value(), 0); QCOMPARE(shortBar->value(), 0);
+    }
+
 #ifdef DIFFMERGE_TEST_VIEW_MENU
     void desktopViewMenuPersistsSelection() {
         QTemporaryDir directory; QVERIFY(directory.isValid());
