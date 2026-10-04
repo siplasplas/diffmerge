@@ -76,6 +76,12 @@ public:
         update();
     }
 
+    void setRevealOverlay(std::optional<diffcore::LineRange> range, const QVector<int>& boundaries) {
+        m_emphasis = range;
+        m_searchBoundaries = boundaries;
+        update();
+    }
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (watched == parentWidget() && event->type() == QEvent::Resize)
@@ -87,6 +93,19 @@ protected:
         const auto& vp = m_area->viewportState();
         if (!vp.isValid()) return;
         QPainter painter(this);
+        const auto drawBoundary = [&](int line) {
+            const int y = vp.contentOffsetY + (line - vp.firstVisibleLine) * vp.lineHeight;
+            painter.setPen(QColor(220, 160, 20));
+            painter.drawLine(0, y, width() - 1, y);
+        };
+        if (m_emphasis) {
+            if (m_emphasis->count == 0) drawBoundary(m_emphasis->start);
+            else {
+                const int y = vp.contentOffsetY + (m_emphasis->start - vp.firstVisibleLine) * vp.lineHeight;
+                painter.fillRect(QRect(0, y, width(), m_emphasis->count * vp.lineHeight), QColor(255, 210, 40, 65));
+            }
+        }
+        for (int line : m_searchBoundaries) drawBoundary(line);
         for (const auto& block : m_blocks) {
             const auto& range = block.range(m_side);
             if (!range.isEmpty()) continue;
@@ -101,6 +120,8 @@ protected:
 private:
     qce::CodeEditArea* m_area;
     Side m_side;
+    std::optional<diffcore::LineRange> m_emphasis;
+    QVector<int> m_searchBoundaries;
     QVector<ChangeBlock> m_blocks;
     ColorScheme m_scheme;
 };
@@ -168,6 +189,10 @@ void DiffEditor::setIntraLineDiffs(
     applyHighlighter();
 }
 
+void DiffEditor::setRevealOverlay(std::optional<diffcore::LineRange> range, const QVector<int>& boundaries) {
+    m_boundaries->setRevealOverlay(range, boundaries);
+}
+
 void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_followSystemPalette = false;
     applyColorScheme(scheme);
@@ -199,11 +224,7 @@ void DiffEditor::applyModel() {
 
     m_doc->setLines(m_model->documentLines(m_side));
 
-    const int docCount = m_doc->lineCount();
-    m_docLineChanges.resize(docCount);
-    for (int i = 0; i < docCount; ++i) {
-        m_docLineChanges[i] = m_model->docLineChangeType(m_side, i);
-    }
+    m_docLineChanges = m_model->docLineChanges(m_side);
     m_boundaries->setBoundaries(m_model->changeBlocks(), m_scheme);
     m_edit->area()->viewport()->update();
 }

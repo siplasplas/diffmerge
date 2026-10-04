@@ -14,10 +14,13 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <limits>
+#include <stdexcept>
 #include <tuple>
 #include <vector>
 
 #include "Structs.h"
+#include "../ComputationControl.h"
 
 namespace diffcore::internal {
 
@@ -58,7 +61,8 @@ class Diff {
 public:
     using ValueType = typename Container::value_type;
 
-    Diff(const Container& a, const Container& b) : m_a(a), m_b(b) {
+    Diff(const Container& a, const Container& b, ComputationControl* control = nullptr)
+        : m_control(control), m_a(a), m_b(b) {
         m_M = static_cast<int>(m_a.size());
         m_N = static_cast<int>(m_b.size());
         if (m_M > m_N) {
@@ -66,6 +70,7 @@ public:
             std::swap(m_M, m_N);
             m_swapped = true;
         }
+        checkpoint(m_control, std::uint64_t(m_M) + m_N + 3);
         m_fp.setSize(-(m_M + 1), m_N + 1);
     }
 
@@ -93,7 +98,9 @@ private:
     // Follow the diagonal as long as elements match.
     int snake(int k, int y) {
         int x = y - k;
-        while (x < m_M && y < m_N && m_a[x] == m_b[y]) {
+        while (x < m_M && y < m_N) {
+            checkpoint(m_control);
+            if (!(m_a[x] == m_b[y])) break;
             ++x;
             ++y;
         }
@@ -102,12 +109,16 @@ private:
 
     // Extend one diagonal k, record the step in collection.
     int collect(int k) {
+        checkpoint(m_control);
+        if (m_control) m_control->recordTraceEntry();
         const int v0 = m_fp[k - 1] + 1;
         const int v1 = m_fp[k + 1];
         // Direction: +1 means we came from k-1 (insert), -1 from k+1 (delete).
         const int dir = (v0 > v1) ? 1 : -1;
         const int maxV = std::max(v0, v1);
         const int sn = snake(k, maxV);
+        if (m_collection.size() >= static_cast<size_t>(std::numeric_limits<int>::max()))
+            throw std::length_error("Diff trace exceeds integer coordinates");
         m_collection.emplace_back(k, sn, dir);
         return sn;
     }
@@ -135,6 +146,7 @@ private:
         std::vector<std::tuple<int, int, int>> mainBranch;
         int nextIdx = std::get<0>(m_collection.back());
         for (int i = static_cast<int>(m_collection.size()) - 1; i >= 0; --i) {
+            checkpoint(m_control);
             const auto& tuple = m_collection[i];
             const int k = std::get<0>(tuple);
             if (k != nextIdx) continue;
@@ -160,6 +172,7 @@ private:
         Point start;
 
         for (size_t i = 0; i + 1 < mainBranch.size(); ++i) {
+            checkpoint(m_control);
             const auto& tuple = mainBranch[i];
             const auto& nextTuple = mainBranch[i + 1];
             const int dir = std::get<2>(nextTuple);
@@ -213,6 +226,7 @@ private:
         return result;
     }
 
+    ComputationControl* m_control = nullptr;
     Container m_a;
     Container m_b;
     int m_M = 0;

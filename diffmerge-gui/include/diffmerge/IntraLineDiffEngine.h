@@ -12,6 +12,7 @@
 #include <QStringList>
 
 #include <diffcore/DiffTypes.h>
+#include <diffcore/ComputationControl.h>
 
 namespace diffmerge::gui {
 
@@ -32,14 +33,14 @@ public:
     // leftLines / rightLines are the original file contents.
     static Result compute(const diffcore::DiffResult& diff,
                           const QStringList& leftLines,
-                          const QStringList& rightLines);
+                          const QStringList& rightLines, diffcore::ComputationControl* control = nullptr);
 
 private:
     struct LinePairResult {
         QVector<CharRange> leftRanges;
         QVector<CharRange> rightRanges;
     };
-    static LinePairResult diffText(const QString& left, const QString& right);
+    static LinePairResult diffText(const QString& left, const QString& right, diffcore::ComputationControl* control);
 };
 
 }  // namespace diffmerge::gui

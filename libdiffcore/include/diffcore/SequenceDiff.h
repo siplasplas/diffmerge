@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "DiffTypes.h"
+#include "ComputationControl.h"
 #include "detail/Diff.h"
 
 namespace diffcore {
@@ -31,7 +32,7 @@ struct SequenceDiffResult {
 namespace detail {
 SequenceDiffResult sequenceResultFromBlocks(std::vector<internal::Block> blocks,
                                             int leftSize, int rightSize, int editDistance,
-                                            bool swapped, const SequenceDiffOptions& options);
+                                            bool swapped, const SequenceDiffOptions& options, ComputationControl* control);
 }  // namespace detail
 
 // Exact element comparison through the shared O(NP) engine. No normalization,
@@ -43,7 +44,9 @@ class SequenceDiff {
 public:
     template <typename Container>
     static SequenceDiffResult compute(const Container& left, const Container& right,
-                                      const SequenceDiffOptions& options = {}) {
+                                      const SequenceDiffOptions& options = {},
+                                      ComputationControl* control = nullptr) {
+        checkpoint(control);
         constexpr int maxSize = std::numeric_limits<int>::max();
         if (std::cmp_greater(left.size(), maxSize) || std::cmp_greater(right.size(), maxSize))
             throw std::length_error("Sequence diff input is too large");
@@ -60,8 +63,10 @@ public:
         }
 
         bool identical = leftSize == rightSize;
-        for (int i = 0; identical && i < leftSize; ++i)
+        for (int i = 0; identical && i < leftSize; ++i) {
+            checkpoint(control);
             identical = left[i] == right[i];
+        }
         if (identical) {
             result.hunks.push_back({ChangeType::Equal, {0, leftSize}, {0, rightSize}});
             return result;
@@ -69,10 +74,10 @@ public:
         // Leave room for diagonal sentinels in the engine's signed indices.
         if (leftSize > maxSize - rightSize - 3)
             throw std::length_error("Sequence diff input is too large");
-        internal::Diff<Container> engine(left, right);
+        internal::Diff<Container> engine(left, right, control);
         auto blocks = engine.walk();
         return detail::sequenceResultFromBlocks(std::move(blocks), leftSize, rightSize,
-                                                engine.editDistance(), engine.swapped(), options);
+                                                engine.editDistance(), engine.swapped(), options, control);
     }
 };
 

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "DiffTypes.h"
+#include "ComputationControl.h"
 
 namespace diffcore {
 
@@ -26,11 +27,11 @@ public:
     // lines get the same ID on both sides.
     Result intern(const QStringList& left,
                   const QStringList& right,
-                  const DiffOptions& opts);
+                  const DiffOptions& opts, ComputationControl* control = nullptr);
 
 private:
     // Convert a line into its canonical form based on options.
-    static QString normalize(const QString& line, const DiffOptions& opts);
+    static QString normalize(const QString& line, const DiffOptions& opts, ComputationControl* control = nullptr);
 
     QHash<QString, int> m_dict;
     int m_nextId = 0;

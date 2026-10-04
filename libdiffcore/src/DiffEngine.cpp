@@ -1,4 +1,5 @@
 #include "diffcore/DiffEngine.h"
+#include <climits>
 
 #include "diffcore/LineInterner.h"
 #include "diffcore/SequenceDiff.h"
@@ -10,18 +11,20 @@ namespace {
 
 // Only ASCII spaces and tabs are formatting candidates. Other characters,
 // including spaces inside literals, remain significant in the final result.
-QString alignmentKey(const QString& line, int level) {
+QString alignmentKey(const QString& line, int level, ComputationControl* control) {
     if (level == 1) {
         int start = 0, end = line.size();
         const auto spacing = [](QChar c) { return c == ' ' || c == '\t'; };
-        while (start < end && spacing(line[start])) ++start;
-        while (end > start && spacing(line[end - 1])) --end;
+        while (start < end && spacing(line[start])) { checkpoint(control); ++start; }
+        while (end > start && spacing(line[end - 1])) { checkpoint(control); --end; }
         return line.mid(start, end - start);
     }
     QString key;
     key.reserve(line.size());
-    for (QChar c : line)
+    for (QChar c : line) {
+        checkpoint(control);
         if (c != ' ' && c != '\t') key.append(c);
+    }
     return key;
 }
 
@@ -30,9 +33,10 @@ QString alignmentKey(const QString& line, int level) {
 class SpacingAlignment {
 public:
     SpacingAlignment(const QStringList& left, const QStringList& right,
-                     const DiffOptions& options) : m_options(options) {
+                     const DiffOptions& options, ComputationControl* control)
+        : m_options(options), m_control(control) {
         LineInterner interner;
-        auto ids = interner.intern(left, right, options);
+        auto ids = interner.intern(left, right, options, m_control);
         m_leftIds = std::move(ids.leftIds);
         m_rightIds = std::move(ids.rightIds);
         m_left = left;
@@ -46,6 +50,7 @@ public:
 
 private:
     void append(Hunk h) {
+        checkpoint(m_control);
         if (!h.leftRange.count && !h.rightRange.count) return;
         if (h.type == ChangeType::Replace && !m_options.mergeReplaceHunks) {
             append({ChangeType::Delete, h.leftRange, {h.rightRange.start, 0}});
@@ -70,6 +75,7 @@ private:
     }
 
     void refine(int ls, int lc, int rs, int rc, int level) {
+        checkpoint(m_control, std::uint64_t(lc) + rc);
         if (!lc || !rc) {
             append({!lc ? ChangeType::Insert : !rc ? ChangeType::Delete : ChangeType::Replace,
                     {ls, lc}, {rs, rc}});
@@ -81,16 +87,16 @@ private:
             rightIds.assign(m_rightIds.begin() + rs, m_rightIds.begin() + rs + rc);
         } else {
             QStringList leftKeys, rightKeys;
-            for (int i = ls; i < ls + lc; ++i) leftKeys.append(alignmentKey(m_left[i], level));
-            for (int i = rs; i < rs + rc; ++i) rightKeys.append(alignmentKey(m_right[i], level));
+            for (int i = ls; i < ls + lc; ++i) leftKeys.append(alignmentKey(m_left[i], level, m_control));
+            for (int i = rs; i < rs + rc; ++i) rightKeys.append(alignmentKey(m_right[i], level, m_control));
             LineInterner interner;
-            auto ids = interner.intern(leftKeys, rightKeys, m_options);
+            auto ids = interner.intern(leftKeys, rightKeys, m_options, m_control);
             leftIds = std::move(ids.leftIds);
             rightIds = std::move(ids.rightIds);
         }
         const auto diff = SequenceDiff::compute(leftIds, rightIds,
             {level == 3 ? m_options.mergeReplaceHunks : true,
-             level == 3 ? m_options.coalesceAdjacentSameType : true});
+             level == 3 ? m_options.coalesceAdjacentSameType : true}, m_control);
         for (size_t index = 0; index < diff.hunks.size(); ++index) {
             const auto& h = diff.hunks[index];
             const int l = ls + h.leftRange.start, r = rs + h.rightRange.start;
@@ -116,16 +122,18 @@ private:
     }
 
     const DiffOptions& m_options;
+    ComputationControl* m_control;
     QStringList m_left, m_right;
     std::vector<int> m_leftIds, m_rightIds;
     std::vector<Hunk> m_hunks;
 };
 
 // Fill in aggregate stats based on final hunks and insert/delete cost.
-DiffStats computeStats(const std::vector<Hunk>& hunks, int editDistance) {
+DiffStats computeStats(const std::vector<Hunk>& hunks, int editDistance, ComputationControl* control) {
     DiffStats s;
     s.editDistance = editDistance;
     for (const Hunk& h : hunks) {
+        checkpoint(control);
         switch (h.type) {
             case ChangeType::Insert:
                 s.additions += h.rightRange.count;
@@ -149,31 +157,36 @@ DiffStats computeStats(const std::vector<Hunk>& hunks, int editDistance) {
 
 DiffResult DiffEngine::compute(const QStringList& left,
                                const QStringList& right,
-                               const DiffOptions& opts) {
+                               const DiffOptions& opts, ComputationControl* control) {
+    checkpoint(control);
+    if (left.size() > INT_MAX - right.size() - 3)
+        throw std::length_error("Line comparison input is too large");
     if (opts.alignWhitespaceChanges) {
         DiffResult result;
-        result.hunks = SpacingAlignment(left, right, opts).compute();
+        result.hunks = SpacingAlignment(left, right, opts, control).compute();
         result.leftLineCount = left.size();
         result.rightLineCount = right.size();
         int distance = 0;
-        for (const auto& h : result.hunks)
+        for (const auto& h : result.hunks) {
+            checkpoint(control);
             if (h.type != ChangeType::Equal) distance += h.leftRange.count + h.rightRange.count;
-        result.stats = computeStats(result.hunks, distance);
+        }
+        result.stats = computeStats(result.hunks, distance, control);
         return result;
     }
     LineInterner interner;
-    auto ids = interner.intern(left, right, opts);
+    auto ids = interner.intern(left, right, opts, control);
     auto sequence = SequenceDiff::compute(ids.leftIds, ids.rightIds,
-        {opts.mergeReplaceHunks, opts.coalesceAdjacentSameType});
+        {opts.mergeReplaceHunks, opts.coalesceAdjacentSameType}, control);
     if (opts.applySliderHeuristics) {
-        applySliderHeuristics(sequence.hunks, left, right);
+        applySliderHeuristics(sequence.hunks, left, right, control);
     }
 
     DiffResult result;
     result.hunks = std::move(sequence.hunks);
     result.leftLineCount = sequence.leftSize;
     result.rightLineCount = sequence.rightSize;
-    result.stats = computeStats(result.hunks, sequence.editDistance);
+    result.stats = computeStats(result.hunks, sequence.editDistance, control);
     return result;
 }
 

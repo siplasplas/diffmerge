@@ -13,6 +13,7 @@
 
 #include <diffmerge/AlignedLineModel.h>
 #include <diffmerge/ScrollSyncMapper.h>
+#include <diffmerge/Comparison.h>
 
 namespace diffmerge::gui {
 
@@ -28,6 +29,24 @@ public:
     void setContent(const QStringList& leftLines,
                     const QStringList& rightLines,
                     const diffcore::DiffOptions& opts = {.alignWhitespaceChanges = true});
+
+    // GUI-thread only. Null clears the view; no algorithms are run here.
+    void setComparison(std::shared_ptr<const PreparedComparison> comparison);
+    void clearComparison() { setComparison(nullptr); }
+    std::shared_ptr<const PreparedComparison> comparison() const { return m_comparison; }
+    std::chrono::nanoseconds lastInstallationTime() const { return m_installationTime; }
+
+    // Original coordinates, never indices from another diff implementation.
+    // Invalid inputs return false and leave the view unchanged. count == 0
+    // reveals a boundary, including lineCount in an empty or nonempty file.
+    bool revealLines(Side side, diffcore::LineRange range, bool emphasize = false);
+    bool revealText(Side side, TextRange range, bool emphasize = false);
+    bool setSearchHighlights(Side side, const QVector<TextRange>& ranges);
+    void clearSearchHighlights();
+    bool navigateToChange(int index);
+    int changeCount() const;
+    int currentChangeIndex() const { return m_currentHunk; } // -1 = no selection.
+    const QVector<ChangeBlock>& changes() const;
 
     // Hide application controls when the host supplies its own toolbar.
     void setPathBarVisible(bool visible);
@@ -61,6 +80,8 @@ signals:
     void backRequested();
     void fileBrowseRequested(Side side, const QString& currentPath);
     void loadFailed(const QString& message);
+    void currentChangeChanged(int index);
+    void comparisonChanged(int changeCount);
     // Emitted after a successful loadFromPaths so MainWindow can update title.
     void pathsChanged(const QString& leftPath, const QString& rightPath);
 
@@ -68,10 +89,16 @@ private:
     void setupUi();
     void navigateToHunk(int idx);
     void updateNavLabel();
+    void updateMetadataLabel();
+    void refreshSearchHighlights();
+    bool validTextRange(Side side, TextRange range) const;
     void onBrowseLeft();
     void onBrowseRight();
     void reloadFromPathBar();
 
+    QLabel* m_metadataLabel = nullptr;
+    QVector<TextRange> m_leftSearch, m_rightSearch;
+    std::optional<std::pair<Side, diffcore::LineRange>> m_emphasis;
     QWidget* m_pathBar = nullptr;
     QWidget* m_navigationBar = nullptr;
     DiffEditor*   m_leftEditor  = nullptr;
@@ -87,7 +114,10 @@ private:
     QToolButton*  m_leftBrowse    = nullptr;
     QLineEdit*    m_rightPathEdit = nullptr;
     QToolButton*  m_rightBrowse   = nullptr;
-    std::unique_ptr<AlignedLineModel> m_model;
+    std::shared_ptr<const PreparedComparison> m_comparison;
+    const AlignedLineModel* m_model = nullptr;
+    int m_notifiedChange = -1;
+    std::chrono::nanoseconds m_installationTime{};
     ScrollSyncMapper m_syncMapper;
     bool m_syncingScroll = false;
     bool m_navigating = false;

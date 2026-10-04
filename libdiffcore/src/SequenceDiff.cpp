@@ -32,8 +32,9 @@ Hunk hunkFromBlock(const Block& b, ChangeType type) {
 
 // If the engine swapped A and B, blocks reference swapped axes.
 // Undo that so X always means "left" and Y always means "right".
-void unswapBlocks(std::vector<Block>& blocks) {
+void unswapBlocks(std::vector<Block>& blocks, ComputationControl* control) {
     for (Block& b : blocks) {
+        checkpoint(control);
         std::swap(b.startX, b.startY);
         std::swap(b.endX, b.endY);
         if (b.type == EditType::Insert) b.type = EditType::Delete;
@@ -42,10 +43,11 @@ void unswapBlocks(std::vector<Block>& blocks) {
 }
 
 // Build the raw hunk list directly from blocks (no merging).
-std::vector<Hunk> rawHunksFromBlocks(const std::vector<Block>& blocks) {
+std::vector<Hunk> rawHunksFromBlocks(const std::vector<Block>& blocks, ComputationControl* control) {
     std::vector<Hunk> hunks;
     hunks.reserve(blocks.size());
     for (const Block& b : blocks) {
+        checkpoint(control);
         hunks.push_back(hunkFromBlock(b, toChangeType(b.type)));
     }
     return hunks;
@@ -53,10 +55,11 @@ std::vector<Hunk> rawHunksFromBlocks(const std::vector<Block>& blocks) {
 
 // Adjacent Delete+Insert (or Insert+Delete) pairs represent replaced
 // regions. Merge them into a single Replace hunk covering both ranges.
-std::vector<Hunk> mergeReplaceHunks(const std::vector<Hunk>& input) {
+std::vector<Hunk> mergeReplaceHunks(const std::vector<Hunk>& input, ComputationControl* control) {
     std::vector<Hunk> out;
     out.reserve(input.size());
     for (size_t i = 0; i < input.size(); ++i) {
+        checkpoint(control);
         const Hunk& current = input[i];
         const bool isIns = current.type == ChangeType::Insert;
         const bool isDel = current.type == ChangeType::Delete;
@@ -86,11 +89,12 @@ std::vector<Hunk> mergeReplaceHunks(const std::vector<Hunk>& input) {
 // Merge consecutive hunks that share the same ChangeType into one hunk.
 // This consolidates runs that the O(NP) backtracker emits as separate
 // single-element blocks (e.g. two adjacent Insert{1} → one Insert{2}).
-std::vector<Hunk> coalesceAdjacentHunks(const std::vector<Hunk>& input) {
+std::vector<Hunk> coalesceAdjacentHunks(const std::vector<Hunk>& input, ComputationControl* control) {
     if (input.empty()) return {};
     std::vector<Hunk> out;
     out.push_back(input[0]);
     for (size_t i = 1; i < input.size(); ++i) {
+        checkpoint(control);
         Hunk& last = out.back();
         const Hunk& h = input[i];
         if (h.type == last.type) {
@@ -107,11 +111,11 @@ std::vector<Hunk> coalesceAdjacentHunks(const std::vector<Hunk>& input) {
 
 SequenceDiffResult sequenceResultFromBlocks(std::vector<internal::Block> blocks,
                                             int leftSize, int rightSize, int editDistance,
-                                            bool swapped, const SequenceDiffOptions& options) {
-    if (swapped) unswapBlocks(blocks);
-    auto hunks = rawHunksFromBlocks(blocks);
-    if (options.mergeReplaceHunks) hunks = mergeReplaceHunks(hunks);
-    if (options.coalesceAdjacentSameType) hunks = coalesceAdjacentHunks(hunks);
+                                            bool swapped, const SequenceDiffOptions& options, ComputationControl* control) {
+    if (swapped) unswapBlocks(blocks, control);
+    auto hunks = rawHunksFromBlocks(blocks, control);
+    if (options.mergeReplaceHunks) hunks = mergeReplaceHunks(hunks, control);
+    if (options.coalesceAdjacentSameType) hunks = coalesceAdjacentHunks(hunks, control);
     return {std::move(hunks), leftSize, rightSize, editDistance};
 }
 

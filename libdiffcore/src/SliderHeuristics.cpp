@@ -8,9 +8,10 @@ namespace diffcore {
 namespace {
 
 // Leading indentation width in columns. Tab counts as 4 spaces.
-int indentWidth(const QString& line) {
+int indentWidth(const QString& line, ComputationControl* control) {
     int w = 0;
     for (QChar c : line) {
+        checkpoint(control);
         if (c == QLatin1Char('\t'))      w += 4;
         else if (c == QLatin1Char(' '))  ++w;
         else break;
@@ -26,7 +27,7 @@ int indentWidth(const QString& line) {
 //   H3  : single-line section separator → slide back by 1.
 //   H4  : #pragma mark / // MARK → slide back.
 static std::pair<int, HeuristicId>
-exclusiveHeuristic(int p, int size, const QStringList& rel) {
+exclusiveHeuristic(int p, int size, const QStringList& rel, ComputationControl* control) {
     const int N = rel.size();
 
     // H5: "},\n{" boundary.
@@ -41,8 +42,10 @@ exclusiveHeuristic(int p, int size, const QStringList& rel) {
     // Slide-left range: max k s.t. rel[p-i] == rel[p+size-i] for i=1..k.
     int k = 0;
     while (p - (k + 1) >= 0 && p + size - (k + 1) < N &&
-           rel[p - (k + 1)] == rel[p + size - (k + 1)])
+           rel[p - (k + 1)] == rel[p + size - (k + 1)]) {
+        checkpoint(control, 1 + rel[p - (k + 1)].size());
         ++k;
+    }
 
     // H3b: doc-comment block (/**…*/) before block matches last k lines.
     // Must precede H2: indent of `*/` is smaller than code indent, which
@@ -61,8 +64,10 @@ exclusiveHeuristic(int p, int size, const QStringList& rel) {
     if (k > 0) {
         int kLC = 0;
         while (kLC < k &&
-               rel[p - kLC - 1].trimmed().startsWith(QStringLiteral("//")))
+               rel[p - kLC - 1].trimmed().startsWith(QStringLiteral("//"))) {
+            checkpoint(control, 1 + rel[p - kLC - 1].size());
             ++kLC;
+        }
         if (kLC > 0) return {p - kLC, HeuristicId::H6};
     }
 
@@ -77,14 +82,16 @@ exclusiveHeuristic(int p, int size, const QStringList& rel) {
 
     // H2: indent drop in slide-left range.
     if (k > 0) {
-        const int indFirst = indentWidth(rel[p]);
+        const int indFirst = indentWidth(rel[p], control);
         for (int j = 1; j <= k; ++j) {
-            if (indentWidth(rel[p - j]) < indFirst)
+            checkpoint(control);
+            if (indentWidth(rel[p - j], control) < indFirst)
                 return {p - j, HeuristicId::H2};
         }
-        if (indentWidth(rel[p - k]) == indFirst) {
+        if (indentWidth(rel[p - k], control) == indFirst) {
             bool allComments = true;
             for (int i = 1; i <= k; ++i) {
+                checkpoint(control, 1 + rel[p - i].size());
                 const QString t = rel[p - i].trimmed();
                 if (!t.startsWith(QStringLiteral("//")) &&
                     !t.startsWith(QStringLiteral("#"))) {
@@ -108,7 +115,8 @@ exclusiveHeuristic(int p, int size, const QStringList& rel) {
     }
 
     // H4: #pragma mark / // MARK.
-    auto isMark = [](const QString& line) {
+    auto isMark = [control](const QString& line) {
+        checkpoint(control, 1 + line.size());
         const QString t = line.trimmed();
         return t.startsWith(QStringLiteral("#pragma mark")) ||
                t.startsWith(QStringLiteral("// MARK"))      ||
@@ -127,7 +135,7 @@ exclusiveHeuristic(int p, int size, const QStringList& rel) {
 // starting with "#", or all starting with "//") and the same kind of series
 // follows immediately after the block, slide forward by min(n, m) so the
 // series moves from the block's beginning to its end.
-static int applyH1(int p1, int size, const QStringList& rel) {
+static int applyH1(int p1, int size, const QStringList& rel, ComputationControl* control) {
     const int N = rel.size();
     if (p1 >= N) return p1;
 
@@ -135,6 +143,7 @@ static int applyH1(int p1, int size, const QStringList& rel) {
     // Only three recognised types: blank, exactly "//", exactly "#".
     const QString first = rel[p1].trimmed();
     auto sameType = [&](const QString& line) -> bool {
+        checkpoint(control, 1 + line.size());
         const QString t = line.trimmed();
         if (first.isEmpty())
             return t.isEmpty();
@@ -155,12 +164,13 @@ static int applyH1(int p1, int size, const QStringList& rel) {
     return p1 + std::min(n, m);
 }
 
-HeuristicProbe adjustPosition(int p, int size, const QStringList& rel) {
+HeuristicProbe adjustPosition(int p, int size, const QStringList& rel, ComputationControl* control = nullptr) {
+    checkpoint(control);
     if (p < 0 || p >= rel.size() || size < 1)
         return {p, HeuristicId::None, p, false};
 
-    auto [p1, excl] = exclusiveHeuristic(p, size, rel);
-    const int p2    = applyH1(p1, size, rel);
+    auto [p1, excl] = exclusiveHeuristic(p, size, rel, control);
+    const int p2    = applyH1(p1, size, rel, control);
     const bool h1   = (p2 != p1);
 
     return {p2, excl, p1, h1};
@@ -174,17 +184,18 @@ HeuristicProbe probeHeuristic(int p, int size, const QStringList& rel) {
 
 void applySliderHeuristics(std::vector<Hunk>& hunks,
                             const QStringList& left,
-                            const QStringList& right) {
+                            const QStringList& right, ComputationControl* control) {
     for (Hunk& h : hunks) {
+        checkpoint(control);
         if (h.type == ChangeType::Insert) {
             const int oldP = h.rightRange.start;
-            const int newP = adjustPosition(oldP, h.rightRange.count, right).pos;
+            const int newP = adjustPosition(oldP, h.rightRange.count, right, control).pos;
             const int delta = newP - oldP;
             h.rightRange.start += delta;
             h.leftRange.start  += delta;
         } else if (h.type == ChangeType::Delete) {
             const int oldP = h.leftRange.start;
-            const int newP = adjustPosition(oldP, h.leftRange.count, left).pos;
+            const int newP = adjustPosition(oldP, h.leftRange.count, left, control).pos;
             const int delta = newP - oldP;
             h.leftRange.start  += delta;
             h.rightRange.start += delta;

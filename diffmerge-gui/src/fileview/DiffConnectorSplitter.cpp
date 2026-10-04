@@ -27,10 +27,13 @@ public:
         }
     }
 
+    void setModel(const AlignedLineModel* model) { m_model = model; update(); }
+
 protected:
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);
         painter.fillRect(rect(), palette().base());
+        if (!m_model) return;
         auto* leftViewport = m_left->edit()->area()->viewport();
         auto* rightViewport = m_right->edit()->area()->viewport();
         const auto& left = m_left->edit()->area()->viewportState();
@@ -99,6 +102,12 @@ DiffConnectorSplitter::DiffConnectorSplitter(DiffEditor* left, DiffEditor* right
 
 QSplitterHandle* DiffConnectorSplitter::createHandle() {
     return new DiffConnectorHandle(this, m_left, m_right, m_model);
+}
+
+void DiffConnectorSplitter::setModel(const AlignedLineModel* model) {
+    m_model = model;
+    for (int i = 1; i < count(); ++i)
+        static_cast<DiffConnectorHandle*>(handle(i))->setModel(model);
 }
 
 void DiffConnectorSplitter::updateConnections() {

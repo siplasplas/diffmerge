@@ -8,6 +8,7 @@
 #include <QStringList>
 
 #include "DiffTypes.h"
+#include "ComputationControl.h"
 
 namespace diffcore {
 
@@ -38,7 +39,8 @@ HeuristicProbe probeHeuristic(int p, int size, const QStringList& rel);
 // Apply slider heuristics to all Insert/Delete hunks in `hunks`.
 void applySliderHeuristics(std::vector<Hunk>& hunks,
                             const QStringList& left,
-                            const QStringList& right);
+                            const QStringList& right,
+                            ComputationControl* control = nullptr);
 
 }  // namespace diffcore
 

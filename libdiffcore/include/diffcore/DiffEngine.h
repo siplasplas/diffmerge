@@ -19,6 +19,7 @@
 #include <QStringList>
 
 #include "DiffTypes.h"
+#include "ComputationControl.h"
 
 namespace diffcore {
 
@@ -26,7 +27,8 @@ class DiffEngine {
 public:
     DiffResult compute(const QStringList& left,
                        const QStringList& right,
-                       const DiffOptions& opts = {});
+                       const DiffOptions& opts = {},
+                       ComputationControl* control = nullptr);
 };
 
 }  // namespace diffcore

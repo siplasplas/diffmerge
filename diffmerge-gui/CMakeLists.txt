@@ -26,6 +26,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/DiffHighlighter.h
     src/editor/DiffHighlighter.cpp
     src/editor/IntraLineDiffEngine.cpp
+    src/fileview/Comparison.cpp
     src/fileview/AlignedLineModel.cpp
     src/fileview/FileDiffWidget.cpp
     src/fileview/DiffConnectorSplitter.h
@@ -33,6 +34,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/fileview/ScrollSyncMapper.cpp
     src/dirview/DirDiffModel.cpp
     src/dirview/DirDiffWidget.cpp
+    include/diffmerge/Comparison.h
     include/diffmerge/ColorScheme.h
     include/diffmerge/DiffEditor.h
     include/diffmerge/IntraLineDiffEngine.h

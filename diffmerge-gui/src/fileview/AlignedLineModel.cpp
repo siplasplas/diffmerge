@@ -23,11 +23,12 @@ void pushRow(std::vector<AlignedRow>& rows, QStringList& text,
 
 void AlignedLineModel::appendEqual(const diffcore::Hunk& h,
                                    const QStringList& leftLines,
-                                   const QStringList& rightLines) {
+                                   const QStringList& rightLines, diffcore::ComputationControl* control) {
     // Equal ranges have identical counts on both sides; iterate once.
     const int count = h.leftRange.count;
     assert(h.rightRange.count == count);
     for (int i = 0; i < count; ++i) {
+        diffcore::checkpoint(control);
         const int li = h.leftRange.start + i;
         const int ri = h.rightRange.start + i;
         pushRow(m_leftRows, m_leftText,
@@ -38,9 +39,10 @@ void AlignedLineModel::appendEqual(const diffcore::Hunk& h,
 }
 
 void AlignedLineModel::appendInsert(const diffcore::Hunk& h,
-                                    const QStringList& rightLines) {
+                                    const QStringList& rightLines, diffcore::ComputationControl* control) {
     // Right side has content; left side gets placeholders of the same count.
     for (int i = 0; i < h.rightRange.count; ++i) {
+        diffcore::checkpoint(control);
         const int ri = h.rightRange.start + i;
         pushRow(m_leftRows, m_leftText,
                 -1, diffcore::ChangeType::Insert, QString());
@@ -50,9 +52,10 @@ void AlignedLineModel::appendInsert(const diffcore::Hunk& h,
 }
 
 void AlignedLineModel::appendDelete(const diffcore::Hunk& h,
-                                    const QStringList& leftLines) {
+                                    const QStringList& leftLines, diffcore::ComputationControl* control) {
     // Left side has content; right side gets placeholders of the same count.
     for (int i = 0; i < h.leftRange.count; ++i) {
+        diffcore::checkpoint(control);
         const int li = h.leftRange.start + i;
         pushRow(m_leftRows, m_leftText,
                 li, diffcore::ChangeType::Delete, leftLines.at(li));
@@ -63,11 +66,12 @@ void AlignedLineModel::appendDelete(const diffcore::Hunk& h,
 
 void AlignedLineModel::appendReplace(const diffcore::Hunk& h,
                                      const QStringList& leftLines,
-                                     const QStringList& rightLines) {
+                                     const QStringList& rightLines, diffcore::ComputationControl* control) {
     // A Replace hunk can have different counts on each side. Pair them up
     // line by line; pad the shorter side with placeholders.
     const int maxCount = std::max(h.leftRange.count, h.rightRange.count);
     for (int i = 0; i < maxCount; ++i) {
+        diffcore::checkpoint(control);
         const bool hasLeft = i < h.leftRange.count;
         const bool hasRight = i < h.rightRange.count;
         const int li = hasLeft ? h.leftRange.start + i : -1;
@@ -83,7 +87,12 @@ void AlignedLineModel::appendReplace(const diffcore::Hunk& h,
 
 void AlignedLineModel::build(const diffcore::DiffResult& diff,
                              const QStringList& leftLines,
-                             const QStringList& rightLines) {
+                             const QStringList& rightLines, diffcore::ComputationControl* control) {
+    diffcore::checkpoint(control, std::uint64_t(leftLines.size()) + rightLines.size());
+    m_originalLeft = leftLines;
+    m_originalRight = rightLines;
+    m_leftChanges.fill(diffcore::ChangeType::Equal, leftLines.size());
+    m_rightChanges.fill(diffcore::ChangeType::Equal, rightLines.size());
     m_leftRows.clear();
     m_rightRows.clear();
     m_leftText.clear();
@@ -93,23 +102,32 @@ void AlignedLineModel::build(const diffcore::DiffResult& diff,
     m_hunkAlignedEnds.clear();
 
     for (const diffcore::Hunk& h : diff.hunks) {
+        diffcore::checkpoint(control);
         const bool isChange = h.type != diffcore::ChangeType::Equal;
         if (isChange) {
+            for (int i = h.leftRange.start; i < h.leftRange.end(); ++i) {
+                diffcore::checkpoint(control);
+                m_leftChanges[i] = h.type;
+            }
+            for (int i = h.rightRange.start; i < h.rightRange.end(); ++i) {
+                diffcore::checkpoint(control);
+                m_rightChanges[i] = h.type;
+            }
             m_changeBlocks.append({h.type, h.leftRange, h.rightRange});
             m_hunkAlignedStarts.append(static_cast<int>(m_leftRows.size()));
         }
         switch (h.type) {
             case diffcore::ChangeType::Equal:
-                appendEqual(h, leftLines, rightLines);
+                appendEqual(h, leftLines, rightLines, control);
                 break;
             case diffcore::ChangeType::Insert:
-                appendInsert(h, rightLines);
+                appendInsert(h, rightLines, control);
                 break;
             case diffcore::ChangeType::Delete:
-                appendDelete(h, leftLines);
+                appendDelete(h, leftLines, control);
                 break;
             case diffcore::ChangeType::Replace:
-                appendReplace(h, leftLines, rightLines);
+                appendReplace(h, leftLines, rightLines, control);
                 break;
         }
         if (isChange)
@@ -136,14 +154,7 @@ QString AlignedLineModel::buildDocumentText(Side side) const {
 }
 
 QStringList AlignedLineModel::documentLines(Side side) const {
-    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
-    const auto& text = (side == Side::Left) ? m_leftText : m_rightText;
-    QStringList result;
-    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
-        if (!rows[i].isPlaceholder())
-            result.append(text[i]);
-    }
-    return result;
+    return side == Side::Left ? m_originalLeft : m_originalRight;
 }
 
 QVector<AlignedLineModel::FillerInfo> AlignedLineModel::fillerRanges(Side side) const {
@@ -170,12 +181,8 @@ QVector<AlignedLineModel::FillerInfo> AlignedLineModel::fillerRanges(Side side) 
 }
 
 diffcore::ChangeType AlignedLineModel::docLineChangeType(Side side, int docLine) const {
-    for (const auto& block : m_changeBlocks) {
-        const auto& range = block.range(side);
-        if (docLine >= range.start && docLine < range.end())
-            return block.type;
-    }
-    return diffcore::ChangeType::Equal;
+    const auto& changes = docLineChanges(side);
+    return docLine >= 0 && docLine < changes.size() ? changes[docLine] : diffcore::ChangeType::Equal;
 }
 
 int AlignedLineModel::docLineBeforeAligned(Side side, int alignedRow) const {

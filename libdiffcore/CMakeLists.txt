@@ -1,6 +1,7 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core)
 
 set(DIFFCORE_PUBLIC_HEADERS
+    include/diffcore/ComputationControl.h
     include/diffcore/DiffTypes.h
     include/diffcore/LineInterner.h
     include/diffcore/DiffEngine.h

@@ -6,10 +6,11 @@
 
 namespace diffmerge::gui {
 
-void ScrollSyncMapper::build(const diffcore::DiffResult& diff) {
+void ScrollSyncMapper::build(const diffcore::DiffResult& diff, diffcore::ComputationControl* control) {
     m_entries.clear();
     m_entries.reserve(static_cast<int>(diff.hunks.size()));
     for (const auto& h : diff.hunks) {
+        diffcore::checkpoint(control);
         m_entries.append({h.leftRange.start, h.leftRange.count,
                           h.rightRange.start, h.rightRange.count,
                           h.type});

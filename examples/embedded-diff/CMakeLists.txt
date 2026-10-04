@@ -9,5 +9,6 @@ else()
     find_package(DiffMerge 1.0 CONFIG REQUIRED COMPONENTS Widgets)
 endif()
 
+find_package(Qt6 REQUIRED COMPONENTS Concurrent)
 add_executable(embedded-diff main.cpp)
-target_link_libraries(embedded-diff PRIVATE DiffMerge::Widgets)
+target_link_libraries(embedded-diff PRIVATE DiffMerge::Widgets Qt6::Concurrent)

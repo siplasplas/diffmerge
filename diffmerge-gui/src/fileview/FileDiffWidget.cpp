@@ -8,6 +8,8 @@
 #include <QScopedValueRollback>
 #include <QStyle>
 #include <QTextStream>
+#include <QThread>
+#include <qce/ExtraSelection.h>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -23,7 +25,7 @@
 namespace diffmerge::gui {
 
 FileDiffWidget::FileDiffWidget(QWidget* parent)
-    : QWidget(parent), m_model(std::make_unique<AlignedLineModel>()) {
+    : QWidget(parent) {
     setupUi();
 }
 
@@ -121,6 +123,12 @@ void FileDiffWidget::setupUi() {
     pathLayout->addWidget(m_rightBrowse);
 
     vLayout->addWidget(pathBar);
+    m_metadataLabel = new QLabel(this);
+    m_metadataLabel->setObjectName(QStringLiteral("diffTextMetadata"));
+    m_metadataLabel->setTextFormat(Qt::PlainText);
+    m_metadataLabel->setMargin(4);
+    m_metadataLabel->hide();
+    vLayout->addWidget(m_metadataLabel);
 
     connect(m_leftBrowse,    &QToolButton::clicked,      this, &FileDiffWidget::onBrowseLeft);
     connect(m_rightBrowse,   &QToolButton::clicked,      this, &FileDiffWidget::onBrowseRight);
@@ -130,7 +138,7 @@ void FileDiffWidget::setupUi() {
     // Editors
     m_leftEditor  = new DiffEditor(Side::Left);
     m_rightEditor = new DiffEditor(Side::Right);
-    m_splitter = new DiffConnectorSplitter(m_leftEditor, m_rightEditor, m_model.get(), this);
+    m_splitter = new DiffConnectorSplitter(m_leftEditor, m_rightEditor, m_model, this);
     vLayout->addWidget(m_splitter);
 
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
@@ -174,27 +182,50 @@ void FileDiffWidget::setupUi() {
 void FileDiffWidget::setContent(const QStringList& leftLines,
                                 const QStringList& rightLines,
                                 const diffcore::DiffOptions& opts) {
-    diffcore::DiffEngine engine;
-    const diffcore::DiffResult result = engine.compute(leftLines, rightLines, opts);
-    m_model->build(result, leftLines, rightLines);
-    m_syncMapper.build(result);
-    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
-
-    m_leftEditor->setAlignedModel(m_model.get());
-    m_rightEditor->setAlignedModel(m_model.get());
-
-    const auto charDiff = IntraLineDiffEngine::compute(result, leftLines, rightLines);
-    m_leftEditor->setIntraLineDiffs(charDiff.leftRanges);
-    m_rightEditor->setIntraLineDiffs(charDiff.rightRanges);
-    m_splitter->updateConnections();
-
-    m_currentHunk = -1;
-    m_navigationSide = Side::Left;
-    updateNavLabel();
+    ComparisonOptions options;
+    options.diff = opts;
+    TextSnapshot left, right;
+    left.lines = leftLines;
+    right.lines = rightLines;
+    auto result = prepareComparison(left, right, options);
+    if (result.status == PreparationStatus::Ready) setComparison(std::move(result.comparison));
+    else emit loadFailed(result.message);
 }
 
+void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> comparison) {
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto start = std::chrono::steady_clock::now();
+    // Keep the old result alive until documents, painters and callbacks detach.
+    const auto previous = std::move(m_comparison);
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    clearSearchHighlights();
+    m_splitter->setModel(nullptr);
+    m_leftEditor->setIntraLineDiffs({});
+    m_rightEditor->setIntraLineDiffs({});
+    m_comparison = std::move(comparison);
+    m_model = m_comparison ? &m_comparison->model() : nullptr;
+    const double threshold = m_syncMapper.threshold();
+    m_syncMapper = m_comparison ? m_comparison->scrollMapping() : ScrollSyncMapper{};
+    m_syncMapper.setThreshold(threshold);
+    m_leftEditor->setAlignedModel(m_model);
+    m_rightEditor->setAlignedModel(m_model);
+    if (m_comparison) {
+        m_leftEditor->setIntraLineDiffs(m_comparison->highlights().leftRanges);
+        m_rightEditor->setIntraLineDiffs(m_comparison->highlights().rightRanges);
+    }
+    m_splitter->setModel(m_model);
+    m_currentHunk = -1;
+    m_navigationSide = Side::Left;
+    updateMetadataLabel();
+    updateNavLabel();
+    m_installationTime = std::chrono::steady_clock::now() - start;
+    emit comparisonChanged(changeCount());
+}
+
+
 void FileDiffWidget::navigateToNext() {
-    const auto& blocks = m_model->changeBlocks();
+    const auto& blocks = changes();
     if (blocks.isEmpty()) return;
     if (m_currentHunk >= 0) {
         navigateToHunk(m_currentHunk + 1);
@@ -214,7 +245,7 @@ void FileDiffWidget::navigateToNext() {
 }
 
 void FileDiffWidget::navigateToPrev() {
-    const auto& blocks = m_model->changeBlocks();
+    const auto& blocks = changes();
     if (blocks.isEmpty()) return;
     if (m_currentHunk >= 0) {
         navigateToHunk(m_currentHunk - 1);
@@ -234,7 +265,7 @@ void FileDiffWidget::navigateToPrev() {
 }
 
 void FileDiffWidget::navigateToHunk(int idx) {
-    const auto& blocks = m_model->changeBlocks();
+    const auto& blocks = changes();
     if (idx < 0 || idx >= blocks.size()) return;
     QScopedValueRollback<bool> navigating(m_navigating, true);
     QScopedValueRollback<bool> syncing(m_syncingScroll, true);
@@ -268,7 +299,7 @@ void FileDiffWidget::navigateToHunk(int idx) {
 }
 
 void FileDiffWidget::updateNavLabel() {
-    const int total = m_model->hunkAlignedStarts().size();
+    const int total = changeCount();
     if (total == 0) {
         m_navLabel->setText(QStringLiteral("No changes"));
     } else if (m_currentHunk < 0) {
@@ -278,6 +309,130 @@ void FileDiffWidget::updateNavLabel() {
     }
     m_prevButton->setEnabled(total > 0);
     m_nextButton->setEnabled(total > 0);
+    if (m_notifiedChange != m_currentHunk) {
+        m_notifiedChange = m_currentHunk;
+        emit currentChangeChanged(m_currentHunk);
+    }
+
+}
+
+
+const QVector<ChangeBlock>& FileDiffWidget::changes() const {
+    static const QVector<ChangeBlock> empty;
+    return m_comparison ? m_comparison->changes() : empty;
+}
+
+int FileDiffWidget::changeCount() const { return changes().size(); }
+
+bool FileDiffWidget::navigateToChange(int index) {
+    if (index < 0 || index >= changeCount()) return false;
+    navigateToHunk(index);
+    return true;
+}
+
+bool FileDiffWidget::revealLines(Side side, diffcore::LineRange range, bool emphasize) {
+    if (!m_comparison) return false;
+    const int count = m_comparison->snapshot(side).lines.size();
+    if (range.start < 0 || range.start > count || range.count < 0 || range.count > count - range.start)
+        return false;
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
+    auto* other = (side == Side::Left ? m_rightEditor : m_leftEditor)->edit()->area();
+    const int mapped = static_cast<int>(m_syncMapper.correspondingLine(side, range.start));
+    const auto position = [](qce::CodeEditArea* pane, int line) {
+        pane->verticalScrollBar()->setValue(std::max(0, line - static_cast<int>(pane->viewportState().visibleLineCount() * 0.4)));
+        pane->setCursorPosition({std::min(line, std::max(0, pane->document()->lineCount() - 1)), 0});
+    };
+    position(area, range.start);
+    position(other, mapped);
+    m_navigationSide = side;
+    m_currentHunk = -1;
+    m_emphasis = emphasize ? std::make_optional(std::make_pair(side, range)) : std::nullopt;
+    refreshSearchHighlights();
+    updateNavLabel();
+    return true;
+}
+
+bool FileDiffWidget::validTextRange(Side side, TextRange range) const {
+    if (!m_comparison || range.line < 0 || range.column < 0 || range.length < 0) return false;
+    const auto& lines = m_comparison->snapshot(side).lines;
+    if (range.line == lines.size()) return range.column == 0 && range.length == 0;
+    if (range.line > lines.size()) return false;
+    const auto size = lines[range.line].size();
+    return range.column <= size && range.length <= size - range.column;
+}
+
+bool FileDiffWidget::revealText(Side side, TextRange range, bool emphasize) {
+    if (!validTextRange(side, range)) return false;
+    const bool atEnd = range.line == m_comparison->snapshot(side).lines.size();
+    if (!revealLines(side, {range.line, range.length == 0 ? 0 : 1}, emphasize)) return false;
+    if (!atEnd) {
+        QScopedValueRollback<bool> navigating(m_navigating, true);
+        (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area()->setCursorPosition({range.line, range.column});
+    }
+    return true;
+}
+
+bool FileDiffWidget::setSearchHighlights(Side side, const QVector<TextRange>& ranges) {
+    for (const auto& range : ranges) if (!validTextRange(side, range)) return false;
+    if (!m_comparison) return false;
+    (side == Side::Left ? m_leftSearch : m_rightSearch) = ranges;
+    refreshSearchHighlights();
+    return true;
+}
+
+void FileDiffWidget::clearSearchHighlights() {
+    m_leftSearch.clear();
+    m_rightSearch.clear();
+    m_emphasis.reset();
+    refreshSearchHighlights();
+}
+
+void FileDiffWidget::refreshSearchHighlights() {
+    for (Side side : {Side::Left, Side::Right}) {
+        auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+        if (!editor) continue;
+        QVector<qce::ExtraSelection> selections;
+        QVector<int> boundaries;
+        const auto& ranges = side == Side::Left ? m_leftSearch : m_rightSearch;
+        for (const auto& range : ranges) {
+            if (!range.length) { boundaries.append(range.line); continue; }
+            qce::ExtraSelection selection;
+            selection.start = {range.line, range.column};
+            selection.end = {range.line, range.column + range.length};
+            selection.background = QColor(255, 210, 40, 120);
+            selections.append(selection);
+        }
+        editor->edit()->area()->setExtraSelections(selections);
+        editor->setRevealOverlay(m_emphasis && m_emphasis->first == side
+            ? std::make_optional(m_emphasis->second) : std::nullopt, boundaries);
+    }
+}
+
+void FileDiffWidget::updateMetadataLabel() {
+    QStringList descriptions;
+    if (m_comparison) for (Side side : {Side::Left, Side::Right}) {
+        const auto& snapshot = m_comparison->snapshot(side);
+        QStringList parts;
+        if (!snapshot.label.isEmpty()) parts.append(snapshot.label);
+        if (snapshot.finalNewline) {
+            if (snapshot.lines.isEmpty()) parts.append(QStringLiteral("Empty file"));
+            else parts.append(*snapshot.finalNewline ? QStringLiteral("Final newline") : QStringLiteral("No final newline"));
+        }
+        QStringList endings;
+        for (auto ending : snapshot.lineEndings) {
+            QString name;
+            if (ending == LineEnding::LF) name = "LF";
+            else if (ending == LineEnding::CRLF) name = "CRLF";
+            else if (ending == LineEnding::CR) name = "CR";
+            if (!name.isEmpty() && !endings.contains(name)) endings.append(name);
+        }
+        if (!endings.isEmpty()) parts.append(endings.join('/'));
+        if (!parts.isEmpty()) descriptions.append((side == Side::Left ? QStringLiteral("Left: ") : QStringLiteral("Right: ")) + parts.join(" — "));
+    }
+    m_metadataLabel->setText(descriptions.join("    |    "));
+    m_metadataLabel->setVisible(!descriptions.isEmpty());
 }
 
 void FileDiffWidget::setPaths(const QString& leftPath, const QString& rightPath) {
@@ -287,24 +442,31 @@ void FileDiffWidget::setPaths(const QString& leftPath, const QString& rightPath)
 
 bool FileDiffWidget::loadFromPaths(const QString& leftPath,
                                    const QString& rightPath) {
-    auto readFile = [&](const QString& path, QStringList& out) -> bool {
+    auto readFile = [&](const QString& path, TextSnapshot& out) -> bool {
         QFile f(path);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (!f.open(QIODevice::ReadOnly)) {
             emit loadFailed(QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
             return false;
         }
         QTextStream in(&f);
-        while (!in.atEnd()) out.append(in.readLine());
-        return true;
+        try {
+            out = TextSnapshot::fromText(in.readAll(), path);
+            return true;
+        } catch (const std::exception& error) {
+            emit loadFailed(QString::fromUtf8(error.what()));
+            return false;
+        }
     };
 
-    QStringList leftLines, rightLines;
-    if (!readFile(leftPath, leftLines)) return false;
-    if (!readFile(rightPath, rightLines)) return false;
+    TextSnapshot left, right;
+    if (!readFile(leftPath, left)) return false;
+    if (!readFile(rightPath, right)) return false;
 
+    auto result = prepareComparison(left, right);
+    if (result.status != PreparationStatus::Ready) { emit loadFailed(result.message); return false; }
     m_leftPathEdit->setText(leftPath);
     m_rightPathEdit->setText(rightPath);
-    setContent(leftLines, rightLines);
+    setComparison(std::move(result.comparison));
     emit pathsChanged(leftPath, rightPath);
     return true;
 }

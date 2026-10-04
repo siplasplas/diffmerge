@@ -7,16 +7,96 @@
 
 #include "diffcore/DiffEngine.h"
 #include "diffcore/SequenceDiff.h"
+#include "diffcore/LineInterner.h"
 
 #include <span>
 #include <string>
 
 using namespace diffcore;
 
+struct CancellingElement {
+    int value;
+    const CancellationToken* cancellation;
+    int* comparisons;
+    bool operator==(const CancellingElement& other) const {
+        if (++*comparisons == 5) cancellation->requestCancellation();
+        return value == other.value;
+    }
+};
+
 class TestEngine : public QObject {
     Q_OBJECT
 
 private slots:
+    void cancellationIsCheckedInsideSequenceComparison() {
+        for (bool identical : {false, true}) {
+            CancellationToken token;
+            ComputationControl control(token);
+            int comparisons = 0;
+            std::vector<CancellingElement> left, right;
+            for (int i = 0; i < 50; ++i) {
+                left.push_back({i, &token, &comparisons});
+                right.push_back({identical ? i : i + 1, &token, &comparisons});
+            }
+            bool stopped = false;
+            try { SequenceDiff::compute(left, right, {}, &control); }
+            catch (const ComputationStopped& error) {
+                QCOMPARE(error.reason, StopReason::Cancelled);
+                stopped = true;
+            }
+            QVERIFY(stopped);
+            QCOMPARE(comparisons, 5);
+        }
+    }
+
+    void normalizationAndSpacingRefinementHonorBudgets() {
+        LineInterner interner;
+        DiffOptions options;
+        options.ignoreWhitespace = true;
+        ComputationControl normalization({}, 50);
+        QVERIFY_EXCEPTION_THROWN(interner.intern({QString(1000, ' ') + "x"}, {"x"}, options, &normalization), ComputationStopped);
+        QCOMPARE(normalization.workPerformed(), std::uint64_t(50));
+        options.ignoreWhitespace = false;
+        options.alignWhitespaceChanges = true;
+        const QStringList left{"a:=2;", "b:=3;"};
+        const QStringList right{"  a := 2;", "  b := 3;"};
+        ComputationControl initial;
+        interner.intern(left, right, options, &initial);
+        // Enough for initial interning, but not the subsequent refinement.
+        ComputationControl refinement({}, initial.workPerformed() + 15);
+        DiffEngine engine;
+        QVERIFY_EXCEPTION_THROWN(engine.compute(left, right, options, &refinement), ComputationStopped);
+    }
+
+    void boundedControlDoesNotChangeUnlimitedDiffOutput() {
+        DiffEngine engine;
+        DiffOptions options;
+        options.alignWhitespaceChanges = true;
+        options.applySliderHeuristics = true;
+        const QStringList left{"header", "  a:=2;", "old", "tail"};
+        const QStringList right{"header", "    a := 2;", "new", "tail"};
+        ComputationControl control;
+        const auto expected = engine.compute(left, right, options);
+        const auto actual = engine.compute(left, right, options, &control);
+        QVERIFY(control.workPerformed() > 0);
+        QCOMPARE(actual.hunks.size(), expected.hunks.size());
+        for (size_t i = 0; i < actual.hunks.size(); ++i) {
+            QCOMPARE(actual.hunks[i].type, expected.hunks[i].type);
+            QCOMPARE(actual.hunks[i].leftRange.start, expected.hunks[i].leftRange.start);
+            QCOMPARE(actual.hunks[i].leftRange.count, expected.hunks[i].leftRange.count);
+            QCOMPARE(actual.hunks[i].rightRange.start, expected.hunks[i].rightRange.start);
+            QCOMPARE(actual.hunks[i].rightRange.count, expected.hunks[i].rightRange.count);
+        }
+        ComputationControl exhausted({}, 10);
+        bool stopped = false;
+        try { engine.compute(left, right, options, &exhausted); }
+        catch (const ComputationStopped& error) {
+            QCOMPARE(error.reason, StopReason::ResourceLimit);
+            stopped = true;
+        }
+        QVERIFY(stopped);
+    }
+
     void spacingAlignmentPreservesInsertedLineAndFormatting() {
         DiffOptions opts;
         opts.alignWhitespaceChanges = true;

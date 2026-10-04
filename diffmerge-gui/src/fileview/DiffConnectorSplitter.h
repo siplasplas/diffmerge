@@ -15,6 +15,7 @@ public:
     DiffConnectorSplitter(DiffEditor* left, DiffEditor* right,
                           const AlignedLineModel* model, QWidget* parent = nullptr);
 
+    void setModel(const AlignedLineModel* model);
     void updateConnections();
 
 protected:

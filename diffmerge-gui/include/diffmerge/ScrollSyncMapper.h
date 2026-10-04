@@ -28,7 +28,7 @@ class ScrollSyncMapper {
 public:
     ScrollSyncMapper() = default;
 
-    void build(const diffcore::DiffResult& diff);
+    void build(const diffcore::DiffResult& diff, diffcore::ComputationControl* control = nullptr);
 
     // threshold ∈ (0, 1): fraction of viewport height where the sync line sits.
     // 0.5 = center; lower values = closer to top. Default 0.4.
@@ -42,10 +42,10 @@ public:
     int computeOtherTop(Side scrolledSide, int topLine, int viewportLines,
                         int otherDocLineCount, int otherViewportLines = -1) const;
 
-private:
-    // Returns the corresponding fractional line on the other side.
+    // Returns the corresponding fractional original line on the other side.
     double correspondingLine(Side from, double docLine) const;
 
+private:
     struct Entry {
         int lStart, lCount;
         int rStart, rCount;

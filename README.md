@@ -261,10 +261,97 @@ colors, include `<diffmerge/DiffEditor.h>` and `<diffmerge/ColorScheme.h>` and
 use `leftEditor()` / `rightEditor()`. `DirDiffWidget::fileActivated` provides
 paths for connecting directory browsing to a file comparison. `loadFromPaths()`
 emits `loadFailed(message)` on read failure; hosts loading revision blobs should
-use `setContent()`. Browse buttons emit `fileBrowseRequested` or
+use `setContent()` or the prepared-comparison API below. Browse buttons emit `fileBrowseRequested` or
 `directoryBrowseRequested`; the host opens its preferred picker and calls
 `setPath(side, path)`. The desktop application uses qt-extra dialogs, while the
 libraries require no qt-extra and open no file or error dialogs.
+
+For worker preparation, include `<diffmerge/Comparison.h>`:
+
+```cpp
+using namespace diffmerge::gui;
+auto left = TextSnapshot::fromText(parentText, "Parent revision");
+auto right = TextSnapshot::fromText(selectedText, "Selected revision");
+diffcore::CancellationToken cancellation;
+// Run on a worker, capturing snapshots and the token by value:
+auto result = prepareComparison(left, right, {}, cancellation);
+// Deliver to the GUI thread after checking the host's current job generation:
+if (result.status == PreparationStatus::Ready)
+    diff->setComparison(result.comparison);
+// A newer host request can call cancellation.requestCancellation().
+```
+
+`PreparedComparison` owns immutable snapshots, original ranges, the aligned
+model, intra-line highlights and scroll mapping. Its `shared_ptr<const ...>` can
+outlive worker locals and be shared across views. `setComparison()` runs on the
+GUI thread without recomputing a diff; replacing it or calling `clearComparison()`
+detaches the previous data and clears transient overlays. The host owns worker
+scheduling and rejects stale results using its own generation ID. The example
+shows this with QtConcurrent; DiffMerge itself does not require QtConcurrent.
+
+`PrepareResult::status` distinguishes `Ready`, `Cancelled`, `ResourceLimit` and
+`Error`. Only `Ready` contains a comparison. Cancellation is cooperative inside
+algorithm loops; allocation, Qt string operations and cleanup are not hard
+real-time operations. `ComparisonOptions::limits` defaults to 100,000 combined
+input lines, 4,000,000 combined UTF-16 units (charging one extra unit per line),
+200,000 units per line, 20,000,000 work units and 1,000,000 recorded O(NP) steps.
+These are input/work budgets rather than an exact byte allocation cap. Hosts can
+adjust them; integer-coordinate limits still apply. The synchronous `setContent()`
+wrapper uses the same default limits and emits `loadFailed` on preparation failure,
+retaining the previous comparison. Core clients can pass a worker-local
+`diffcore::ComputationControl` to the sequence or line engine; stopping throws
+`ComputationStopped` with a cancellation or resource-limit reason.
+
+Host navigation uses original, zero-based document coordinates:
+
+```cpp
+diff->revealLines(Side::Left, {deletedLine, 1}, true);
+diff->revealText(Side::Right, {addedLine, utf16Column, utf16Length}, true);
+diff->setSearchHighlights(Side::Right, {{addedLine, utf16Column, utf16Length}});
+diff->navigateToChange(changeIndex);
+diff->clearSearchHighlights();
+```
+
+`changeCount()`, `currentChangeIndex()` (`-1` for no selected change), `changes()`,
+`currentChangeChanged(index)` and `comparisonChanged(count)` support host-owned
+controls. Change indices belong to DiffMerge; another diff engine's hunks must be
+mapped through original coordinates. Revealing a range synchronizes the opposite
+pane and clears the selected change index. Line ranges are half-open; a zero
+count represents a boundary, including `lineCount` at EOF or `0` in an empty file.
+Text ranges use UTF-16 columns on one line; a zero length represents a boundary,
+and at EOF only `{lineCount, 0, 0}` is valid. Invalid ranges return `false` without
+changing the view. Search overlays are independent of diff data; clearing them
+restores comparison colors. Positive text ranges use character overlays; zero
+length search hits use a horizontal line boundary marker. Optional reveal emphasis
+covers the requested lines, or the EOF boundary, until cleared or replaced.
+
+Snapshots omit line terminators but retain per-line LF/CRLF/CR metadata and optional
+final-newline state. `fromText("")` is an empty file; `fromText("\n")` contains one
+empty terminated line. Legacy `QStringList` input has unknown metadata. Side labels,
+line endings and missing final newline appear in a separate plain-text status row,
+without synthetic content. End-of-line differences do not create textual change
+blocks. Binary detection, decoding, repository access and revision identity belong
+to the host.
+
+`PrepareResult::preparationTime` and `lastInstallationTime()` report computation
+and GUI installation separately. GUI document installation and stored aligned
+rows/highlights still consume time and memory; this implementation does not
+virtualize large documents.
+
+One local Release-build measurement (Linux, Qt 6.10, offscreen, one run) requested
+cancellation after 1 ms of worker time, with a higher trace budget so cancellation
+could be observed rather than hitting that budget first:
+
+| Input on each side | Cancellation request to worker return |
+|---|---:|
+| 4,000 repeated lines, all `a` versus all `b` | 0.12 ms |
+| One 50,000-unit word, all `a` versus all `b` | 0.07 ms |
+
+For 10,000 equal short lines per side, preparation took 1.82 ms and GUI installation
+0.14 ms, excluding the subsequent first paint. Peak resident memory for the whole
+benchmark process, including Qt and earlier workloads, was about 39 MiB; this is
+not an isolated model allocation measurement. These observations describe that
+run, not hard latency or memory guarantees.
 
 A small history-viewer example is included (it displays sample revisions,
 without a Git dependency):

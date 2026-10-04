@@ -31,6 +31,7 @@
 #include <vector>
 
 #include <diffcore/DiffTypes.h>
+#include <diffcore/ComputationControl.h>
 
 namespace diffmerge::gui {
 
@@ -71,7 +72,7 @@ public:
     // from both files. Call once per diff; the result is immutable.
     void build(const diffcore::DiffResult& diff,
                const QStringList& leftLines,
-               const QStringList& rightLines);
+               const QStringList& rightLines, diffcore::ComputationControl* control = nullptr);
 
     // Total number of rows after alignment. Same for both sides.
     int rowCount() const { return static_cast<int>(m_leftRows.size()); }
@@ -91,6 +92,10 @@ public:
 
     // Returns only the real (non-placeholder) lines as document content.
     QStringList documentLines(Side side) const;
+
+    const QVector<diffcore::ChangeType>& docLineChanges(Side side) const {
+        return side == Side::Left ? m_leftChanges : m_rightChanges;
+    }
 
     // Shared changes in document order, excluding Equal regions. Unequal
     // replacements retain both full ranges; padding does not create a block.
@@ -122,19 +127,21 @@ private:
     // Append an Equal range to both sides' aligned rows.
     void appendEqual(const diffcore::Hunk& h,
                      const QStringList& leftLines,
-                     const QStringList& rightLines);
+                     const QStringList& rightLines, diffcore::ComputationControl* control = nullptr);
     // Append a pure Insert (right only) - left gets placeholders.
     void appendInsert(const diffcore::Hunk& h,
-                      const QStringList& rightLines);
+                      const QStringList& rightLines, diffcore::ComputationControl* control = nullptr);
     // Append a pure Delete (left only) - right gets placeholders.
     void appendDelete(const diffcore::Hunk& h,
-                      const QStringList& leftLines);
+                      const QStringList& leftLines, diffcore::ComputationControl* control = nullptr);
     // Append a Replace hunk - both sides may be different sizes, pad the
     // shorter side with placeholders so rows line up.
     void appendReplace(const diffcore::Hunk& h,
                        const QStringList& leftLines,
-                       const QStringList& rightLines);
+                       const QStringList& rightLines, diffcore::ComputationControl* control = nullptr);
 
+    QStringList m_originalLeft, m_originalRight;
+    QVector<diffcore::ChangeType> m_leftChanges, m_rightChanges;
     std::vector<AlignedRow> m_leftRows;
     std::vector<AlignedRow> m_rightRows;
     QStringList m_leftText;   // Per aligned row (empty if placeholder)

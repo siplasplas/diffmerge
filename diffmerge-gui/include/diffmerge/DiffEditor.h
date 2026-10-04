@@ -10,6 +10,7 @@
 #include <QVector>
 #include <QWidget>
 #include <memory>
+#include <optional>
 
 #include <qce/CodeEdit.h>
 #include <qce/SimpleTextDocument.h>
@@ -34,6 +35,9 @@ public:
     void setAlignedModel(const AlignedLineModel* model);
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
     void setColorScheme(const ColorScheme& scheme);
+    // Transient overlays, separate from comparison colors.
+    void setRevealOverlay(std::optional<diffcore::LineRange> range,
+                          const QVector<int>& searchBoundaries = {});
 
     Side side() const { return m_side; }
     qce::CodeEdit* edit() const { return m_edit; }

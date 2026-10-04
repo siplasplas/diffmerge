@@ -8,6 +8,9 @@
 #include <QShortcut>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <future>
+#include <limits>
+#include <qce/ExtraSelection.h>
 
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
@@ -46,6 +49,245 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void preparedAndSynchronousViewsAgree_data() {
+        QTest::addColumn<QStringList>("left");
+        QTest::addColumn<QStringList>("right");
+        QTest::addColumn<bool>("ignoreTrailing");
+        QTest::newRow("empty") << QStringList{} << QStringList{} << false;
+        QTest::newRow("insert") << QStringList{} << QStringList{"new"} << false;
+        QTest::newRow("delete") << QStringList{"old"} << QStringList{} << false;
+        QTest::newRow("replace-word") << QStringList{"Shift = 0 modification means preference."}
+                                      << QStringList{"Shift = 0 means preference."} << false;
+        QTest::newRow("formatting") << QStringList{"head", "  a:=2;", "tail"}
+                                   << QStringList{"head", "new();", "    a := 2;  ", "tail"} << false;
+        QTest::newRow("ignore-trailing") << QStringList{"a  "} << QStringList{"a"} << true;
+    }
+
+    void preparedAndSynchronousViewsAgree() {
+        QFETCH(QStringList, left);
+        QFETCH(QStringList, right);
+        QFETCH(bool, ignoreTrailing);
+        ComparisonOptions options;
+        options.diff.ignoreTrailingWhitespace = ignoreTrailing;
+        TextSnapshot l, r;
+        l.lines = left; r.lines = right;
+        const auto result = prepareComparison(l, r, options);
+        QCOMPARE(result.status, PreparationStatus::Ready);
+        QVERIFY(result.comparison);
+        FileDiffWidget synchronous, prepared;
+        synchronous.setContent(left, right, options.diff);
+        prepared.setComparison(result.comparison);
+        for (auto* widget : {&synchronous, &prepared}) {
+            widget->resize(850, 240);
+            widget->show();
+        }
+        QApplication::processEvents();
+        QCOMPARE(prepared.changeCount(), synchronous.changeCount());
+        for (Side side : {Side::Left, Side::Right}) {
+            auto* first = side == Side::Left ? synchronous.leftEditor() : synchronous.rightEditor();
+            auto* second = side == Side::Left ? prepared.leftEditor() : prepared.rightEditor();
+            QCOMPARE(first->edit()->document()->lineCount(), second->edit()->document()->lineCount());
+            for (int i = 0; i < first->edit()->document()->lineCount(); ++i)
+                QCOMPARE(first->edit()->document()->lineAt(i), second->edit()->document()->lineAt(i));
+            // Identical data, layout and theme must render identical diff colors.
+            first->edit()->area()->clearFocus(); second->edit()->area()->clearFocus();
+            QCOMPARE(first->edit()->area()->viewport()->grab().toImage(),
+                     second->edit()->area()->viewport()->grab().toImage());
+        }
+        const auto expected = IntraLineDiffEngine::compute(result.comparison->diff(), left, right);
+        for (Side side : {Side::Left, Side::Right}) {
+            const auto& actual = side == Side::Left ? result.comparison->highlights().leftRanges : result.comparison->highlights().rightRanges;
+            const auto& reference = side == Side::Left ? expected.leftRanges : expected.rightRanges;
+            QCOMPARE(actual.size(), reference.size());
+            for (int i = 0; i < actual.size(); ++i) {
+                QCOMPARE(actual[i].size(), reference[i].size());
+                for (int j = 0; j < actual[i].size(); ++j) {
+                    QCOMPARE(actual[i][j].start, reference[i][j].start);
+                    QCOMPARE(actual[i][j].length, reference[i][j].length);
+                }
+            }
+        }
+    }
+
+    void workerResultOwnsDataAndReplacementReleasesIt() {
+        auto future = std::async(std::launch::async, [] {
+            auto left = TextSnapshot::fromText("old word\n", "before");
+            auto right = TextSnapshot::fromText("new word", "after");
+            auto result = prepareComparison(left, right);
+            left.lines[0] = "mutated worker input";
+            right.lines.clear();
+            return result;
+        });
+        auto result = future.get();
+        QCOMPARE(result.status, PreparationStatus::Ready);
+        QCOMPARE(result.comparison->snapshot(Side::Left).lines[0], QString("old word"));
+        QCOMPARE(result.comparison->model().documentLines(Side::Right), QStringList{"new word"});
+        FileDiffWidget widget;
+        widget.resize(800, 200); widget.show();
+        widget.setComparison(result.comparison);
+        std::weak_ptr<const PreparedComparison> old = result.comparison;
+        result.comparison.reset();
+        QVERIFY(!old.expired());
+        for (int i = 0; i < 10; ++i) {
+            widget.setContent({"a", "same"}, {QString::number(i), "same"});
+            QApplication::processEvents();
+            widget.grab(); // Exercise model pointers retained by painters.
+        }
+        QVERIFY(old.expired());
+        widget.clearComparison();
+        QApplication::processEvents();
+        widget.grab();
+        QVERIFY(!widget.comparison());
+        QCOMPARE(widget.changeCount(), 0);
+    }
+
+    void preparationLimits_data() {
+        QTest::addColumn<int>("limit");
+        QTest::newRow("combined-lines") << 0;
+        QTest::newRow("combined-code-units") << 1;
+        QTest::newRow("long-line") << 2;
+        QTest::newRow("algorithm-work") << 3;
+        QTest::newRow("trace-storage") << 4;
+    }
+
+    void preparationLimits() {
+        QFETCH(int, limit);
+        ComparisonOptions options;
+        if (limit == 0) options.limits.maxInputLines = 1;
+        if (limit == 1) options.limits.maxInputCodeUnits = 1;
+        if (limit == 2) options.limits.maxLineCodeUnits = 1;
+        if (limit == 3) options.limits.maxWork = 1;
+        if (limit == 4) options.limits.maxTraceEntries = 0;
+        auto result = prepareComparison(TextSnapshot::fromText("aaa\nbbb"), TextSnapshot::fromText("xxx\nyyy"), options);
+        QCOMPARE(result.status, PreparationStatus::ResourceLimit);
+        QVERIFY(!result.comparison);
+        QVERIFY(!result.message.isEmpty());
+        const auto equal = prepareComparison({}, {});
+        QCOMPARE(equal.status, PreparationStatus::Ready);
+        QVERIFY(equal.comparison->diff().isIdentical());
+    }
+
+    void cancelledAndMalformedInputsNeverYieldAComparison() {
+        diffcore::CancellationToken token;
+        auto copy = token;
+        copy.requestCancellation();
+        const auto cancelled = prepareComparison({}, {}, {}, token);
+        QCOMPARE(cancelled.status, PreparationStatus::Cancelled);
+        QVERIFY(!cancelled.comparison);
+        for (auto malformed : {TextSnapshot{{"embedded\nnewline"}, {}, {}, {}},
+                               TextSnapshot{{}, true, {}, {}},
+                               TextSnapshot{{"x"}, false, {LineEnding::LF}, {}}}) {
+            const auto result = prepareComparison(malformed, {});
+            QCOMPARE(result.status, PreparationStatus::Error);
+            QVERIFY(!result.comparison);
+        }
+    }
+
+    void intraLineWorkBudgetStopsInsideLongWords() {
+        diffcore::DiffResult diff;
+        diff.hunks = {{ChangeType::Replace, {0, 1}, {0, 1}}};
+        diffcore::ComputationControl control({}, 100);
+        bool stopped = false;
+        try { IntraLineDiffEngine::compute(diff, {QString(10000, 'a')}, {QString(10000, 'b')}, &control); }
+        catch (const diffcore::ComputationStopped& error) {
+            QCOMPARE(error.reason, diffcore::StopReason::ResourceLimit);
+            stopped = true;
+        }
+        QVERIFY(stopped);
+        QCOMPARE(control.workPerformed(), std::uint64_t(100));
+        diffcore::CancellationToken cancellation;
+        cancellation.requestCancellation();
+        diffcore::ComputationControl cancelled(cancellation);
+        QVERIFY_EXCEPTION_THROWN(IntraLineDiffEngine::compute(diff, {"a"}, {"b"}, &cancelled), diffcore::ComputationStopped);
+    }
+
+    void cancellationFromAnotherThreadStopsPreparation() {
+        diffcore::CancellationToken token;
+        ComparisonOptions options;
+        options.limits.maxWork = 10000000;
+        const auto left = TextSnapshot::fromText(QString(50000, 'a'));
+        const auto right = TextSnapshot::fromText(QString(50000, 'b'));
+        std::promise<void> entered;
+        auto started = entered.get_future();
+        auto future = std::async(std::launch::async, [&] {
+            entered.set_value();
+            return prepareComparison(left, right, options, token);
+        });
+        started.wait();
+        token.requestCancellation();
+        const auto result = future.get();
+        QCOMPARE(result.status, PreparationStatus::Cancelled);
+        QVERIFY(!result.comparison);
+    }
+
+    void originalCoordinatesNavigationAndOverlayReset() {
+        FileDiffWidget widget;
+        widget.resize(850, 200); widget.show();
+        widget.setContent({"header", "deleted", "same", "old", "tail"},
+                          {"header", "same", "new", "tail", "added"});
+        QSignalSpy selected(&widget, &FileDiffWidget::currentChangeChanged);
+        QVERIFY(widget.changeCount() > 0);
+        QVERIFY(widget.navigateToChange(0));
+        QCOMPARE(widget.currentChangeIndex(), 0);
+        QCOMPARE(selected.count(), 1);
+        QVERIFY(!widget.navigateToChange(widget.changeCount()));
+        QCOMPARE(widget.currentChangeIndex(), 0);
+        QVERIFY(widget.revealText(Side::Left, {1, 2, 3}, true));
+        QCOMPARE(widget.leftEditor()->edit()->area()->cursorPosition().line, 1);
+        QCOMPARE(widget.leftEditor()->edit()->area()->cursorPosition().column, 2);
+        QCOMPARE(widget.currentChangeIndex(), -1);
+        QVERIFY(widget.revealLines(Side::Right, {4, 1}, true));
+        QCOMPARE(widget.rightEditor()->edit()->area()->cursorPosition().line, 4);
+        QVERIFY(widget.setSearchHighlights(Side::Left, {{1, 0, 7}, {5, 0, 0}}));
+        QCOMPARE(widget.leftEditor()->edit()->area()->extraSelections().size(), 1);
+        QVERIFY(!widget.setSearchHighlights(Side::Left, {{1, 0, 8}}));
+        QCOMPARE(widget.leftEditor()->edit()->area()->extraSelections().size(), 1);
+        QVERIFY(!widget.revealLines(Side::Left, {-1, 1}));
+        QVERIFY(!widget.revealLines(Side::Left, {5, 1}));
+        QVERIFY(!widget.revealLines(Side::Left, {1, std::numeric_limits<int>::max()}));
+        QVERIFY(!widget.revealText(Side::Right, {5, 1, 0}));
+        QVERIFY(widget.revealText(Side::Right, {5, 0, 0}, true));
+        widget.clearSearchHighlights();
+        QVERIFY(widget.leftEditor()->edit()->area()->extraSelections().isEmpty());
+        QVERIFY(widget.setSearchHighlights(Side::Right, {{4, 0, 5}}));
+        widget.setContent({}, {});
+        QVERIFY(widget.rightEditor()->edit()->area()->extraSelections().isEmpty());
+        QCOMPARE(widget.currentChangeIndex(), -1);
+        QVERIFY(widget.revealLines(Side::Left, {0, 0}, true));
+        QVERIFY(widget.revealText(Side::Right, {0, 0, 0}));
+        QVERIFY(!widget.revealLines(Side::Right, {0, 1}));
+        widget.clearComparison();
+        QVERIFY(!widget.revealLines(Side::Left, {0, 0}));
+    }
+
+    void utf16ColumnsAndFinalNewlineMetadata() {
+        const auto empty = TextSnapshot::fromText("");
+        const auto emptyLine = TextSnapshot::fromText("\n");
+        QVERIFY(empty.lines.isEmpty());
+        QCOMPARE(empty.finalNewline, std::optional<bool>(false));
+        QCOMPARE(emptyLine.lines, QStringList{""});
+        QCOMPARE(emptyLine.finalNewline, std::optional<bool>(true));
+        const auto mixed = TextSnapshot::fromText("a\r\nb\rc\nx");
+        QCOMPARE(mixed.lines, (QStringList{"a", "b", "c", "x"}));
+        QCOMPARE(mixed.lineEndings, (QVector<LineEnding>{LineEnding::CRLF, LineEnding::CR, LineEnding::LF, LineEnding::None}));
+        FileDiffWidget widget;
+        const auto result = prepareComparison(TextSnapshot::fromText(QString::fromUtf8("a😀b"), "parent"),
+                                              TextSnapshot::fromText("a\r\n", "current"));
+        QCOMPARE(result.status, PreparationStatus::Ready);
+        widget.setComparison(result.comparison);
+        QVERIFY(widget.revealText(Side::Left, {0, 3, 1}));
+        QVERIFY(!widget.revealText(Side::Left, {0, 4, 1}));
+        auto* metadata = widget.findChild<QLabel*>("diffTextMetadata");
+        QVERIFY(metadata);
+        QVERIFY(metadata->text().contains("parent"));
+        QVERIFY(metadata->text().contains("No final newline"));
+        QVERIFY(metadata->text().contains("CRLF"));
+        QCOMPARE(widget.leftEditor()->edit()->document()->lineCount(), 1);
+        QCOMPARE(widget.rightEditor()->edit()->document()->lineCount(), 1);
+        widget.clearComparison();
+        QVERIFY(metadata->isHidden());
+    }
+
     void failedFileLoadReportsToHostWithoutOpeningADialog() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());

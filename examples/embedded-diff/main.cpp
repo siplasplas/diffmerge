@@ -1,4 +1,9 @@
 #include <QApplication>
+#include <QFutureWatcher>
+#include <QStatusBar>
+#include <QThreadPool>
+#include <QtConcurrent/QtConcurrentRun>
+#include <QDebug>
 #include <QFile>
 #include <QIcon>
 #include <QMainWindow>
@@ -30,11 +35,44 @@ int main(int argc, char** argv) {
     previous->setContext(Qt::WidgetWithChildrenShortcut);
     QObject::connect(previous, &QShortcut::activated, diff,
                      &diffmerge::gui::FileDiffWidget::navigateToPrev);
+    // These belong to the host: the component has no worker or job identity.
+    quint64 generation = 0;
+    diffcore::CancellationToken cancellation;
+    const bool smoke = app.arguments().contains("--smoke");
+    QObject::connect(&app, &QApplication::aboutToQuit, &window, [&] {
+        cancellation.requestCancellation();
+    });
     QObject::connect(history, &QTreeWidget::currentItemChanged, diff,
-        [diff, second](QTreeWidgetItem* selected) {
-            const QStringList before{"a:=2;", "finish();"};
-            const QStringList after{"prepare();", "a := 2;", "finish();"};
-            diff->setContent(before, selected == second ? after : before);
+        [&, diff, second](QTreeWidgetItem* selected) {
+            cancellation.requestCancellation();
+            cancellation = diffcore::CancellationToken{};
+            const auto token = cancellation;
+            const auto job = ++generation;
+            using namespace diffmerge::gui;
+            const auto before = TextSnapshot::fromText("a:=2;\nfinish();\n", "Parent revision");
+            const auto after = selected == second
+                ? TextSnapshot::fromText("prepare();\na := 2;\nfinish();", "Selected revision") : before;
+            auto* watcher = new QFutureWatcher<PrepareResult>(&window);
+            QObject::connect(watcher, &QFutureWatcher<PrepareResult>::finished, diff, [&, watcher, job] {
+                const auto result = watcher->result();
+                watcher->deleteLater();
+                // Cancelled/stale results never replace a newer comparison.
+                if (job != generation) return;
+                if (result.status != PreparationStatus::Ready) {
+                    window.statusBar()->showMessage(result.message);
+                    if (smoke) app.exit(1);
+                    return;
+                }
+                diff->setComparison(result.comparison);
+                diff->revealText(Side::Right, {0, 0, 0}, true);
+                diff->setSearchHighlights(Side::Right, {{0, 0, 3}});
+                qInfo() << "Preparation ms:" << result.preparationTime.count() / 1e6
+                        << "installation ms:" << diff->lastInstallationTime().count() / 1e6;
+                if (smoke) app.quit();
+            });
+            watcher->setFuture(QtConcurrent::run([before, after, token] {
+                return prepareComparison(before, after, {}, token);
+            }));
         });
     history->setCurrentItem(first);
     history->setCurrentItem(second);
@@ -47,7 +85,10 @@ int main(int argc, char** argv) {
         diffmerge::gui::DirDiffWidget directories;
         if (!QFile::exists(":/icons/folder.svg") ||
             QIcon(":/icons/folder.svg").pixmap(16, 16).isNull()) return 1;
-        QTimer::singleShot(0, &app, &QApplication::quit);
+        QTimer::singleShot(5000, &app, [&app] { app.exit(1); });
     }
-    return app.exec();
+    const int exitCode = app.exec();
+    cancellation.requestCancellation();
+    QThreadPool::globalInstance()->waitForDone();
+    return exitCode;
 }
