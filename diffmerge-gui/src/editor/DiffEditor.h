@@ -23,11 +23,13 @@
 namespace diffmerge::gui {
 
 class ChangeBoundaryOverlay;
+class DiffLineNumberGutter;
 
 class DiffEditor : public QWidget {
     Q_OBJECT
 public:
     explicit DiffEditor(Side side, QWidget* parent = nullptr);
+    ~DiffEditor() override;
 
     void setAlignedModel(const AlignedLineModel* model);
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
@@ -40,18 +42,23 @@ public:
 signals:
     void colorSchemeChanged();
 
+protected:
+    void changeEvent(QEvent* event) override;
+
 private:
     void applyModel();
     void applyHighlighter();
+    void applyColorScheme(const ColorScheme& scheme);
 
     Side m_side;
     ColorScheme m_scheme;
+    bool m_followSystemPalette = true;
     const AlignedLineModel* m_model = nullptr;
 
     qce::SimpleTextDocument* m_doc  = nullptr;
     qce::CodeEdit*           m_edit = nullptr;
     ChangeBoundaryOverlay* m_boundaries = nullptr;
-    std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
+    std::unique_ptr<DiffLineNumberGutter> m_lineNumbers;
     std::unique_ptr<DiffHighlighter>       m_highlighter;
 
     QVector<diffcore::ChangeType>                        m_docLineChanges;

@@ -7,6 +7,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QScopedValueRollback>
 #include <QShortcut>
 #include <QStyle>
 #include <QTextStream>
@@ -76,6 +77,7 @@ void FileDiffWidget::setupUi() {
     navLayout->addWidget(m_nextButton);
 
     m_navLabel = new QLabel(QStringLiteral("No changes"), navBar);
+    m_navLabel->setObjectName(QStringLiteral("diffChangePosition"));
     m_navLabel->setMargin(4);
     navLayout->addWidget(m_navLabel);
     navLayout->addStretch();
@@ -133,13 +135,24 @@ void FileDiffWidget::setupUi() {
     qce::CodeEdit* leftEdit  = m_leftEditor->edit();
     qce::CodeEdit* rightEdit = m_rightEditor->edit();
 
+    for (auto* edit : {leftEdit, rightEdit}) {
+        connect(edit->area(), &qce::CodeEditArea::cursorPositionChanged,
+                this, [this, edit] {
+            if (m_navigating) return;
+            m_navigationSide = edit == m_leftEditor->edit() ? Side::Left : Side::Right;
+            m_currentHunk = -1;
+            updateNavLabel();
+        });
+    }
+
     connect(leftEdit->area(), &qce::CodeEditArea::viewportChanged,
             this, [this, rightEdit](const qce::ViewportState& vp) {
         if (m_syncingScroll) return;
         m_syncingScroll = true;
         const int otherCount = rightEdit->area()->document()->lineCount();
         const int otherTop   = m_syncMapper.computeOtherTop(
-            Side::Left, vp.firstVisibleLine, vp.visibleLineCount(), otherCount);
+            Side::Left, vp.firstVisibleLine, vp.visibleLineCount(), otherCount,
+            rightEdit->area()->viewportState().visibleLineCount());
         rightEdit->area()->verticalScrollBar()->setValue(otherTop);
         m_syncingScroll = false;
     });
@@ -150,7 +163,8 @@ void FileDiffWidget::setupUi() {
         m_syncingScroll = true;
         const int otherCount = leftEdit->area()->document()->lineCount();
         const int otherTop   = m_syncMapper.computeOtherTop(
-            Side::Right, vp.firstVisibleLine, vp.visibleLineCount(), otherCount);
+            Side::Right, vp.firstVisibleLine, vp.visibleLineCount(), otherCount,
+            leftEdit->area()->viewportState().visibleLineCount());
         leftEdit->area()->verticalScrollBar()->setValue(otherTop);
         m_syncingScroll = false;
     });
@@ -163,6 +177,7 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     const diffcore::DiffResult result = engine.compute(leftLines, rightLines, opts);
     m_model->build(result, leftLines, rightLines);
     m_syncMapper.build(result);
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
 
     m_leftEditor->setAlignedModel(m_model.get());
     m_rightEditor->setAlignedModel(m_model.get());
@@ -173,17 +188,24 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
     m_splitter->updateConnections();
 
     m_currentHunk = -1;
+    m_navigationSide = Side::Left;
     updateNavLabel();
 }
 
 void FileDiffWidget::navigateToNext() {
-    const QVector<int>& starts = m_model->hunkAlignedStarts();
-    if (starts.isEmpty()) return;
+    const auto& blocks = m_model->changeBlocks();
+    if (blocks.isEmpty()) return;
+    if (m_currentHunk >= 0) {
+        navigateToHunk(m_currentHunk + 1);
+        return;
+    }
 
-    const int cursorLine = m_leftEditor->edit()->area()->cursorPosition().line;
-    for (int i = 0; i < starts.size(); ++i) {
-        const int hunkDocLine = m_model->docLineBeforeAligned(Side::Left, starts[i]);
-        if (hunkDocLine > cursorLine) {
+    const Side side = m_rightEditor->edit()->area()->hasFocus() ? Side::Right
+                    : m_leftEditor->edit()->area()->hasFocus() ? Side::Left : m_navigationSide;
+    const auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
+    const int cursorLine = area->cursorPosition().line;
+    for (int i = 0; i < blocks.size(); ++i) {
+        if (blocks[i].range(side).start >= cursorLine) {
             navigateToHunk(i);
             return;
         }
@@ -191,13 +213,19 @@ void FileDiffWidget::navigateToNext() {
 }
 
 void FileDiffWidget::navigateToPrev() {
-    const QVector<int>& starts = m_model->hunkAlignedStarts();
-    if (starts.isEmpty()) return;
+    const auto& blocks = m_model->changeBlocks();
+    if (blocks.isEmpty()) return;
+    if (m_currentHunk >= 0) {
+        navigateToHunk(m_currentHunk - 1);
+        return;
+    }
 
-    const int cursorLine = m_leftEditor->edit()->area()->cursorPosition().line;
-    for (int i = starts.size() - 1; i >= 0; --i) {
-        const int hunkDocLine = m_model->docLineBeforeAligned(Side::Left, starts[i]);
-        if (hunkDocLine < cursorLine) {
+    const Side side = m_rightEditor->edit()->area()->hasFocus() ? Side::Right
+                    : m_leftEditor->edit()->area()->hasFocus() ? Side::Left : m_navigationSide;
+    const auto* area = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area();
+    const int cursorLine = area->cursorPosition().line;
+    for (int i = blocks.size() - 1; i >= 0; --i) {
+        if (blocks[i].range(side).start <= cursorLine) {
             navigateToHunk(i);
             return;
         }
@@ -205,26 +233,27 @@ void FileDiffWidget::navigateToPrev() {
 }
 
 void FileDiffWidget::navigateToHunk(int idx) {
-    const QVector<int>& starts = m_model->hunkAlignedStarts();
-    const QVector<int>& ends   = m_model->hunkAlignedEnds();
-    if (idx < 0 || idx >= starts.size()) return;
+    const auto& blocks = m_model->changeBlocks();
+    if (idx < 0 || idx >= blocks.size()) return;
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
 
     m_currentHunk = idx;
-    const int alignedRow = starts[idx];
-    const int hunkSpan   = ends[idx] - alignedRow;
+    const auto& block = blocks[idx];
+    const int hunkSpan = std::max(block.leftRange.count, block.rightRange.count);
 
-    const int leftDoc  = m_model->docLineBeforeAligned(Side::Left,  alignedRow);
-    const int rightDoc = m_model->docLineBeforeAligned(Side::Right, alignedRow);
+    const int leftDoc  = block.leftRange.start;
+    const int rightDoc = block.rightRange.start;
 
     // Place hunk at ~40% from top; reduce to 20% for large hunks
     const int visible = m_leftEditor->edit()->area()->viewportState().visibleLineCount();
     const double fraction = (visible > 0 && hunkSpan > visible * 0.3) ? 0.2 : 0.4;
-    const int offset = static_cast<int>(visible * fraction);
+    const int leftOffset = static_cast<int>(visible * fraction);
+    const int rightOffset = static_cast<int>(
+        m_rightEditor->edit()->area()->viewportState().visibleLineCount() * fraction);
 
-    m_syncingScroll = true;
-    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, leftDoc  - offset));
-    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, rightDoc - offset));
-    m_syncingScroll = false;
+    m_leftEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, leftDoc  - leftOffset));
+    m_rightEditor->edit()->area()->verticalScrollBar()->setValue(std::max(0, rightDoc - rightOffset));
 
     // Move caret to hunk start so next F7/Shift+F7 is relative to it
     const int leftDocCount  = m_leftEditor->edit()->area()->document()->lineCount();

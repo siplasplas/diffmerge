@@ -5,7 +5,7 @@
 //   Given the scrolled side's firstVisibleLine, we:
 //     1. Compute syncLine = firstVisibleLine + threshold * viewportLines
 //     2. Map syncLine to the corresponding position on the other side
-//     3. otherTop = correspondingLine - threshold * viewportLines
+//     3. otherTop = correspondingLine - threshold * otherViewportLines
 //
 // Mapping rules per hunk type (from scrolled side's perspective):
 //   Equal   — direct 1:1 mapping
@@ -37,9 +37,10 @@ public:
 
     // Given the scrolled side's firstVisibleLine and visible line count,
     // return firstVisibleLine for the other side.
-    // otherDocLineCount is needed to clamp the result.
+    // otherDocLineCount is needed to clamp the result. otherViewportLines
+    // accounts for unequal viewport heights; -1 uses viewportLines for both.
     int computeOtherTop(Side scrolledSide, int topLine, int viewportLines,
-                        int otherDocLineCount) const;
+                        int otherDocLineCount, int otherViewportLines = -1) const;
 
 private:
     // Returns the corresponding fractional line on the other side.

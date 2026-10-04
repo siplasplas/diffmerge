@@ -55,12 +55,13 @@ double ScrollSyncMapper::correspondingLine(Side from, double docLine) const {
 
 int ScrollSyncMapper::computeOtherTop(Side scrolled, int topLine,
                                       int viewportLines,
-                                      int otherDocLineCount) const {
+                                      int otherDocLineCount, int otherViewportLines) const {
     if (m_entries.isEmpty()) return topLine;
 
     const double syncLine   = topLine + m_threshold * viewportLines;
     const double otherSync  = correspondingLine(scrolled, syncLine);
-    const double otherTopD  = otherSync - m_threshold * viewportLines;
+    const int otherVisible = otherViewportLines < 0 ? viewportLines : otherViewportLines;
+    const double otherTopD  = otherSync - m_threshold * otherVisible;
     const int    otherTop   = static_cast<int>(std::round(otherTopD));
     return qBound(0, otherTop, qMax(0, otherDocLineCount - 1));
 }

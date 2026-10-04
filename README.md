@@ -93,7 +93,10 @@ File comparison provides:
   line on the side without a block. Replacements use blue backgrounds.
 - The draggable center divider connects corresponding blocks with colored
   curves, narrowing to a line when a block exists on only one side.
-- A color scheme selected from the system's light or dark palette.
+- Block colors extend through the inner line-number margins. Connectors follow
+  scrolling, resizing and change navigation, with offscreen parts clipped.
+- A color scheme that follows the system's light or dark palette, including
+  palette changes while the application is open.
 - Editable path fields and file selection buttons for reloading comparisons.
 
 Directory comparison shows a tree with `same`, `different`, `only left` and

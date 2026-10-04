@@ -79,6 +79,8 @@ private:
     std::unique_ptr<AlignedLineModel> m_model;
     ScrollSyncMapper m_syncMapper;
     bool m_syncingScroll = false;
+    bool m_navigating = false;
+    Side m_navigationSide = Side::Left;
 };
 
 }  // namespace diffmerge::gui

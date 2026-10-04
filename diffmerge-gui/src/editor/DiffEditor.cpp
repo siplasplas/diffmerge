@@ -9,6 +9,51 @@
 
 namespace diffmerge::gui {
 
+// Extend block colors and empty-side boundaries through the inner number rail.
+class DiffLineNumberGutter : public qce::LineNumberGutter {
+public:
+    DiffLineNumberGutter(const qce::ITextDocument* doc, qce::CodeEditArea* area, Side side)
+        : qce::LineNumberGutter(doc), m_area(area), m_side(side) {}
+
+    void setData(const AlignedLineModel* model, const ColorScheme& scheme) {
+        m_model = model;
+        m_scheme = scheme;
+    }
+
+    void paint(QPainter& painter, const qce::ViewportState& vp, const QRect& rect) override {
+        painter.save();
+        int origin = rect.top();
+        if (auto* rail = dynamic_cast<QWidget*>(painter.device()))
+            origin = rail->mapFromGlobal(m_area->viewport()->mapToGlobal(QPoint())).y();
+        const QRect visibleRect = rect.intersected(QRect(rect.x(), origin, rect.width(), vp.viewportHeight));
+        painter.setClipRect(visibleRect);
+        painter.fillRect(rect, m_scheme.gutterBg);
+        if (m_model && vp.isValid()) {
+            for (const auto& block : m_model->changeBlocks()) {
+                const auto& range = block.range(m_side);
+                const int y = origin + vp.contentOffsetY
+                            + (range.start - vp.firstVisibleLine) * vp.lineHeight;
+                if (range.isEmpty()) {
+                    painter.setPen(m_scheme.stripeFor(block.type));
+                    painter.drawLine(rect.left(), y, rect.right(), y);
+                } else {
+                    painter.fillRect(QRect(rect.x(), y, rect.width(), range.count * vp.lineHeight),
+                                     m_scheme.backgroundFor(block.type));
+                }
+            }
+        }
+        painter.setPen(m_scheme.gutterFg);
+        qce::LineNumberGutter::paint(painter, vp, QRect(rect.x(), origin, rect.width(), vp.viewportHeight));
+        painter.restore();
+    }
+
+private:
+    qce::CodeEditArea* m_area;
+    Side m_side;
+    const AlignedLineModel* m_model = nullptr;
+    ColorScheme m_scheme;
+};
+
 // Paint missing-side boundaries without inserting lines into the document.
 class ChangeBoundaryOverlay : public QWidget {
 public:
@@ -76,7 +121,8 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     m_edit->setScrollBarSide(m_side == Side::Left ? SBS::Left : SBS::Right);
 
     // Line numbers on inner edge
-    m_lineNumbers = std::make_unique<qce::LineNumberGutter>(m_doc);
+    m_lineNumbers = std::make_unique<DiffLineNumberGutter>(m_doc, m_edit->area(), m_side);
+    m_lineNumbers->setData(nullptr, m_scheme);
     m_lineNumbers->setFont(f);
     if (m_side == Side::Left) {
         m_edit->addRightMargin(m_lineNumbers.get());
@@ -95,6 +141,19 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     layout->addWidget(m_edit);
 }
 
+DiffEditor::~DiffEditor() {
+    // Margins are non-owning in qcodeedit; detach before destroying the drawer.
+    if (m_side == Side::Left) m_edit->removeRightMargin(m_lineNumbers.get());
+    else m_edit->removeLeftMargin(m_lineNumbers.get());
+}
+
+void DiffEditor::changeEvent(QEvent* event) {
+    QWidget::changeEvent(event);
+    if (m_edit && m_lineNumbers && m_followSystemPalette &&
+        (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange))
+        applyColorScheme(ColorScheme::forSystem());
+}
+
 void DiffEditor::setAlignedModel(const AlignedLineModel* model) {
     m_model = model;
     applyModel();
@@ -108,7 +167,13 @@ void DiffEditor::setIntraLineDiffs(
 }
 
 void DiffEditor::setColorScheme(const ColorScheme& scheme) {
+    m_followSystemPalette = false;
+    applyColorScheme(scheme);
+}
+
+void DiffEditor::applyColorScheme(const ColorScheme& scheme) {
     m_scheme = scheme;
+    m_lineNumbers->setData(m_model, m_scheme);
     if (m_highlighter) {
         m_highlighter->setData(m_intraLineDiffs, scheme.replaceCharBg);
         m_edit->area()->setHighlighter(m_highlighter.get());
@@ -117,9 +182,12 @@ void DiffEditor::setColorScheme(const ColorScheme& scheme) {
     m_boundaries->setBoundaries(m_model ? m_model->changeBlocks()
                                        : QVector<ChangeBlock>{}, m_scheme);
     emit colorSchemeChanged();
+    // Rails are separate child widgets and must repaint for explicit overrides.
+    for (auto* child : m_edit->findChildren<QWidget*>()) child->update();
 }
 
 void DiffEditor::applyModel() {
+    m_lineNumbers->setData(m_model, m_scheme);
     if (!m_model) {
         m_docLineChanges.clear();
         m_boundaries->setBoundaries({}, m_scheme);

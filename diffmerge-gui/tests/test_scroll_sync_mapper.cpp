@@ -37,6 +37,14 @@ private:
     }
 
 private slots:
+    void differentViewportHeightsKeepTheSameSyncAnchor() {
+        const QStringList lines{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+                                "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"};
+        auto mapper = buildFor(lines, lines, 0.4);
+        QCOMPARE(mapper.computeOtherTop(Side::Left, 5, 10, 20, 5), 7);
+        QCOMPARE(mapper.computeOtherTop(Side::Right, 7, 5, 20, 10), 5);
+    }
+
 
     // --- Identical files: direct 1:1 mapping ---
 
