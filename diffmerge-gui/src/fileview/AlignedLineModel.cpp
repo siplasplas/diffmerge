@@ -156,7 +156,7 @@ QVector<AlignedLineModel::FillerInfo> AlignedLineModel::fillerRanges(Side side) 
         } else {
             const diffcore::ChangeType ct = rows[i].changeType;
             int count = 0;
-            while (i < total && rows[i].isPlaceholder()) {
+            while (i < total && rows[i].isPlaceholder() && rows[i].changeType == ct) {
                 ++count;
                 ++i;
             }

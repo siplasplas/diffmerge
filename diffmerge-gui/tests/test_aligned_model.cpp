@@ -27,6 +27,24 @@ private:
     }
 
 private slots:
+    void insertionAfterReplacementKeepsItsBoundary() {
+        const QStringList left{"old"};
+        const QStringList right{"new", "replacement tail", "inserted"};
+        diffcore::DiffResult diff;
+        diff.hunks = {
+            {ChangeType::Replace, {0, 1}, {0, 2}},
+            {ChangeType::Insert, {1, 0}, {2, 1}},
+        };
+        AlignedLineModel model;
+        model.build(diff, left, right);
+        const auto fillers = model.fillerRanges(Side::Left);
+        QCOMPARE(fillers.size(), 2);
+        QCOMPARE(fillers[0].changeType, ChangeType::Replace);
+        QCOMPARE(fillers[1].changeType, ChangeType::Insert);
+        QCOMPARE(fillers[1].beforeDocLine, 1);
+        QCOMPARE(model.documentLines(Side::Left), left);
+    }
+
     void identicalFilesProduceNoPlaceholders() {
         const QStringList lines{"a", "b", "c"};
         auto m = buildFor(lines, lines);

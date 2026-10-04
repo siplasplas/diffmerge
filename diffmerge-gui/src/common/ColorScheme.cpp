@@ -31,7 +31,7 @@ ColorScheme ColorScheme::lightDefault() {
 
     // Hunk backgrounds - subtle tints, readable on white.
     s.insertBg       = QColor(220, 245, 220);   // Light green
-    s.deleteBg       = QColor(250, 220, 220);   // Light red
+    s.deleteBg       = s.insertBg;
     s.replaceBg      = QColor(220, 230, 250);   // Light blue
     s.replaceCharBg  = QColor(130, 170, 255);   // Stronger blue for changed chars
     s.placeholderBg  = QColor(245, 245, 240);
@@ -45,7 +45,7 @@ ColorScheme ColorScheme::lightDefault() {
     // Side margin.
     s.sideMarginBg = QColor(248, 248, 245);
     s.sideMarginInsertStripe  = QColor(100, 180, 100);
-    s.sideMarginDeleteStripe  = QColor(200, 100, 100);
+    s.sideMarginDeleteStripe  = s.sideMarginInsertStripe;
     s.sideMarginReplaceStripe = QColor(100, 140, 200);
 
     return s;
@@ -57,7 +57,7 @@ ColorScheme ColorScheme::darkDefault() {
 
     // Hunk backgrounds - muted, readable on dark gray.
     s.insertBg      = QColor(40, 80, 40);
-    s.deleteBg      = QColor(90, 40, 40);
+    s.deleteBg      = s.insertBg;
     s.replaceBg     = QColor(40, 60, 90);
     s.replaceCharBg = QColor(50, 90, 180);   // Stronger blue for changed chars
     s.placeholderBg = QColor(50, 50, 48);
@@ -69,7 +69,7 @@ ColorScheme ColorScheme::darkDefault() {
 
     s.sideMarginBg = QColor(45, 45, 42);
     s.sideMarginInsertStripe  = QColor(100, 170, 100);
-    s.sideMarginDeleteStripe  = QColor(190, 100, 100);
+    s.sideMarginDeleteStripe  = s.sideMarginInsertStripe;
     s.sideMarginReplaceStripe = QColor(110, 150, 210);
 
     return s;

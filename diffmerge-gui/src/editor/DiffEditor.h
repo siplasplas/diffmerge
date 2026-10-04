@@ -22,6 +22,8 @@
 
 namespace diffmerge::gui {
 
+class ChangeBoundaryOverlay;
+
 class DiffEditor : public QWidget {
     Q_OBJECT
 public:
@@ -44,6 +46,7 @@ private:
 
     qce::SimpleTextDocument* m_doc  = nullptr;
     qce::CodeEdit*           m_edit = nullptr;
+    ChangeBoundaryOverlay* m_boundaries = nullptr;
     std::unique_ptr<qce::LineNumberGutter> m_lineNumbers;
     std::unique_ptr<DiffHighlighter>       m_highlighter;
 

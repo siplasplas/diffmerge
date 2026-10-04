@@ -1,5 +1,20 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
 
+add_executable(test_diff_editor
+    test_diff_editor.cpp
+    ../src/common/ColorScheme.cpp
+    ../src/editor/DiffEditor.cpp
+    ../src/editor/DiffHighlighter.cpp
+    ../src/fileview/AlignedLineModel.cpp
+)
+target_link_libraries(test_diff_editor PRIVATE
+    diffcore::diffcore Qt6::Test Qt6::Widgets qcodeedit::qcodeedit
+)
+add_test(NAME test_diff_editor COMMAND test_diff_editor)
+set_tests_properties(test_diff_editor PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
 # AlignedLineModel is a pure logic class; test it in isolation by
 # compiling the two source files we need directly into the test binary.
 add_executable(test_aligned_model

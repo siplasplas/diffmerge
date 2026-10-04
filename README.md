@@ -89,6 +89,8 @@ File comparison provides:
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
 - Line backgrounds for insertions, deletions and replacements, plus stronger
   character-level highlighting within replacements.
+- One-sided changes use green backgrounds in either pane and a green boundary
+  line on the side without a block. Replacements use blue backgrounds.
 - A color scheme selected from the system's light or dark palette.
 - Editable path fields and file selection buttons for reloading comparisons.
 
@@ -136,7 +138,7 @@ Exit codes are `0` for identical files, `1` for differences and `2` for errors.
 ctest --test-dir build --output-on-failure
 ```
 
-The default configuration registers eight test suites:
+The default configuration registers nine test suites:
 
 | Suite | Coverage |
 | --- | --- |
@@ -145,6 +147,7 @@ The default configuration registers eight test suites:
 | `test_aligned_model` | Mapping between document lines and aligned rows |
 | `test_scroll_sync_mapper` | Scroll position mapping |
 | `test_intra_line_diff` | Character ranges within replacements |
+| `test_diff_editor` | Change colors, missing-side boundaries and viewport updates |
 | `test_cli` | CLI integration through QProcess |
 | `test_slider_parser` | Corpus metadata parsing |
 | `test_slider_eval` | Evaluation logic |
