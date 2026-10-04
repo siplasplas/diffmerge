@@ -12,8 +12,8 @@ namespace diffmerge::gui {
 // Paint missing-side boundaries without inserting lines into the document.
 class ChangeBoundaryOverlay : public QWidget {
 public:
-    explicit ChangeBoundaryOverlay(qce::CodeEditArea* area)
-        : QWidget(area->viewport()), m_area(area) {
+    explicit ChangeBoundaryOverlay(qce::CodeEditArea* area, Side side)
+        : QWidget(area->viewport()), m_area(area), m_side(side) {
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setAttribute(Qt::WA_NoSystemBackground);
         setGeometry(parentWidget()->rect());
@@ -22,9 +22,9 @@ public:
                 this, [this] { update(); });
     }
 
-    void setBoundaries(const QVector<AlignedLineModel::FillerInfo>& fillers,
+    void setBoundaries(const QVector<ChangeBlock>& blocks,
                        const ColorScheme& scheme) {
-        m_fillers = fillers;
+        m_blocks = blocks;
         m_scheme = scheme;
         update();
     }
@@ -40,22 +40,21 @@ protected:
         const auto& vp = m_area->viewportState();
         if (!vp.isValid()) return;
         QPainter painter(this);
-        for (const auto& filler : m_fillers) {
-            // Padding inside a replacement is not a one-sided change.
-            if (filler.changeType != diffcore::ChangeType::Insert &&
-                filler.changeType != diffcore::ChangeType::Delete)
-                continue;
+        for (const auto& block : m_blocks) {
+            const auto& range = block.range(m_side);
+            if (!range.isEmpty()) continue;
             const int y = vp.contentOffsetY
-                        + (filler.beforeDocLine - vp.firstVisibleLine) * vp.lineHeight;
+                        + (range.start - vp.firstVisibleLine) * vp.lineHeight;
             if (y < 0 || y >= height()) continue;
-            painter.setPen(m_scheme.stripeFor(filler.changeType));
+            painter.setPen(m_scheme.stripeFor(block.type));
             painter.drawLine(0, y, width() - 1, y);
         }
     }
 
 private:
     qce::CodeEditArea* m_area;
-    QVector<AlignedLineModel::FillerInfo> m_fillers;
+    Side m_side;
+    QVector<ChangeBlock> m_blocks;
     ColorScheme m_scheme;
 };
 
@@ -67,7 +66,7 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     m_edit->setDocument(m_doc);
     m_edit->area()->setReadOnly(true);
     m_edit->area()->setWordWrap(false);
-    m_boundaries = new ChangeBoundaryOverlay(m_edit->area());
+    m_boundaries = new ChangeBoundaryOverlay(m_edit->area(), m_side);
 
     const QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_edit->setFont(f);
@@ -115,8 +114,8 @@ void DiffEditor::setColorScheme(const ColorScheme& scheme) {
         m_edit->area()->setHighlighter(m_highlighter.get());
     }
     m_edit->area()->viewport()->update();
-    m_boundaries->setBoundaries(m_model ? m_model->fillerRanges(m_side)
-                                       : QVector<AlignedLineModel::FillerInfo>{}, m_scheme);
+    m_boundaries->setBoundaries(m_model ? m_model->changeBlocks()
+                                       : QVector<ChangeBlock>{}, m_scheme);
 }
 
 void DiffEditor::applyModel() {
@@ -134,7 +133,7 @@ void DiffEditor::applyModel() {
     for (int i = 0; i < docCount; ++i) {
         m_docLineChanges[i] = m_model->docLineChangeType(m_side, i);
     }
-    m_boundaries->setBoundaries(m_model->fillerRanges(m_side), m_scheme);
+    m_boundaries->setBoundaries(m_model->changeBlocks(), m_scheme);
     m_edit->area()->viewport()->update();
 }
 

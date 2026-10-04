@@ -144,7 +144,7 @@ The default configuration registers nine test suites:
 | --- | --- |
 | `test_engine` | Diff engine and slider heuristics |
 | `test_interner` | Line interning and normalization |
-| `test_aligned_model` | Mapping between document lines and aligned rows |
+| `test_aligned_model` | Shared block ranges, empty-side boundaries and aligned rows |
 | `test_scroll_sync_mapper` | Scroll position mapping |
 | `test_intra_line_diff` | Character ranges within replacements |
 | `test_diff_editor` | Change colors, missing-side boundaries and viewport updates |

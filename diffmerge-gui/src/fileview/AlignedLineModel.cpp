@@ -88,13 +88,16 @@ void AlignedLineModel::build(const diffcore::DiffResult& diff,
     m_rightRows.clear();
     m_leftText.clear();
     m_rightText.clear();
+    m_changeBlocks.clear();
     m_hunkAlignedStarts.clear();
     m_hunkAlignedEnds.clear();
 
     for (const diffcore::Hunk& h : diff.hunks) {
         const bool isChange = h.type != diffcore::ChangeType::Equal;
-        if (isChange)
+        if (isChange) {
+            m_changeBlocks.append({h.type, h.leftRange, h.rightRange});
             m_hunkAlignedStarts.append(static_cast<int>(m_leftRows.size()));
+        }
         switch (h.type) {
             case diffcore::ChangeType::Equal:
                 appendEqual(h, leftLines, rightLines);
@@ -167,13 +170,10 @@ QVector<AlignedLineModel::FillerInfo> AlignedLineModel::fillerRanges(Side side) 
 }
 
 diffcore::ChangeType AlignedLineModel::docLineChangeType(Side side, int docLine) const {
-    const auto& rows = (side == Side::Left) ? m_leftRows : m_rightRows;
-    int dc = 0;
-    for (const auto& row : rows) {
-        if (!row.isPlaceholder()) {
-            if (dc == docLine) return row.changeType;
-            ++dc;
-        }
+    for (const auto& block : m_changeBlocks) {
+        const auto& range = block.range(side);
+        if (docLine >= range.start && docLine < range.end())
+            return block.type;
     }
     return diffcore::ChangeType::Equal;
 }

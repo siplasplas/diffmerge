@@ -27,6 +27,95 @@ private:
     }
 
 private slots:
+    void oneSidedBlockRanges_data() {
+        QTest::addColumn<bool>("deletion");
+        QTest::addColumn<int>("boundary");
+        QTest::addColumn<bool>("empty");
+        for (bool deletion : {false, true}) {
+            for (int boundary = 0; boundary <= 2; ++boundary) {
+                const QByteArray name = QByteArray::number(deletion) + "-"
+                                      + QByteArray::number(boundary);
+                QTest::newRow(name.constData()) << deletion << boundary << false;
+            }
+            const QByteArray name = QByteArray::number(deletion) + "-empty";
+            QTest::newRow(name.constData()) << deletion << 0 << true;
+        }
+    }
+
+    void oneSidedBlockRanges() {
+        QFETCH(bool, deletion);
+        QFETCH(int, boundary);
+        QFETCH(bool, empty);
+        const QStringList unchanged = empty ? QStringList{} : QStringList{"before", "after"};
+        QStringList changed = unchanged;
+        changed.insert(boundary, "first added line");
+        changed.insert(boundary + 1, "second added line");
+        const QStringList left = deletion ? changed : unchanged;
+        const QStringList right = deletion ? unchanged : changed;
+        auto model = buildFor(left, right);
+        QCOMPARE(model.changeBlocks().size(), 1);
+        const auto& block = model.changeBlocks().first();
+        QCOMPARE(block.type, deletion ? ChangeType::Delete : ChangeType::Insert);
+        const Side missingSide = deletion ? Side::Right : Side::Left;
+        const auto& missing = block.range(missingSide);
+        const auto& present = block.range(deletion ? Side::Left : Side::Right);
+        QVERIFY(missing.isEmpty());
+        QCOMPARE(missing.start, boundary);
+        QCOMPARE(missing.end(), boundary);
+        QCOMPARE(present.start, boundary);
+        QCOMPARE(present.count, 2);
+        QCOMPARE(present.end(), boundary + 2);
+        QCOMPARE(model.documentLines(Side::Left), left);
+        QCOMPARE(model.documentLines(Side::Right), right);
+    }
+
+    void mixedBlocksUseOriginalCoordinates() {
+        const QStringList left{"before", "old1", "old2", "tail", "gone", "end"};
+        const QStringList right{"before", "new1", "new2", "new3", "tail", "end", "extra"};
+        // Keep this unequal replacement intact, independent of engine pairing.
+        diffcore::DiffResult diff;
+        diff.hunks = {
+            {ChangeType::Equal,   {0, 1}, {0, 1}},
+            {ChangeType::Replace, {1, 2}, {1, 3}},
+            {ChangeType::Equal,   {3, 1}, {4, 1}},
+            {ChangeType::Delete,  {4, 1}, {5, 0}},
+            {ChangeType::Equal,   {5, 1}, {5, 1}},
+            {ChangeType::Insert,  {6, 0}, {6, 1}},
+        };
+        AlignedLineModel model;
+        model.build(diff, left, right);
+        const auto& blocks = model.changeBlocks();
+        QCOMPARE(blocks.size(), 3);
+        QCOMPARE(blocks[0].type, ChangeType::Replace);
+        QCOMPARE(blocks[0].leftRange.start, 1);
+        QCOMPARE(blocks[0].leftRange.end(), 3);
+        QCOMPARE(blocks[0].rightRange.start, 1);
+        QCOMPARE(blocks[0].rightRange.end(), 4);
+        QCOMPARE(blocks[1].type, ChangeType::Delete);
+        QCOMPARE(blocks[1].leftRange.start, 4);
+        QCOMPARE(blocks[1].leftRange.end(), 5);
+        QCOMPARE(blocks[1].rightRange.start, 5);
+        QVERIFY(blocks[1].rightRange.isEmpty());
+        QCOMPARE(blocks[2].type, ChangeType::Insert);
+        QCOMPARE(blocks[2].leftRange.start, 6);
+        QVERIFY(blocks[2].leftRange.isEmpty());
+        QCOMPARE(blocks[2].rightRange.start, 6);
+        QCOMPARE(blocks[2].rightRange.end(), 7);
+        QCOMPARE(model.docLineChangeType(Side::Left, 3), ChangeType::Equal);
+        QCOMPARE(model.docLineChangeType(Side::Left, 4), ChangeType::Delete);
+        QCOMPARE(model.docLineChangeType(Side::Right, 3), ChangeType::Replace);
+        QCOMPARE(model.docLineChangeType(Side::Right, 5), ChangeType::Equal);
+        QCOMPARE(model.docLineChangeType(Side::Right, 6), ChangeType::Insert);
+        QCOMPARE(model.docLineChangeType(Side::Right, 7), ChangeType::Equal);
+
+        // Rebuilding must discard the previous comparison's blocks.
+        model.build(diffcore::DiffEngine{}.compute(left, left), left, left);
+        QVERIFY(model.changeBlocks().isEmpty());
+        QCOMPARE(model.docLineChangeType(Side::Left, 4), ChangeType::Equal);
+        model.build(diffcore::DiffEngine{}.compute({}, {}), {}, {});
+        QVERIFY(model.changeBlocks().isEmpty());
+    }
+
     void insertionAfterReplacementKeepsItsBoundary() {
         const QStringList left{"old"};
         const QStringList right{"new", "replacement tail", "inserted"};

@@ -40,6 +40,19 @@ enum class Side {
     Right   // File B
 };
 
+// One change shared by both panes. Ranges use original document coordinates:
+// [start, end), with zero-based lines. An empty range is a boundary before
+// start; start == lineCount means the boundary after the last line.
+struct ChangeBlock {
+    diffcore::ChangeType type;
+    diffcore::LineRange leftRange;
+    diffcore::LineRange rightRange;
+
+    const diffcore::LineRange& range(Side side) const {
+        return side == Side::Left ? leftRange : rightRange;
+    }
+};
+
 struct AlignedRow {
     // -1 for placeholder rows, otherwise 0-based line number in the
     // original file. Gutter uses this to decide what number to paint.
@@ -79,7 +92,11 @@ public:
     // Returns only the real (non-placeholder) lines as document content.
     QStringList documentLines(Side side) const;
 
-    // Describes one run of placeholder rows for qce::FillerState.
+    // Shared changes in document order, excluding Equal regions. Unequal
+    // replacements retain both full ranges; padding does not create a block.
+    const QVector<ChangeBlock>& changeBlocks() const { return m_changeBlocks; }
+
+    // Describes one run of placeholder rows in the aligned model.
     struct FillerInfo {
         int beforeDocLine;  // insert before this 0-based doc line; equals
                             // docLineCount when the filler trails all real lines
@@ -122,6 +139,7 @@ private:
     std::vector<AlignedRow> m_rightRows;
     QStringList m_leftText;   // Per aligned row (empty if placeholder)
     QStringList m_rightText;
+    QVector<ChangeBlock> m_changeBlocks;
     QVector<int> m_hunkAlignedStarts;  // aligned row start of each non-Equal hunk
     QVector<int> m_hunkAlignedEnds;   // aligned row end (exclusive) of each non-Equal hunk
 };
