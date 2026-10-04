@@ -19,8 +19,17 @@ struct ColorScheme {
     QColor placeholderBg;
     QColor placeholderFg;
 
+    // The unified view shows both versions in one pane, so it tells them apart by colour: old lines red,
+    // new lines green, with stronger tints for the words and characters that differ.
+    QColor removedBg;
+    QColor addedBg;
+    QColor removedCharBg;
+    QColor addedCharBg;
+
     QColor gutterBg;
     QColor gutterFg;
+    // Line numbers of changed rows, darker than those of unchanged rows.
+    QColor gutterChangedFg;
     QColor gutterSeparator;
 
     QColor sideMarginBg;

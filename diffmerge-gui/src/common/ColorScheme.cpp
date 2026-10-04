@@ -37,9 +37,16 @@ ColorScheme ColorScheme::lightDefault() {
     s.placeholderBg  = QColor(245, 245, 240);
     s.placeholderFg = QColor(180, 180, 175);
 
+    // Unified view.
+    s.removedBg     = QColor(255, 235, 233);
+    s.addedBg       = QColor(230, 255, 236);
+    s.removedCharBg = QColor(255, 186, 180);
+    s.addedCharBg   = QColor(160, 235, 175);
+
     // Gutter.
     s.gutterBg  = QColor(240, 240, 235);
     s.gutterFg  = QColor(120, 120, 115);
+    s.gutterChangedFg = QColor(40, 40, 38);
     s.gutterSeparator = QColor(200, 200, 195);
 
     // Side margin.
@@ -63,8 +70,14 @@ ColorScheme ColorScheme::darkDefault() {
     s.placeholderBg = QColor(50, 50, 48);
     s.placeholderFg = QColor(90, 90, 85);
 
+    s.removedBg     = QColor(75, 31, 36);
+    s.addedBg       = QColor(31, 61, 39);
+    s.removedCharBg = QColor(140, 45, 52);
+    s.addedCharBg   = QColor(40, 115, 60);
+
     s.gutterBg  = QColor(55, 55, 52);
     s.gutterFg  = QColor(150, 150, 145);
+    s.gutterChangedFg = QColor(225, 225, 220);
     s.gutterSeparator = QColor(80, 80, 75);
 
     s.sideMarginBg = QColor(45, 45, 42);

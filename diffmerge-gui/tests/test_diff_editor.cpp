@@ -135,11 +135,14 @@ private slots:
             QVERIFY(bodyRow>=0 && removedRow>=0 && addedRow>=0);
             QVERIFY(!body.isEmpty() && !spans[bodyRow].isEmpty());
             QCOMPARE(highlighter->attributes()[spans[bodyRow][0].attributeId].foreground,syntax->attributes()[body[0].attributeId].foreground);
+            // In one pane, old lines mark changed characters red and new lines green.
             for(int row:{removedRow,addedRow}) {
                 bool strong=false, keyword=false;
+                const auto& scheme=widget.unifiedEditor()->colorScheme();
+                const QColor expected=row==removedRow ? scheme.removedCharBg : scheme.addedCharBg;
                 for(const auto& span:spans[row]) {
                     const auto& attr=highlighter->attributes()[span.attributeId];
-                    strong |= attr.background == widget.unifiedEditor()->colorScheme().replaceCharBg;
+                    strong |= attr.background == expected;
                     keyword |= attr.bold;
                 }
                 QVERIFY(strong); QVERIFY(keyword);

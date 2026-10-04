@@ -31,6 +31,18 @@ public:
     const QVector<qce::TextAttribute>& attributes() const override { return palette; }
 };
 
+// A row's background in a projected view: folded rows have the placeholder colour; in the unified view an old
+// line is red and a new one green, since both share one pane; otherwise the change type decides. Invalid means
+// no fill.
+static QColor rowBackground(const ViewRow& row, bool unified, const ColorScheme& scheme) {
+    if (row.hiddenCount) return scheme.placeholderBg;
+    if (unified && row.type != diffcore::ChangeType::Equal) {
+        if (row.rightLine < 0) return scheme.removedBg;
+        if (row.leftLine < 0) return scheme.addedBg;
+    }
+    return scheme.backgroundFor(row.type);
+}
+
 // Extend block colors and empty-side boundaries through the inner number rail.
 class DiffLineNumberGutter : public qce::LineNumberGutter {
 public:
@@ -69,8 +81,11 @@ public:
                 const auto& row = (*m_rows)[i];
                 const int y = origin + vp.contentOffsetY + (i-vp.firstVisibleLine)*vp.lineHeight;
                 const QRect lineRect(rect.x(), y, rect.width()-4, vp.lineHeight);
-                painter.fillRect(lineRect, m_scheme.backgroundFor(row.type));
-                painter.setPen(m_scheme.gutterFg);
+                // An invalid colour would fill black; unchanged rows keep the gutter background.
+                if (const QColor background = rowBackground(row, m_unified, m_scheme); background.isValid())
+                    painter.fillRect(lineRect, background);
+                painter.setPen(row.type == diffcore::ChangeType::Equal || row.hiddenCount ? m_scheme.gutterFg
+                                                                                         : m_scheme.gutterChangedFg);
                 QString label;
                 if (row.hiddenCount) label = QStringLiteral("⋯");
                 else if (m_unified) {
@@ -215,8 +230,8 @@ DiffEditor::DiffEditor(Side side, QWidget* parent)
     m_edit->area()->setLineBackgroundProvider([this](int docLine) -> QColor {
         if (docLine < 0 || docLine >= static_cast<int>(m_docLineChanges.size()))
             return {};
-        if (m_projectedComparison && docLine < m_rows.size() && m_rows[docLine].hiddenCount)
-            return m_scheme.placeholderBg;
+        if (m_projectedComparison && docLine < m_rows.size())
+            return rowBackground(m_rows[docLine], m_unified, m_scheme);
         return m_scheme.backgroundFor(m_docLineChanges[docLine]);
     });
 
@@ -381,8 +396,10 @@ void DiffEditor::applyProjection() {
         const QString fileName = side == m_side ? m_syntaxFileName : m_leftSyntaxFileName;
         highlighter.setSyntax(loadSyntax(fileName, m_scheme.darkTheme, language));
         if (side == m_side) m_syntaxLanguage = language;
+        const QColor strong = !m_unified ? m_scheme.replaceCharBg
+                            : side == Side::Left ? m_scheme.removedCharBg : m_scheme.addedCharBg;
         highlighter.setData(side == Side::Left ? m_projectedComparison->highlights().leftRanges
-                                              : m_projectedComparison->highlights().rightRanges, m_scheme.replaceCharBg);
+                                              : m_projectedComparison->highlights().rightRanges, strong);
         const int offset = cache->palette.size();
         cache->palette += highlighter.attributes();
         auto state = highlighter.initialState();

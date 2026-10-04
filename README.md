@@ -108,8 +108,12 @@ views. Passing a single path pre-fills the left path field.
 remembers this choice and **View > Skip unchanged lines**. Unified shows old
 and new line numbers and `−`/`+` markers in its gutter; the document contains
 only code, so copying code does not include these markers. Removed lines precede
-added lines within each changed region. Both modes retain word and character
-highlighting and syntax colors computed over each complete original file.
+added lines within each changed region. Since both versions share one pane, old
+lines have a red background and new lines a green one, with stronger red and
+green tints for the words and characters that differ; side by side keeps green
+for one-sided changes and blue for replacements. Both modes retain word and
+character highlighting and syntax colors computed over each complete original
+file. Line numbers of changed rows are darker than those of unchanged rows.
 
 Skipping replaces equal runs outside the context with `⋯ N unchanged lines —
 click to show`. The default context is three lines around changes. Clicking a
