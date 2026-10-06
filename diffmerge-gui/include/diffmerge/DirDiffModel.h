@@ -16,12 +16,14 @@ struct DirDiffEntry {
     QDateTime leftModified, rightModified;
     bool contentVerified = false;
     QString diagnostic;
+    bool emptyDirectory = false;
 };
 struct DirectoryScanOptions {
     QStringList exclusions{QStringLiteral(".git"), QStringLiteral("build"), QStringLiteral("build-*"),
         QStringLiteral("cmake-build-*"), QStringLiteral("node_modules"), QStringLiteral("__pycache__")};
     qint64 maxComparedFileBytes = 64 * 1024 * 1024;
     int maxEntries = 100000;
+    bool ignoreLineEndings = false;
 };
 enum class DirectoryScanStatus { Ready, Cancelled, ResourceLimit, Error };
 struct DirectoryScanResult {

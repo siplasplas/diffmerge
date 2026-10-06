@@ -186,7 +186,14 @@ one-sided subtrees. Symbolic-link directories are not traversed. The default
 entry and nesting limits are 100,000 entries and 128 levels.
 
 **View > Show differences only (directories)** hides equal entries and equal
-subtrees. **Directory exclusions...** edits wildcard name patterns, defaulting
+subtrees. Equal entries have a white background; one-sided entries are red or
+green, and modified entries are yellow. **Hide empty directories** independently
+hides directories whose scanned subtree contains no files, including one-sided
+empty directories. **Ignore line endings (directories)** treats CRLF, LF and CR
+as equivalent within the comparison size limit. Interior spaces and a missing
+final newline still count as differences; data containing NUL stays byte-exact.
+The equality filter also uses this optional equivalence. These options do not
+change files on disk. **Directory exclusions...** edits wildcard name patterns, defaulting
 to `.git`, `build`, `build-*`, `cmake-build-*`, `node_modules`, `__pycache__`.
 Excluded names are neither scanned nor included in directory status. The
 desktop app remembers these choices; widgets do not persist preferences.

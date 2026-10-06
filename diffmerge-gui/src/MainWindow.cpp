@@ -257,6 +257,20 @@ void MainWindow::setupMenus() {
     connect(differences,&QAction::toggled,this,[this](bool enabled) {
         m_dirWidget->setDifferencesOnly(enabled); QSettings().setValue(QStringLiteral("directories/differencesOnly"),enabled);
     });
+    auto* emptyDirectories=viewMenu->addAction(QStringLiteral("Hide empty directories"));
+    emptyDirectories->setCheckable(true);
+    emptyDirectories->setChecked(settings.value(QStringLiteral("directories/hideEmpty"),false).toBool());
+    m_dirWidget->setHideEmptyDirectories(emptyDirectories->isChecked());
+    connect(emptyDirectories,&QAction::toggled,this,[this](bool enabled) {
+        m_dirWidget->setHideEmptyDirectories(enabled); QSettings().setValue(QStringLiteral("directories/hideEmpty"),enabled);
+    });
+    auto* lineEndings=viewMenu->addAction(QStringLiteral("Ignore line endings (directories)"));
+    lineEndings->setCheckable(true);
+    lineEndings->setChecked(settings.value(QStringLiteral("directories/ignoreLineEndings"),false).toBool());
+    m_dirWidget->setIgnoreLineEndings(lineEndings->isChecked());
+    connect(lineEndings,&QAction::toggled,this,[this](bool enabled) {
+        m_dirWidget->setIgnoreLineEndings(enabled); QSettings().setValue(QStringLiteral("directories/ignoreLineEndings"),enabled);
+    });
     m_dirWidget->setExclusions(settings.value(QStringLiteral("directories/exclusions"),m_dirWidget->exclusions()).toStringList());
     auto* exclusions=viewMenu->addAction(QStringLiteral("Directory exclusions..."));
     connect(exclusions,&QAction::triggered,this,[this] {

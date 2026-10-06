@@ -22,6 +22,10 @@ public:
     bool isScanning() const { return m_scanning; }
     void setDifferencesOnly(bool enabled);
     bool differencesOnly() const { return m_differencesOnly; }
+    void setHideEmptyDirectories(bool enabled);
+    bool hideEmptyDirectories() const { return m_hideEmptyDirectories; }
+    void setIgnoreLineEndings(bool enabled);
+    bool ignoreLineEndings() const { return m_options.ignoreLineEndings; }
     void setExclusions(const QStringList& patterns);
     QStringList exclusions() const { return m_options.exclusions; }
     void setReadOnly(Side side, bool readOnly);
@@ -58,6 +62,7 @@ private:
     diffcore::CancellationToken m_cancellation;
     quint64 m_generation = 0;
     bool m_scanning = false, m_differencesOnly = false;
+    bool m_hideEmptyDirectories = false;
     bool m_leftReadOnly = true, m_rightReadOnly = true;
 };
 }

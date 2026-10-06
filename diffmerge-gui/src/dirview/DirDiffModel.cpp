@@ -41,9 +41,9 @@ public:
         if (!left.isFile() || !right.isFile()) {
             entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("Unsupported file type"); return;
         }
-        if (left.size() != right.size()) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
-        if (left.size() > options.maxComparedFileBytes) {
-            entry.status = left.lastModified() == right.lastModified() ? DirEntryStatus::Same : DirEntryStatus::Different;
+        if (left.size() != right.size() && !options.ignoreLineEndings) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
+        if (left.size() > options.maxComparedFileBytes || right.size() > options.maxComparedFileBytes) {
+            entry.status = left.size() == right.size() && left.lastModified() == right.lastModified() ? DirEntryStatus::Same : DirEntryStatus::Different;
             return;
         }
         QFile a(left.absoluteFilePath()), b(right.absoluteFilePath());
@@ -52,8 +52,33 @@ public:
             entry.diagnostic = QStringLiteral("Cannot read compared files"); return;
         }
         entry.status = DirEntryStatus::Same;
+        if (options.ignoreLineEndings) {
+            const auto readBytes = [&](QFile& file, qint64 expected) {
+                QByteArray bytes;
+                while (bytes.size() < expected) {
+                    checkpoint();
+                    const auto chunk = file.read(std::min<qint64>(64 * 1024, expected - bytes.size()));
+                    if (chunk.isEmpty() || file.error() != QFileDevice::NoError)
+                        throw std::runtime_error("File changed or read failed during comparison");
+                    bytes.append(chunk);
+                }
+                return bytes;
+            };
+            QByteArray x, y;
+            try { x = readBytes(a, left.size()); y = readBytes(b, right.size()); }
+            catch (const std::runtime_error& error) {
+                entry.status = DirEntryStatus::Error; entry.diagnostic = QString::fromUtf8(error.what()); return;
+            }
+            // Binary data remains byte-exact. Preserve final-newline differences.
+            if (!x.contains('\0') && !y.contains('\0')) {
+                x.replace("\r\n", "\n"); x.replace('\r', '\n');
+                checkpoint();
+                y.replace("\r\n", "\n"); y.replace('\r', '\n');
+            }
+            entry.status = x == y ? DirEntryStatus::Same : DirEntryStatus::Different;
+        }
         qint64 read = 0;
-        while (read < left.size()) {
+        while (!options.ignoreLineEndings && read < left.size()) {
             checkpoint();
             const auto x = a.read(64 * 1024), y = b.read(64 * 1024);
             if (a.error() != QFileDevice::NoError || b.error() != QFileDevice::NoError || x.isEmpty() || y.isEmpty()) {
@@ -109,7 +134,9 @@ public:
             const bool collision = hasLeft && hasRight && (l.isDir() != r.isDir() || l.isSymLink() != r.isSymLink());
             if (entry.isDir && !collision) {
                 scan(entry.leftPath, entry.rightPath, entry.relativePath, depth+1);
+                result.entries[index].emptyDirectory = true;
                 for (int i=index+1; i<result.entries.size(); ++i) {
+                    if (!result.entries[i].isDir || !result.entries[i].emptyDirectory) result.entries[index].emptyDirectory = false;
                     result.entries[index].contentVerified &= result.entries[i].contentVerified;
                     if (hasLeft && hasRight && result.entries[i].status != DirEntryStatus::Same)
                         result.entries[index].status = DirEntryStatus::Different;

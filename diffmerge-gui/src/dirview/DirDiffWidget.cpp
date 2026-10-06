@@ -121,16 +121,16 @@ void DirDiffWidget::populate() {
         const auto& e=m_entries[i];
         const auto parent=e.relativePath.contains('/') ? e.relativePath.left(e.relativePath.lastIndexOf('/')) : QString{};
         if(parent!=m_relative || (m_differencesOnly && e.status==DirEntryStatus::Same)) continue;
+        if(m_hideEmptyDirectories && e.emptyDirectory) continue;
         const auto name=e.relativePath.section('/',-1);
         const auto size=[](const QString& path,qint64 bytes,bool directory) { return path.isEmpty() || directory ? QString{} : QString::number(bytes); };
         QList<QStandardItem*> row;
         for(const auto& text : QStringList{name,size(e.leftPath,e.leftSize,e.isDir),e.leftModified.toString(Qt::ISODate),labelForStatus(e),
                 size(e.rightPath,e.rightSize,e.isDir),e.rightModified.toString(Qt::ISODate)}) row.append(new QStandardItem(text));
         row[0]->setData(i,Qt::UserRole); if(e.isDir) row[0]->setIcon(QIcon(QStringLiteral(":/icons/folder.svg")));
-        if(e.status != DirEntryStatus::Same) {
-            const QColor background=e.status == DirEntryStatus::OnlyRight ? QColor(204,255,204) : e.status == DirEntryStatus::OnlyLeft ? QColor(255,204,204) : QColor(255,240,153);
-            for(auto* item:row) item->setBackground(background);
-        }
+        const QColor background=e.status == DirEntryStatus::Same ? QColor(Qt::white) :
+            e.status == DirEntryStatus::OnlyRight ? QColor(204,255,204) : e.status == DirEntryStatus::OnlyLeft ? QColor(255,204,204) : QColor(255,240,153);
+        for(auto* item:row) { item->setBackground(background); item->setForeground(QColor(Qt::black)); }
         if(!e.diagnostic.isEmpty()) for(auto* item:row) item->setToolTip(e.diagnostic);
         m_model->appendRow(row);
     }
@@ -197,5 +197,10 @@ void DirDiffWidget::updateActions() {
 }
 void DirDiffWidget::setReadOnly(Side side,bool readOnly) { (side==Side::Left ? m_leftReadOnly : m_rightReadOnly)=readOnly; updateActions(); }
 void DirDiffWidget::setDifferencesOnly(bool enabled) { m_differencesOnly=enabled; populate(); updateActions(); }
+void DirDiffWidget::setHideEmptyDirectories(bool enabled) { m_hideEmptyDirectories=enabled; populate(); updateActions(); }
+void DirDiffWidget::setIgnoreLineEndings(bool enabled) {
+    if(m_options.ignoreLineEndings==enabled) return;
+    m_options.ignoreLineEndings=enabled; refresh();
+}
 void DirDiffWidget::setExclusions(const QStringList& patterns) { m_options.exclusions=patterns; refresh(); }
 }
