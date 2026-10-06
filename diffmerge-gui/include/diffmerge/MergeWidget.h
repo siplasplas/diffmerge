@@ -24,6 +24,12 @@ public:
     std::optional<MergeExportInput> captureExportInput() const;
     PrepareMergeExportResult exportResult(const MergeExportOptions& options = {},
         const MergeSessionLimits& limits = {}, const diffcore::CancellationToken& cancellation = {}) const;
+    // Emit owned requests only; the host validates, exports and performs I/O.
+    bool requestSave(const MergeExportOptions& options = {});
+    bool requestExport(const MergeExportOptions& options = {});
+    bool requestFinish(const MergeExportOptions& options);
+    // Host acknowledgement after a successful unchanged save; retains native Undo.
+    bool acknowledgeSaved(const MergeExportInput& captured);
     int unresolvedCount() const;
     const QVector<ImportedConflict>& markerConflicts() const override;
     void navigateToNextUnresolvedConflict();
@@ -41,6 +47,9 @@ signals:
     void modifiedChanged(bool modified);
     void unresolvedCountChanged(int unresolved);
     void conflictStatesChanged();
+    void saveRequested(diffmerge::gui::MergeExportInput captured, diffmerge::gui::MergeExportOptions options);
+    void exportRequested(diffmerge::gui::MergeExportInput captured, diffmerge::gui::MergeExportOptions options);
+    void finishRequested(diffmerge::gui::MergeExportInput captured, diffmerge::gui::MergeExportOptions options);
 protected:
     void updateSummary() override;
 private:

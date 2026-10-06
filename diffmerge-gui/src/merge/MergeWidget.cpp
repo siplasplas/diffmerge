@@ -155,6 +155,7 @@ struct MergeEditingState {
     bool bom = false;
 };
 MergeWidget::MergeWidget(QWidget* parent) : MergePreviewWidget(parent), m_editing(std::make_unique<MergeEditingState>()) {
+    qRegisterMetaType<MergeExportInput>(); qRegisterMetaType<MergeExportOptions>();
     m_actions = new QWidget(this); auto* row = new QHBoxLayout(m_actions);
     const QStringList labels{QStringLiteral("Take OURS"),QStringLiteral("Take THEIRS"),QStringLiteral("OURS then THEIRS"),
         QStringLiteral("THEIRS then OURS"),QStringLiteral("Take BASE"),QStringLiteral("Delete fragment")};
@@ -295,6 +296,34 @@ PrepareMergeExportResult MergeWidget::exportResult(const MergeExportOptions& opt
     const auto input = captureExportInput();
     if (!input) return {MergeSessionStatus::Error,std::nullopt,QStringLiteral("RESULT cannot be serialized losslessly")};
     return prepareMergeExport(*input,options,limits,cancellation);
+}
+bool MergeWidget::requestSave(const MergeExportOptions& options) {
+    const auto captured = captureExportInput();
+    if (!isEditable() || !captured || options.disposition == MergeExportDisposition::Cancelled) {
+        emit operationFailed(QStringLiteral("A save request requires a writable, serializable RESULT")); return false;
+    }
+    emit saveRequested(*captured,options); return true;
+}
+bool MergeWidget::requestExport(const MergeExportOptions& options) {
+    const auto captured = captureExportInput();
+    if (!captured || (options.disposition == MergeExportDisposition::Resolved && !isEditable())) {
+        emit operationFailed(QStringLiteral("This RESULT cannot be exported in the requested mode")); return false;
+    }
+    emit exportRequested(*captured,options); return true;
+}
+bool MergeWidget::requestFinish(const MergeExportOptions& options) {
+    const auto captured = captureExportInput();
+    if (!isEditable() || !captured || options.disposition != MergeExportDisposition::Resolved) {
+        emit operationFailed(QStringLiteral("Finish requires a writable RESULT and an explicit Resolved request")); return false;
+    }
+    emit finishRequested(*captured,options); return true;
+}
+bool MergeWidget::acknowledgeSaved(const MergeExportInput& captured) {
+    const auto bytes = resultBytes();
+    const Metadata saved{m_editing->current.endings,captured.conflicts};
+    if (captured.session != m_session || !bytes || *bytes != captured.resultBytes || !same(saved,m_editing->current)) return false;
+    m_editing->clean = m_editing->current; m_editing->cleanText = m_editing->text;
+    notifyState(); return true;
 }
 void MergeWidget::documentEdited() {
     if (m_editing->installing) return;

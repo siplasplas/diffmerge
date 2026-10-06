@@ -1,5 +1,6 @@
 #pragma once
 #include <diffmerge/ConflictMarkers.h>
+#include <QMetaType>
 
 namespace diffmerge::gui {
 enum class MergeChoice { Unresolved, Ours, Theirs, OursThenTheirs, TheirsThenOurs, Base, Delete, Manual };
@@ -64,3 +65,6 @@ PrepareMergeExportResult prepareMergeExport(const MergeExportInput& input,
     const MergeExportOptions& options = {}, const MergeSessionLimits& limits = {},
     const diffcore::CancellationToken& cancellation = {});
 } // namespace diffmerge::gui
+
+Q_DECLARE_METATYPE(diffmerge::gui::MergeExportInput)
+Q_DECLARE_METATYPE(diffmerge::gui::MergeExportOptions)

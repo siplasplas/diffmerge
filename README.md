@@ -764,12 +764,12 @@ Use `isModified()`, `unresolvedCount()`, `modifiedChanged`,
 modified session is refused; `discardChanges()` explicitly restores its initial
 RESULT and conflict states. Zero unresolved conflicts is an editor state, not
 an accepted, saved or staged resolution. Structured export is described below;
-save requests and filesystem saving are still subsequent stages.
+save requests and desktop filesystem saving are described below.
 
-The desktop has **Edit RESULT (in memory)**, fragment buttons, range review and
-native Undo/Redo. F7 / Shift+F7 navigate conflicts; the three-pane gap stays 24 px.
-Closing a modified result asks whether to discard it. This stage does not save
-edits to disk, and the desktop is not yet a complete mergetool.
+The desktop has **Edit RESULT**, fragment buttons, range review and native
+Undo/Redo. F7 / Shift+F7 navigate conflicts; the three-pane gap stays 24 px.
+Saving and close prompts are described below. The desktop is not yet a complete
+mergetool with command-line input roles and resolution exit status.
 
 ### Structured merge export
 
@@ -829,8 +829,56 @@ if (captured) {
 }
 ```
 
-The existing demo remains an in-memory conflict editor. Filesystem saving,
-mergetool completion and save/export request signals are the next stage.
+### Save requests and desktop saving
+
+`MergeWidget::requestSave()`, `requestExport()` and `requestFinish()` emit
+`saveRequested`, `exportRequested` and `finishRequested` with owned captured
+input and explicit export options. These requests perform no I/O or host
+acceptance. The host must validate them through `prepareMergeExport()` before
+publishing. Save and Finish require writable mode; Finish requires a Resolved
+request. An export request can carry a read-only Draft. Registered Qt metatypes
+support queued delivery. Paths and Git operations remain host responsibilities.
+
+After a successful save, the host can call `acknowledgeSaved(captured)`. It marks
+the current text and conflict states clean only if the session, exact bytes and
+all conflict metadata still match the captured input. A later edit is never
+cleared by a stale completion callback. Native Undo remains available; undoing a
+saved choice makes the result modified again. Export alone does not acknowledge
+saving, and saving a Draft does not resolve its conflicts.
+
+**File > Open conflict editor...** opens one existing regular RESULT file.
+**Edit RESULT** enables editing. **Save draft** writes a marker-preserving Draft;
+with unresolved conflicts it asks for confirmation. **Save resolved** requires
+all editor conflicts resolved and explicit review when no authoritative host list
+is available. **Save resolved and close** closes only after a verified successful
+Resolved save. Ctrl+S chooses Draft when conflicts remain and Resolved otherwise.
+Closing unsaved content offers Save / Discard / Cancel. A successfully saved Draft
+may be closed while remaining unresolved. The demo does not stage anything or
+continue a repository operation.
+
+The desktop saves only the original RESULT path. It validates SHA-256 content,
+size, modification time, permissions, canonical path and, on Unix, device/inode
+against the load or last successful save. A changed, replaced, removed, read-only
+or symlink target blocks saving and leaves edits in memory. Reload and review the
+file in a new conflict editor before retrying. Draft serialization errors also
+leave the original file intact. No Save As, filesystem deletion, file-kind or mode
+changes are performed by this desktop helper; an embedded host handles those
+explicit export decisions separately.
+
+Loading, export validation and saving run on workers. Save shows progress and a
+Cancel save button; closing during saving requests cancellation and leaves the
+window open until the worker finishes. Edits and controls are temporarily disabled
+during saving. `QSaveFile` writes a temporary file, retains permissions, disables
+direct-write fallback and atomically replaces the target after a second stale-file
+check. The committed bytes are verified before acknowledging the save. Cancellation
+after a successful commit cannot undo that replacement. Concurrent writers can
+still act between the final check and atomic rename; this is not a filesystem
+compare-and-swap or an exclusive lock against other processes.
+
+The filesystem helper belongs to the desktop target, not `DiffMerge::Widgets`;
+buffer-only hosts require neither a disk path nor `qt-extra`. Standalone
+`--merge` role arguments and `git mergetool` completion exit status remain the
+next stage; this window must not yet be configured as a trusted mergetool.
 
 ### Presentation API
 
