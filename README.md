@@ -5,7 +5,9 @@ interface. Both use `libdiffcore`, a line diff engine based on the O(NP)
 Wu/Manber/Myers algorithm, with normalization options and slider placement
 heuristics.
 
-The GUI currently provides read-only comparison. Editing and merging are planned.
+The GUI provides file and directory comparison, per-side editing, block copying
+and safe saving. Embedded widgets are read-only by default. Three-way merging is
+planned.
 
 ## License
 
@@ -139,7 +141,7 @@ Function folding remains disabled.
 
 File comparison provides:
 
-- Two read-only qcodeedit panes with line numbers on the inner edges and vertical
+- Two qcodeedit panes with line numbers on the inner edges and vertical
   scrollbars on the outer edges.
 - Synchronized vertical scrolling across corresponding changes. Both side-by-side
   panes also share the horizontal offset and scroll range: moving either scrollbar
@@ -246,13 +248,65 @@ from the new snapshots. An unknown file name or absent XML uses plain text plus
 diff colors. XML loading and editor syntax highlighting happen on the GUI thread;
 worker comparison preparation stays independent of syntax data and GUI resources.
 
-One-sided binary, invalid UTF-8 or over-8-MiB inputs refuse text preview rather
-than showing fabricated saveable content. Editing and copying text blocks remain
-planned work; directory copying does not enable editing of source documents.
+### Editing and saving
+
+The desktop application enables editing on the right, with the left read-only.
+`--edit right|left|both|none` chooses the sides; `--readonly` is `--edit none`.
+This choice also controls destination writes and deletions in the directory view.
+**View > Edit left/right side** changes that choice. A lock or pencil beside the
+path shows the effective state, with `*` for unsaved changes; the window title
+also marks modified content. Editing requires **Side by Side** without skipped
+unchanged lines. Projected views stay read-only and display a short hint;
+switching presentation or locking a modified side requires saving/discarding first.
+
+Changes recalculate the comparison on a cancellable worker after a 300 ms
+debounce. Stale results are discarded. Installing the result updates colors,
+connectors and scroll mapping without replacing editor documents, cursors,
+selections or undo history. While the result is pending, obsolete blocks and
+copy arrows are unavailable. Ctrl+Z and Ctrl+Shift+Z/Ctrl+Y use each editor's undo.
+
+Arrows in the connector copy a whole change block towards an editable side;
+Alt+Right/Alt+Left copy the current change and navigate on. Insertions, deletions
+and replacements each form one undo step. Copying an empty range removes the
+opposite block. Clicking a connector arrow preserves both viewports, including
+independently positioned block endpoints, during copying and recomputation.
+Arrows are painted above all connectors, including overlapping neighbouring
+curves. No arrow targets a read-only side. Copy arrows use the normal mouse pointer;
+the rest of the divider uses the panel-resize cursor.
+
+**File > Save** (Ctrl+S) saves the focused side; **Save Left/Right/Both** are also
+available.
+Each modified path also has its own **Save** button: saving one side leaves the
+other side modified and its Save button available. Embedded hosts handle these
+buttons through `saveRequested(Side)`.
+Opening another comparison, returning to directories or closing asks
+**Save / Discard / Cancel** for unsaved changes. Saving a directory file rescans
+its statuses. A missing side receives the corresponding destination path; Save
+can create it (and its parents).
+
+UTF-8 BOMs, unchanged lines' mixed CR/LF/CRLF endings, final newline and file
+permissions (including executable bits) are preserved. New lines use the first
+known delimiter, defaulting to LF. Writes use `QSaveFile` at the canonical target,
+preserving symbolic links. Changed on-disk bytes require explicit overwrite
+confirmation. A changed symlink target refuses saving until explicitly reselected.
+Non-UTF-8 text is shown with a read-only note; it cannot be saved or used as a
+text-block copy source with replacement UTF-8 characters. Binary inputs show a
+byte-equality/size summary with both sides read-only.
+The text preview limit is 8 MiB per file. Loading remains on the GUI thread.
+
+Embedded widgets remain read-only by default. Hosts use `setEditable(Side,bool)`,
+`setSaveTarget(Side,path)`, `text(Side)`, `isModified(Side)`, `save(Side,error)` and
+`modifiedChanged(Side,bool)`; snapshot labels/file names are never inferred as
+save paths. `text()` returns LF-normalized text including its final newline, so
+hosts performing their own writes must handle encoding and newline serialization.
+`setComparison()` and path loading refuse modified content: the host asks the
+user, saves or calls `discardChanges()`, then installs another comparison. Widgets
+show no dialogs. `copyChange(index,source)` provides block copying independently
+of desktop shortcuts. `operationFailed` reports refused operations or worker errors.
 
 ### Current limitations
 
-- Files cannot be edited and changes cannot be applied between panes.
+- Editing and text block copying require the full side-by-side presentation.
 - There is no overview minimap or three-way merge.
 - The editor displays real document lines without visual filler rows, so panes
   can have different heights around insertions and deletions.
@@ -602,7 +656,6 @@ The recorded match rate increased from approximately 32% to 91%.
 
 ## Planned work
 
-- File editing, applying changes between panes and recomputing differences.
 - Overview minimap.
 - Unified/context CLI output and recursive CLI comparison.
 - Optional three-way merge.

@@ -254,7 +254,7 @@ void DiffEditor::changeEvent(QEvent* event) {
         applyColorScheme(ColorScheme::forSystem());
 }
 
-void DiffEditor::setAlignedModel(const AlignedLineModel* model) {
+void DiffEditor::setAlignedModel(const AlignedLineModel* model, bool preserveDocument) {
     m_edit->area()->setHighlighter(nullptr);
     m_projectedComparison.reset();
     m_projectedHighlighter.reset();
@@ -262,7 +262,7 @@ void DiffEditor::setAlignedModel(const AlignedLineModel* model) {
     m_originalToDisplay.clear();
     m_lineNumbers->setProjection(nullptr, false);
     m_model = model;
-    applyModel();
+    applyModel(preserveDocument);
 }
 
 void DiffEditor::setIntraLineDiffs(
@@ -314,16 +314,16 @@ void DiffEditor::applyColorScheme(const ColorScheme& scheme) {
     for (auto* child : m_edit->findChildren<QWidget*>()) child->update();
 }
 
-void DiffEditor::applyModel() {
+void DiffEditor::applyModel(bool preserveDocument) {
     m_lineNumbers->setData(m_model, m_scheme);
     if (!m_model) {
         m_docLineChanges.clear();
         m_boundaries->setBoundaries({}, m_scheme);
-        m_doc->setLines({});
+        if (!preserveDocument) m_doc->setLines({});
         return;
     }
 
-    m_doc->setLines(m_model->documentLines(m_side));
+    if (!preserveDocument) m_doc->setLines(m_model->documentLines(m_side));
 
     m_docLineChanges = m_model->docLineChanges(m_side);
     m_boundaries->setBoundaries(m_model->changeBlocks(), m_scheme);

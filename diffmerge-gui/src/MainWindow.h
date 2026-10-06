@@ -18,6 +18,7 @@ public:
 
     void chooseFiles() { onOpenFiles(); }
     void setFileLabels(const QStringList& labels);
+    void setEditMode(bool left, bool right);
     void loadFiles(const QString& leftPath, const QString& rightPath,
                    bool fromDir = false);
     void loadDirectories(const QString& leftPath, const QString& rightPath);
@@ -31,6 +32,12 @@ private slots:
     void onOpenDirectories();
     void onFileActivated(const QString& leftPath, const QString& rightPath);
 
+private:
+    bool confirmModified();
+    bool saveSide(bool left);
+    void updateModifiedTitle();
+protected:
+    void closeEvent(QCloseEvent* event) override;
 private:
     void setupMenus();
     void showError(const QString& message);

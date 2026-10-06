@@ -7,14 +7,19 @@
 #include <QPalette>
 #include <QShortcut>
 #include <QSignalSpy>
+#include <QSignalBlocker>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QUndoStack>
 #ifdef DIFFMERGE_TEST_VIEW_MENU
 #include "../src/MainWindow.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QSettings>
 #include <QSlider>
+#include <QMessageBox>
+#include <QTimer>
+#include <QPushButton>
 #endif
 #include <QDir>
 #include <qce/kate/KatePaths.h>
@@ -29,6 +34,7 @@
 #include <diffmerge/DiffEditor.h>
 #include "../src/fileview/DiffConnectorSplitter.h"
 #include <diffmerge/FileDiffWidget.h>
+#include <diffmerge/DirDiffWidget.h>
 
 using namespace diffmerge::gui;
 using diffcore::ChangeType;
@@ -60,6 +66,167 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void editingPreservesDocumentsAndUndo() {
+        FileDiffWidget widget;
+        widget.setContent({"old"}, {"new"}); widget.resize(850,300); widget.show();
+        QVERIFY(!widget.isEditable(Side::Left)); QVERIFY(!widget.isEditable(Side::Right));
+        widget.setEditable(Side::Right,true);
+        auto* area=widget.rightEditor()->edit()->area();
+        auto* document=area->document();
+        area->setCursorPosition({0,3}); QTest::keyClicks(area," text");
+        QVERIFY(widget.isModified(Side::Right)); QCOMPARE(widget.text(Side::Right),QString("new text"));
+        const auto cursor=area->cursorPosition();
+        const auto undoCount=area->undoStack()->count();
+        QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(area->document(),document); QCOMPARE(area->cursorPosition(),cursor);
+        QCOMPARE(area->undoStack()->count(),undoCount);
+        QCOMPARE(widget.comparison()->snapshot(Side::Right).lines,QStringList{"new text"});
+        auto replacement=prepareComparison(TextSnapshot::fromText("a"),TextSnapshot::fromText("b"));
+        widget.setComparison(replacement.comparison); QCOMPARE(widget.text(Side::Right),QString("new text"));
+        widget.setViewMode(ViewMode::Unified); QCOMPARE(widget.viewMode(),ViewMode::SideBySide);
+        area->undo(); QVERIFY(!widget.isModified(Side::Right));
+        QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.text(Side::Right),QString("new"));
+        area->redo(); QVERIFY(widget.isModified(Side::Right));
+        widget.discardChanges(); QCOMPARE(widget.text(Side::Right),QString("new"));
+        QTest::keyClicks(area,"first"); QTest::keyClicks(area,"second");
+        const auto latest=widget.text(Side::Right); QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.comparison()->snapshot(Side::Right).lines,QStringList{latest});
+    }
+    void blockCopyIsOneUndoStep_data() {
+        QTest::addColumn<QString>("left"); QTest::addColumn<QString>("right"); QTest::addColumn<bool>("fromLeft");
+        for (bool left : {false,true}) {
+            const auto suffix=left ? "-right" : "-left";
+            QTest::newRow(qPrintable(QString("insert")+suffix)) << QString("head\n") << QString("head\nadded\n") << left;
+            QTest::newRow(qPrintable(QString("delete")+suffix)) << QString("head\nremoved\n") << QString("head\n") << left;
+            QTest::newRow(qPrintable(QString("replace")+suffix)) << QString("head\nold\n") << QString("head\nnew\n") << left;
+        }
+    }
+    void blockCopyIsOneUndoStep() {
+        QFETCH(QString,left); QFETCH(QString,right); QFETCH(bool,fromLeft);
+        const auto source=fromLeft ? Side::Left : Side::Right, target=fromLeft ? Side::Right : Side::Left;
+        FileDiffWidget widget;
+        widget.setComparison(prepareComparison(TextSnapshot::fromText(left),TextSnapshot::fromText(right)).comparison);
+        QVERIFY(!widget.copyChange(0,source)); widget.setEditable(target,true);
+        const auto before=widget.text(target); auto* area=(target==Side::Left ? widget.leftEditor() : widget.rightEditor())->edit()->area();
+        const auto count=area->undoStack()->count();
+        QVERIFY(widget.copyChange(0,source)); QCOMPARE(widget.text(target),fromLeft ? left : right);
+        QCOMPARE(area->undoStack()->count(),count+1); QTRY_VERIFY(!widget.isRecomputing()); QCOMPARE(widget.changeCount(),0);
+        area->undo(); QCOMPARE(widget.text(target),before); QVERIFY(!widget.isModified(target));
+        QTRY_VERIFY(!widget.isRecomputing()); QCOMPARE(widget.changeCount(),1);
+    }
+    void savingPreservesBytesAndRejectsUnsafeWrites() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto left=directory.filePath("left"), right=directory.filePath("right");
+        const auto write=[](const QString& path,const QByteArray& bytes) { QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes)==bytes.size(); };
+        const auto read=[](const QString& path) { QFile f(path); if(!f.open(QIODevice::ReadOnly)) return QByteArray{}; return f.readAll(); };
+        QVERIFY(write(left,"old\n"));
+        const QByteArray original=QByteArray("\xef\xbb\xbf")+"first\r\nsecond\nlast";
+        QVERIFY(write(right,original)); QVERIFY(QFile::setPermissions(right,QFile::ReadOwner|QFile::WriteOwner|QFile::ExeOwner));
+        FileDiffWidget widget; widget.setEditable(Side::Right,true); QVERIFY(widget.loadFromPaths(left,right));
+        auto* area=widget.rightEditor()->edit()->area(); area->setCursorPosition({0,5}); QTest::keyClicks(area,"!");
+        QString error; QVERIFY2(widget.save(Side::Right,&error),qPrintable(error));
+        QCOMPARE(read(right),QByteArray("\xef\xbb\xbf")+"first!\r\nsecond\nlast");
+        QVERIFY(QFileInfo(right).permissions()&QFile::ExeOwner); QVERIFY(!widget.isModified(Side::Right));
+        area->undo(); QVERIFY(widget.isModified(Side::Right)); area->redo(); QVERIFY(!widget.isModified(Side::Right));
+        QVERIFY(write(right,"external")); QTest::keyClicks(area,"more"); QVERIFY(!widget.save(Side::Right,&error));
+        QCOMPARE(read(right),QByteArray("external")); widget.discardChanges();
+        QVERIFY(write(right,QByteArray("bad\xff",4))); QVERIFY(widget.loadFromPaths(left,right)); QVERIFY(!widget.isEditable(Side::Right));
+        QVERIFY(!widget.save(Side::Right,&error)); QCOMPARE(read(right),QByteArray("bad\xff",4));
+        widget.setEditable(Side::Left,true);
+        QVERIFY(!widget.copyChange(0,Side::Right)); QCOMPARE(widget.text(Side::Left),QString("old\n"));
+        QVERIFY(write(right,QByteArray("bin\0ary",7))); QVERIFY(widget.loadFromPaths(left,right));
+        QVERIFY(!widget.isEditable(Side::Left) && !widget.isEditable(Side::Right));
+        QVERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("differ"));
+        QVERIFY(widget.text(Side::Right).isEmpty());
+        QVERIFY(write(right,"target\r\n")); const auto link=directory.filePath("link"); QVERIFY(QFile::link(right,link));
+        QVERIFY(widget.loadFromPaths(left,link)); area->setCursorPosition({0,6}); QTest::keyClicks(area,"!");
+        QVERIFY2(widget.save(Side::Right,&error),qPrintable(error)); QVERIFY(QFileInfo(link).isSymLink());
+        QCOMPARE(read(right),QByteArray("target!\r\n"));
+        QVERIFY(QFile::setPermissions(right,QFile::ReadOwner));
+        QVERIFY(widget.loadFromPaths(left,right)); QVERIFY(!widget.isEditable(Side::Right));
+        QVERIFY(!widget.save(Side::Right,&error));
+        QVERIFY(QFile::setPermissions(right,QFile::ReadOwner|QFile::WriteOwner));
+    }
+    void connectorArrowsOnlyCopyTowardsEditableSides() {
+        FileDiffWidget widget;
+        widget.setContent({"old"},{"new"}); widget.resize(850,300); widget.show(); QApplication::processEvents();
+        auto* splitter=widget.findChild<QSplitter*>(); auto* handle=splitter->handle(1);
+        const auto viewport=widget.leftEditor()->edit()->area()->viewport();
+        const int origin=handle->mapFromGlobal(viewport->mapToGlobal(QPoint(0,0))).y();
+        const int y=origin+widget.leftEditor()->edit()->area()->viewportState().lineHeight/2;
+        handle->grab(); QTest::mouseClick(handle,Qt::LeftButton,Qt::NoModifier,{handle->width()-11,y});
+        QCOMPARE(widget.text(Side::Right),QString("new"));
+        widget.setEditable(Side::Right,true); handle->grab();
+        QTest::mouseMove(handle,{handle->width()-11,y});
+        QCOMPARE(handle->cursor().shape(),Qt::ArrowCursor);
+        QTest::mouseMove(handle,{handle->width()/2,handle->height()-10});
+        QCOMPARE(handle->cursor().shape(),Qt::SplitHCursor);
+        QTest::mouseClick(handle,Qt::LeftButton,Qt::NoModifier,{handle->width()-11,y});
+        QCOMPARE(widget.text(Side::Right),QString("old")); QTRY_VERIFY(!widget.isRecomputing());
+        QVERIFY(!widget.isModified(Side::Left));
+    }
+    void blockCopyKeepsIndependentlyScrolledViewports() {
+        QStringList left;
+        for(int n=0;n<300;++n) left.append(QStringLiteral("line %1 ").arg(n)+QString(300,'x'));
+        auto right=left; right.insert(150,"extra 1"); right.insert(151,"extra 2");
+        FileDiffWidget widget;
+        widget.setContent(left,right); widget.setEditable(Side::Left,true);
+        widget.resize(850,220); widget.show(); QApplication::processEvents();
+        auto* leftArea=widget.leftEditor()->edit()->area(); auto* rightArea=widget.rightEditor()->edit()->area();
+        leftArea->verticalScrollBar()->setValue(142);
+        rightArea->verticalScrollBar()->setValue(146); QApplication::processEvents();
+        leftArea->horizontalScrollBar()->setValue(40);
+        auto* handle=widget.findChild<QSplitter*>()->handle(1);
+        const auto l=leftArea->viewportState(), r=rightArea->viewportState();
+        const int origin=handle->mapFromGlobal(leftArea->viewport()->mapToGlobal(QPoint(0,0))).y();
+        const int y=origin+qRound(((150-l.firstVisibleLine)*l.lineHeight+l.contentOffsetY+
+            (151-r.firstVisibleLine)*r.lineHeight+r.contentOffsetY)/2.0);
+        QVERIFY(y>=origin && y<origin+leftArea->viewport()->height());
+        QVERIFY(!handle->grab().isNull());
+        const auto firstLeft=l.firstVisibleLine, firstRight=r.firstVisibleLine;
+        const auto offsetLeft=l.contentOffsetY, offsetRight=r.contentOffsetY;
+        const auto horizontalLeft=l.contentOffsetX, horizontalRight=r.contentOffsetX;
+        QTest::mouseClick(handle,Qt::LeftButton,Qt::NoModifier,{11,y});
+        QVERIFY(widget.isModified(Side::Left));
+        QCOMPARE(leftArea->viewportState().firstVisibleLine,firstLeft);
+        QCOMPARE(rightArea->viewportState().firstVisibleLine,firstRight);
+        QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(leftArea->viewportState().firstVisibleLine,firstLeft);
+        QCOMPARE(rightArea->viewportState().firstVisibleLine,firstRight);
+        QCOMPARE(leftArea->viewportState().contentOffsetY,offsetLeft);
+        QCOMPARE(rightArea->viewportState().contentOffsetY,offsetRight);
+        QCOMPARE(leftArea->viewportState().contentOffsetX,horizontalLeft);
+        QCOMPARE(rightArea->viewportState().contentOffsetX,horizontalRight);
+        leftArea->undo(); QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.comparison()->snapshot(Side::Left).lines,left);
+    }
+    void bothCopyArrowsPaintAboveNeighbouringConnectors() {
+        QStringList left;
+        for(int n=0;n<200;++n) left.append(QStringLiteral("line %1").arg(n));
+        auto right=left; right[80]="changed 80"; right[85]="changed 85";
+        FileDiffWidget widget; widget.setContent(left,right);
+        widget.setEditable(Side::Left,true); widget.setEditable(Side::Right,true);
+        widget.resize(850,500); widget.show(); QApplication::processEvents();
+        QCOMPARE(widget.changeCount(),2);
+        auto* l=widget.leftEditor()->edit()->area(); auto* r=widget.rightEditor()->edit()->area();
+        {
+            QSignalBlocker leftSignals(l),rightSignals(r);
+            l->verticalScrollBar()->setValue(70); r->verticalScrollBar()->setValue(60);
+        }
+        auto* handle=widget.findChild<QSplitter*>()->handle(1);
+        const int origin=handle->mapFromGlobal(l->viewport()->mapToGlobal(QPoint(0,0))).y();
+        const auto lv=l->viewportState(), rv=r->viewportState();
+        const int center=origin+qRound(((80.5-lv.firstVisibleLine)*lv.lineHeight+lv.contentOffsetY+
+            (80.5-rv.firstVisibleLine)*rv.lineHeight+rv.contentOffsetY)/2.0);
+        const QImage image=handle->grab().toImage(); const auto scale=image.devicePixelRatio();
+        const auto background=handle->palette().button().color();
+        // A later diagonal connector crosses the left button at this point.
+        QCOMPARE(image.pixelColor(qRound(2*scale),qRound((center-6)*scale)),background);
+        QCOMPARE(image.pixelColor(qRound((handle->width()-3)*scale),qRound((center-6)*scale)),background);
+        QTest::mouseMove(handle,{11,center}); QCOMPARE(handle->cursor().shape(),Qt::ArrowCursor);
+        QTest::mouseMove(handle,{handle->width()-11,center}); QCOMPARE(handle->cursor().shape(),Qt::ArrowCursor);
+    }
     void panelSpacingChangesConnectorGeometry() {
         FileDiffWidget widget;
         widget.setContent({"unchanged", "old"}, {"unchanged", "new", "extra"});
@@ -125,6 +292,75 @@ private slots:
     }
 
 #ifdef DIFFMERGE_TEST_VIEW_MENU
+    void desktopSaveButtonsSaveOneModifiedSideAtATime() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto name=QApplication::applicationName(), organization=QApplication::organizationName();
+        const auto format=QSettings::defaultFormat();
+        struct Restore {
+            QString name, organization; QSettings::Format format;
+            ~Restore() { QApplication::setApplicationName(name); QApplication::setOrganizationName(organization); QSettings::setDefaultFormat(format); }
+        } restore{name,organization,format};
+        QApplication::setApplicationName("SelectiveSaveTest"); QApplication::setOrganizationName("DiffMergeTests");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+        QSettings().setValue("syntaxDownloadDeclined",true);
+        const auto left=directory.filePath("left"), right=directory.filePath("right");
+        const auto write=[](const QString& path,const QByteArray& text) { QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(text)==text.size(); };
+        const auto read=[](const QString& path) { QFile f(path); if(!f.open(QIODevice::ReadOnly)) return QByteArray{}; return f.readAll(); };
+        QVERIFY(write(left,"left")); QVERIFY(write(right,"right"));
+        MainWindow window; window.setEditMode(true,true); window.loadFiles(left,right);
+        window.show(); QApplication::processEvents();
+        auto* widget=window.findChild<FileDiffWidget*>(); QVERIFY(widget);
+        auto* leftArea=widget->leftEditor()->edit()->area(); auto* rightArea=widget->rightEditor()->edit()->area();
+        leftArea->setCursorPosition({0,4}); QTest::keyClicks(leftArea,"L");
+        rightArea->setCursorPosition({0,5}); QTest::keyClicks(rightArea,"R");
+        QVERIFY(widget->isModified(Side::Left) && widget->isModified(Side::Right));
+        auto* leftSave=widget->findChild<QToolButton*>("saveLeftFile"); auto* rightSave=widget->findChild<QToolButton*>("saveRightFile");
+        QVERIFY(leftSave && rightSave); QVERIFY(leftSave->isVisible() && rightSave->isVisible());
+        QTest::mouseClick(leftSave,Qt::LeftButton);
+        QCOMPARE(read(left),QByteArray("leftL")); QCOMPARE(read(right),QByteArray("right"));
+        QVERIFY(!widget->isModified(Side::Left)); QVERIFY(widget->isModified(Side::Right));
+        QVERIFY(!leftSave->isVisible()); QVERIFY(rightSave->isVisible());
+        QTest::mouseClick(rightSave,Qt::LeftButton);
+        QCOMPARE(read(right),QByteArray("rightR")); QVERIFY(!widget->isModified(Side::Right));
+        QVERIFY(!rightSave->isVisible()); QVERIFY(window.close());
+    }
+    void desktopCloseCanCancelOrDiscardEdits() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto name=QApplication::applicationName(), organization=QApplication::organizationName();
+        const auto format=QSettings::defaultFormat();
+        struct Restore {
+            QString name, organization; QSettings::Format format;
+            ~Restore() { QApplication::setApplicationName(name); QApplication::setOrganizationName(organization); QSettings::setDefaultFormat(format); }
+        } restore{name,organization,format};
+        QApplication::setApplicationName("EditingWindowTest"); QApplication::setOrganizationName("DiffMergeTests");
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+        QSettings().setValue("syntaxDownloadDeclined",true);
+        MainWindow window;
+        auto* widget=window.findChild<FileDiffWidget*>(); QVERIFY(widget);
+        auto* directories=window.findChild<DirDiffWidget*>(); QVERIFY(directories);
+        QVERIFY(directories->isReadOnly(Side::Left)); QVERIFY(!directories->isReadOnly(Side::Right));
+        window.setEditMode(false,false);
+        QVERIFY(directories->isReadOnly(Side::Left) && directories->isReadOnly(Side::Right));
+        window.setEditMode(false,true);
+        QVERIFY(!widget->isEditable(Side::Left)); QVERIFY(widget->isEditable(Side::Right));
+        widget->setContent({"left"},{"right"}); window.show(); QApplication::processEvents();
+        auto* area=widget->rightEditor()->edit()->area(); area->setCursorPosition({0,5}); QTest::keyClicks(area,"!");
+        QVERIFY(widget->isModified(Side::Right)); QVERIFY(window.windowTitle().startsWith("* "));
+        const auto answer=[](QMessageBox::StandardButton button) {
+            QTimer::singleShot(0,[button] {
+                auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                if(box) box->button(button)->click();
+            });
+        };
+        answer(QMessageBox::Cancel); QVERIFY(!window.close()); QVERIFY(widget->isModified(Side::Right));
+        answer(QMessageBox::Discard); QVERIFY(window.close()); QVERIFY(!widget->isModified(Side::Right));
+        const auto target=directory.filePath("saved"); widget->setSaveTarget(Side::Right,target);
+        window.show(); area->setCursorPosition({0,5}); QTest::keyClicks(area,"!");
+        answer(QMessageBox::Save); QVERIFY(window.close()); QVERIFY(!widget->isModified(Side::Right));
+        QFile saved(target); QVERIFY(saved.open(QIODevice::ReadOnly)); QCOMPARE(saved.readAll(),QByteArray("right!"));
+    }
     void desktopViewMenuPersistsSelection() {
         QTemporaryDir directory; QVERIFY(directory.isValid());
         const auto name=QApplication::applicationName(), organization=QApplication::organizationName();

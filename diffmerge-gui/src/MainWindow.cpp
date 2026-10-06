@@ -6,6 +6,9 @@
 #include <QSlider>
 #include <QWidgetAction>
 #include <QHBoxLayout>
+#include <QCloseEvent>
+#include <QSignalBlocker>
+#include <qce/CodeEditArea.h>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
@@ -28,6 +31,9 @@ namespace diffmerge::gui {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_stack      = new QStackedWidget(this);
     m_diffWidget = new FileDiffWidget(m_stack);
+    connect(m_diffWidget, &FileDiffWidget::operationFailed, this, &MainWindow::showError);
+    connect(m_diffWidget, &FileDiffWidget::modifiedChanged, this, [this] { updateModifiedTitle(); });
+    connect(m_diffWidget, &FileDiffWidget::saveRequested, this, [this](Side side) { saveSide(side == Side::Left); });
     m_dirWidget  = new DirDiffWidget(m_stack);
     // The desktop host permits filesystem operations; embedded widgets default read-only.
     m_dirWidget->setReadOnly(Side::Left,false); m_dirWidget->setReadOnly(Side::Right,false);
@@ -60,8 +66,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         auto* backspace=new QShortcut(Qt::Key_Backspace,editor);
         backspace->setContext(Qt::WidgetWithChildrenShortcut);
         connect(backspace,&QShortcut::activated,this,[this] {
-            if(!m_dirWidget->leftPath().isEmpty()) m_stack->setCurrentWidget(m_dirWidget);
+            if(!m_dirWidget->leftPath().isEmpty() && confirmModified()) m_stack->setCurrentWidget(m_dirWidget);
         });
+        connect(m_diffWidget, &FileDiffWidget::editableChanged, backspace, [editor, backspace] {
+            backspace->setEnabled(editor->edit()->area()->readOnly());
+        });
+        connect(m_diffWidget, &FileDiffWidget::viewModeChanged, backspace, [editor, backspace] { backspace->setEnabled(editor->edit()->area()->readOnly()); });
+        connect(m_diffWidget, &FileDiffWidget::unchangedLinesSkippedChanged, backspace, [editor, backspace] { backspace->setEnabled(editor->edit()->area()->readOnly()); });
     }
 
     auto* next = new QShortcut(Qt::Key_F7, m_diffWidget);
@@ -70,9 +81,34 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* previous = new QShortcut(Qt::SHIFT | Qt::Key_F7, m_diffWidget);
     previous->setContext(Qt::WidgetWithChildrenShortcut);
     connect(previous, &QShortcut::activated, m_diffWidget, &FileDiffWidget::navigateToPrev);
+    for (Side source : {Side::Left, Side::Right}) {
+        auto* copy = new QShortcut(source == Side::Left ? Qt::ALT | Qt::Key_Right : Qt::ALT | Qt::Key_Left, m_diffWidget);
+        copy->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(copy, &QShortcut::activated, this, [this, source] {
+            const auto current = m_diffWidget->currentChangeIndex();
+            if (m_diffWidget->copyChange(current, source)) {
+                connect(m_diffWidget, &FileDiffWidget::comparisonChanged, this, [this, current] {
+                    m_diffWidget->navigateToChange(std::min(current, m_diffWidget->changeCount()-1));
+                }, Qt::SingleShotConnection);
+            }
+        });
+        const auto enabled = [this, source, copy] {
+            copy->setEnabled(m_diffWidget->isEditable(source == Side::Left ? Side::Right : Side::Left) &&
+                m_diffWidget->viewMode() == ViewMode::SideBySide && !m_diffWidget->unchangedLinesSkipped());
+        };
+        enabled();
+        connect(m_diffWidget, &FileDiffWidget::editableChanged, copy, enabled);
+        connect(m_diffWidget, &FileDiffWidget::viewModeChanged, copy, enabled);
+        connect(m_diffWidget, &FileDiffWidget::unchangedLinesSkippedChanged, copy, enabled);
+    }
     connect(m_diffWidget, &FileDiffWidget::loadFailed, this, &MainWindow::showError);
+    connect(m_diffWidget, &FileDiffWidget::comparisonReplacementRequested, this, [this](const QString& left,const QString& right) {
+        if (confirmModified()) loadFiles(left,right);
+        else m_diffWidget->setPaths(m_diffWidget->saveTarget(Side::Left),m_diffWidget->saveTarget(Side::Right));
+    });
     connect(m_diffWidget, &FileDiffWidget::fileBrowseRequested, this,
         [this](Side side, const QString& currentPath) {
+            if (!confirmModified()) return;
             const auto path = QxFileDialog::getOpenFileName(this,
                 side == Side::Left ? QStringLiteral("Select left file")
                                    : QStringLiteral("Select right file"), currentPath);
@@ -108,10 +144,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(m_diffWidget, &FileDiffWidget::backRequested,
             this, [this] {
+        if (!confirmModified()) return;
         m_stack->setCurrentWidget(m_dirWidget);
         setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2")
                            .arg(m_dirWidget->leftPath(), m_dirWidget->rightPath()));
     });
+    setEditMode(false, true);
 }
 
 void MainWindow::setupMenus() {
@@ -127,11 +165,34 @@ void MainWindow::setupMenus() {
 
     fileMenu->addSeparator();
 
+    auto* saveAction = fileMenu->addAction(QStringLiteral("Save"));
+    saveAction->setShortcut(QKeySequence::Save);
+    connect(saveAction, &QAction::triggered, this, [this] { saveSide(m_diffWidget->leftEditor()->edit()->area()->hasFocus()); });
+    connect(fileMenu->addAction(QStringLiteral("Save Left")), &QAction::triggered, this, [this] { saveSide(true); });
+    connect(fileMenu->addAction(QStringLiteral("Save Right")), &QAction::triggered, this, [this] { saveSide(false); });
+    connect(fileMenu->addAction(QStringLiteral("Save Both")), &QAction::triggered, this, [this] {
+        for (Side side : {Side::Left, Side::Right}) if (m_diffWidget->isModified(side) && !saveSide(side == Side::Left)) break;
+    });
+    fileMenu->addSeparator();
+
     auto* quitAction = fileMenu->addAction(QStringLiteral("&Quit"));
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
 
     auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    for (Side side : {Side::Left, Side::Right}) {
+        auto* editable = viewMenu->addAction(side == Side::Left ? QStringLiteral("Edit left side") : QStringLiteral("Edit right side"));
+        editable->setObjectName(side == Side::Left ? QStringLiteral("editLeft") : QStringLiteral("editRight"));
+        editable->setCheckable(true);
+        connect(editable, &QAction::toggled, this, [this, side](bool enabled) {
+            m_diffWidget->setEditable(side, enabled);
+            if (enabled || !m_diffWidget->isModified(side)) m_dirWidget->setReadOnly(side, !enabled);
+        });
+        connect(m_diffWidget, &FileDiffWidget::editableChanged, editable, [editable, side](Side changed, bool enabled) {
+            if (side == changed) { QSignalBlocker blocker(editable); editable->setChecked(enabled); }
+        });
+    }
+    viewMenu->addSeparator();
     auto* modes = new QActionGroup(this);
     modes->setExclusive(true);
     auto* sideBySide = viewMenu->addAction(QStringLiteral("Side by Side"));
@@ -163,8 +224,14 @@ void MainWindow::setupMenus() {
     const auto mode = settings.value(QStringLiteral("view/unified"), false).toBool() ? ViewMode::Unified : ViewMode::SideBySide;
     m_diffWidget->setViewMode(mode);
     (mode == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
-    connect(sideBySide, &QAction::triggered, this, [this] { m_diffWidget->setViewMode(ViewMode::SideBySide); });
-    connect(unified, &QAction::triggered, this, [this] { m_diffWidget->setViewMode(ViewMode::Unified); });
+    connect(sideBySide, &QAction::triggered, this, [this, sideBySide, unified] {
+        m_diffWidget->setViewMode(ViewMode::SideBySide);
+        (m_diffWidget->viewMode() == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
+    });
+    connect(unified, &QAction::triggered, this, [this, sideBySide, unified] {
+        m_diffWidget->setViewMode(ViewMode::Unified);
+        (m_diffWidget->viewMode() == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
+    });
     connect(m_diffWidget, &FileDiffWidget::viewModeChanged, this, [sideBySide, unified](ViewMode mode) {
         (mode == ViewMode::Unified ? unified : sideBySide)->setChecked(true);
         QSettings().setValue(QStringLiteral("view/unified"), mode == ViewMode::Unified);
@@ -174,7 +241,10 @@ void MainWindow::setupMenus() {
     skip->setCheckable(true);
     skip->setChecked(settings.value(QStringLiteral("view/skipUnchanged"), false).toBool());
     m_diffWidget->setUnchangedLinesSkipped(skip->isChecked());
-    connect(skip, &QAction::toggled, m_diffWidget, &FileDiffWidget::setUnchangedLinesSkipped);
+    connect(skip, &QAction::toggled, this, [this,skip](bool enabled) {
+        m_diffWidget->setUnchangedLinesSkipped(enabled);
+        QSignalBlocker blocker(skip); skip->setChecked(m_diffWidget->unchangedLinesSkipped());
+    });
     connect(m_diffWidget, &FileDiffWidget::unchangedLinesSkippedChanged, this, [skip](bool value) {
         skip->setChecked(value); QSettings().setValue(QStringLiteral("view/skipUnchanged"), value);
     });
@@ -256,6 +326,7 @@ void MainWindow::showError(const QString& message) {
 }
 
 void MainWindow::onOpenFiles() {
+    if (!confirmModified()) return;
     const QString left = QxFileDialog::getOpenFileName(
         this, QStringLiteral("Select left file"), {});
     if (left.isEmpty()) return;
@@ -266,6 +337,7 @@ void MainWindow::onOpenFiles() {
 }
 
 void MainWindow::onOpenDirectories() {
+    if (!confirmModified()) return;
     const QString left = QxFileDialog::getExistingDirectory(
         this, QStringLiteral("Select left directory"), {});
     if (left.isEmpty()) return;
@@ -277,29 +349,73 @@ void MainWindow::onOpenDirectories() {
 
 void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
                            bool fromDir) {
+    if (!confirmModified()) return;
     m_diffWidget->setBackVisible(fromDir);
-    if(leftPath.isEmpty() || rightPath.isEmpty()) {
-        const auto path=leftPath.isEmpty() ? rightPath : leftPath;
-        QFile file(path);
-        if(!file.open(QIODevice::ReadOnly)) { showError(file.errorString()); return; }
-        if(file.size()>8*1024*1024) { showError(QStringLiteral("File exceeds the text preview byte limit")); return; }
-        const auto bytes=file.readAll();
-        if(file.error()!=QFileDevice::NoError) { showError(file.errorString()); return; }
-        if(bytes.contains('\0')) { showError(QStringLiteral("Binary files cannot be displayed as text")); return; }
-        QStringDecoder decoder(QStringDecoder::Utf8);
-        const auto text=decoder(bytes);
-        if(decoder.hasError()) { showError(QStringLiteral("File is not valid UTF-8")); return; }
-        const auto source=TextSnapshot::fromText(text,path,path);
-        auto prepared=leftPath.isEmpty() ? prepareComparison({},source) : prepareComparison(source,{});
-        if(prepared.status!=PreparationStatus::Ready) { showError(prepared.message); return; }
-        m_diffWidget->setPaths(leftPath,rightPath); m_diffWidget->setComparison(prepared.comparison);
-    } else m_diffWidget->loadFromPaths(leftPath, rightPath);
+    if (!m_diffWidget->loadFromPaths(leftPath, rightPath)) return;
+    if (fromDir && (leftPath.isEmpty() || rightPath.isEmpty())) {
+        const Side missing = leftPath.isEmpty() ? Side::Left : Side::Right;
+        const auto relative = QDir(leftPath.isEmpty() ? m_dirWidget->rightPath() : m_dirWidget->leftPath()).relativeFilePath(leftPath.isEmpty() ? rightPath : leftPath);
+        const auto target = QDir(leftPath.isEmpty() ? m_dirWidget->leftPath() : m_dirWidget->rightPath()).filePath(relative);
+        m_diffWidget->setSaveTarget(missing, target);
+        m_diffWidget->setPaths(leftPath.isEmpty() ? target : leftPath, rightPath.isEmpty() ? target : rightPath);
+    }
     m_stack->setCurrentWidget(m_diffWidget);
 }
 
 void MainWindow::loadDirectories(const QString& leftPath, const QString& rightPath) {
+    if (!confirmModified()) return;
     m_dirWidget->setDirectories(leftPath, rightPath);
     m_stack->setCurrentWidget(m_dirWidget);
+}
+
+void MainWindow::setEditMode(bool left, bool right) {
+    m_diffWidget->setEditable(Side::Left, left); m_diffWidget->setEditable(Side::Right, right);
+    m_dirWidget->setReadOnly(Side::Left, !left); m_dirWidget->setReadOnly(Side::Right, !right);
+}
+
+bool MainWindow::saveSide(bool left) {
+    const Side side = left ? Side::Left : Side::Right;
+    if (m_diffWidget->saveTarget(side).isEmpty()) {
+        const auto path = QxFileDialog::getSaveFileName(this, QStringLiteral("Save compared file"), {});
+        if (path.isEmpty()) return false;
+        m_diffWidget->setSaveTarget(side, path);
+    }
+    QString error;
+    if (!m_diffWidget->save(side, &error)) {
+        if (error == QStringLiteral("File changed on disk since loading or saving") &&
+            QMessageBox::question(this, QStringLiteral("File changed on disk"),
+                QStringLiteral("Overwrite the externally changed file %1?").arg(m_diffWidget->saveTarget(side)),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+            if (m_diffWidget->save(side, &error, true)) { m_dirWidget->refresh(); return true; }
+        }
+        showError(error); return false;
+    }
+    m_dirWidget->refresh(); return true;
+}
+
+bool MainWindow::confirmModified() {
+    QStringList names;
+    for (Side side : {Side::Left, Side::Right}) if (m_diffWidget->isModified(side))
+        names.append(m_diffWidget->saveTarget(side).isEmpty() ? (side == Side::Left ? QStringLiteral("Left") : QStringLiteral("Right")) : m_diffWidget->saveTarget(side));
+    if (names.isEmpty()) return true;
+    const auto answer = QMessageBox::question(this, QStringLiteral("Unsaved changes"),
+        QStringLiteral("Save changes to:\n%1").arg(names.join('\n')), QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Cancel) return false;
+    if (answer == QMessageBox::Save) {
+        for (Side side : {Side::Left, Side::Right}) if (m_diffWidget->isModified(side) && !saveSide(side == Side::Left)) return false;
+    } else m_diffWidget->discardChanges();
+    return !m_diffWidget->isModified(Side::Left) && !m_diffWidget->isModified(Side::Right);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (confirmModified()) event->accept(); else event->ignore();
+}
+
+void MainWindow::updateModifiedTitle() {
+    QString title = windowTitle();
+    if (title.startsWith(QStringLiteral("* "))) title.remove(0, 2);
+    if (m_diffWidget->isModified(Side::Left) || m_diffWidget->isModified(Side::Right)) title.prepend(QStringLiteral("* "));
+    setWindowTitle(title);
 }
 
 void MainWindow::prefillFiles(const QString& leftPath, const QString& rightPath) {

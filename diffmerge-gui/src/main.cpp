@@ -14,6 +14,8 @@ int main(int argc,char* argv[]) {
     parser.addHelpOption();
     parser.addPositionalArgument(QStringLiteral("paths"),QStringLiteral("Zero, one (prefill), or two existing files/directories"),QStringLiteral("[LEFT [RIGHT]]"));
     parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display label and fallback syntax file name (repeat for the right side)"),QStringLiteral("LABEL")});
+    parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right (default), left, both, none"), QStringLiteral("SIDE"), QStringLiteral("right")});
+    parser.addOption({QStringLiteral("readonly"), QStringLiteral("Make both sides read-only")});
     if(!parser.parse(app.arguments())) {
         QTextStream(stderr)<<parser.errorText()<<'\n'; return 2;
     }
@@ -24,6 +26,11 @@ int main(int argc,char* argv[]) {
         QMessageBox::critical(nullptr,QStringLiteral("Cannot compare paths"),options.error); return 2;
     }
     diffmerge::gui::MainWindow window;
+    const auto edit = parser.isSet(QStringLiteral("readonly")) ? QStringLiteral("none") : parser.value(QStringLiteral("edit"));
+    if (edit != "right" && edit != "left" && edit != "both" && edit != "none") {
+        QTextStream(stderr) << "--edit must be right, left, both or none\n"; return 2;
+    }
+    window.setEditMode(edit == "left" || edit == "both", edit == "right" || edit == "both");
     using diffmerge::gui::LaunchKind;
     switch(options.kind) {
         case LaunchKind::PrefillFile: window.prefillFiles(options.paths[0]); break;

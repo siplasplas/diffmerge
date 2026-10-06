@@ -76,6 +76,7 @@ PrepareResult prepareComparison(const TextSnapshot& left, const TextSnapshot& ri
         auto prepared = std::shared_ptr<PreparedComparison>(new PreparedComparison);
         prepared->m_left = left;
         prepared->m_right = right;
+        prepared->m_options = options;
         diffcore::DiffEngine engine;
         prepared->m_diff = engine.compute(left.lines, right.lines, options.diff, &control);
         prepared->m_model.build(prepared->m_diff, left.lines, right.lines, &control);

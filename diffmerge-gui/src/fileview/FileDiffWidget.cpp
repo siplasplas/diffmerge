@@ -1,6 +1,7 @@
 #include <diffmerge/FileDiffWidget.h>
 
 #include <QFile>
+#include <QCryptographicHash>
 #include <QFontMetrics>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -10,6 +11,7 @@
 #include <QStyle>
 #include <QTextStream>
 #include <QThread>
+#include <QStringConverter>
 #include <qce/ExtraSelection.h>
 #include <QVBoxLayout>
 
@@ -22,12 +24,14 @@
 #include <diffmerge/DiffEditor.h>
 #include <diffmerge/IntraLineDiffEngine.h>
 #include "DiffConnectorSplitter.h"
+#include "FileEditingState.h"
 
 namespace diffmerge::gui {
 
 FileDiffWidget::FileDiffWidget(QWidget* parent)
     : QWidget(parent) {
     setupUi();
+    setupEditing();
 }
 
 FileDiffWidget::~FileDiffWidget() {
@@ -118,12 +122,32 @@ void FileDiffWidget::setupUi() {
     m_rightBrowse->setAutoRaise(true);
 
     pathLayout->addWidget(m_leftPathEdit);
+    m_leftLock = new QToolButton(pathBar); m_leftLock->setEnabled(false);
+    pathLayout->addWidget(m_leftLock);
+    m_leftSave = new QToolButton(pathBar); m_leftSave->setText(QStringLiteral("Save"));
+    m_leftSave->setObjectName(QStringLiteral("saveLeftFile"));
+    m_leftSave->setToolTip(QStringLiteral("Save only the left file"));
+    pathLayout->addWidget(m_leftSave);
+    connect(m_leftSave,&QToolButton::clicked,this,[this] { emit saveRequested(Side::Left); });
     pathLayout->addWidget(m_leftBrowse);
     pathLayout->addSpacing(8);
     pathLayout->addWidget(m_rightPathEdit);
+    m_rightLock = new QToolButton(pathBar); m_rightLock->setEnabled(false);
+    pathLayout->addWidget(m_rightLock);
+    m_rightSave = new QToolButton(pathBar); m_rightSave->setText(QStringLiteral("Save"));
+    m_rightSave->setObjectName(QStringLiteral("saveRightFile"));
+    m_rightSave->setToolTip(QStringLiteral("Save only the right file"));
+    pathLayout->addWidget(m_rightSave);
+    connect(m_rightSave,&QToolButton::clicked,this,[this] { emit saveRequested(Side::Right); });
     pathLayout->addWidget(m_rightBrowse);
 
     vLayout->addWidget(pathBar);
+    m_editHint = new QLabel(QStringLiteral("Editing requires Side by Side with Skip unchanged lines disabled"), this);
+    m_editHint->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_editHint->hide(); vLayout->addWidget(m_editHint);
+    m_binaryNotice = new QLabel(this); m_binaryNotice->setObjectName(QStringLiteral("binaryComparison"));
+    m_binaryNotice->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_binaryNotice->hide(); vLayout->addWidget(m_binaryNotice);
 
     connect(m_leftBrowse,    &QToolButton::clicked,      this, &FileDiffWidget::onBrowseLeft);
     connect(m_rightBrowse,   &QToolButton::clicked,      this, &FileDiffWidget::onBrowseRight);
@@ -195,7 +219,7 @@ void FileDiffWidget::setupUi() {
             || vp.lineHeight != previous.lineHeight
             || vp.viewportHeight != previous.viewportHeight;
         previous = vp; // Track guarded navigation and updates to the other pane too.
-        if (!verticalChanged || m_syncingScroll || m_viewMode == ViewMode::Unified) return;
+        if (!verticalChanged || m_syncingScroll || isRecomputing() || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = rightEdit->area()->document()->lineCount();
         const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
@@ -216,7 +240,7 @@ void FileDiffWidget::setupUi() {
             || vp.lineHeight != previous.lineHeight
             || vp.viewportHeight != previous.viewportHeight;
         previous = vp; // Track guarded navigation and updates to the other pane too.
-        if (!verticalChanged || m_syncingScroll || m_viewMode == ViewMode::Unified) return;
+        if (!verticalChanged || m_syncingScroll || isRecomputing() || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = leftEdit->area()->document()->lineCount();
         const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
@@ -242,6 +266,11 @@ void FileDiffWidget::setContent(const QStringList& leftLines,
 }
 
 void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> comparison) {
+    if (isModified(Side::Left) || isModified(Side::Right)) {
+        emit operationFailed(QStringLiteral("Save or discard modified text before replacing the comparison")); return;
+    }
+    QScopedValueRollback<bool> installing(m_editing->installing, true);
+    m_binaryInput = false; m_binaryNotice->hide();
     Q_ASSERT(QThread::currentThread() == thread());
     const auto start = std::chrono::steady_clock::now();
     // Keep the old result alive until documents, painters and callbacks detach.
@@ -275,6 +304,7 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
     m_navigationSide = Side::Left;
     updateNavLabel();
     m_installationTime = std::chrono::steady_clock::now() - start;
+    resetEditing();
     emit comparisonChanged(changeCount());
 }
 
@@ -338,6 +368,7 @@ void FileDiffWidget::navigateToPrev() {
 }
 
 void FileDiffWidget::navigateToHunk(int idx) {
+    if (isRecomputing()) return;
     const auto& blocks = changes();
     if (idx < 0 || idx >= blocks.size()) return;
     QScopedValueRollback<bool> navigating(m_navigating, true);
@@ -400,12 +431,13 @@ void FileDiffWidget::updateNavLabel() {
 
 const QVector<ChangeBlock>& FileDiffWidget::changes() const {
     static const QVector<ChangeBlock> empty;
-    return m_comparison ? m_comparison->changes() : empty;
+    return m_comparison && m_model ? m_comparison->changes() : empty;
 }
 
 int FileDiffWidget::changeCount() const { return changes().size(); }
 
 bool FileDiffWidget::navigateToChange(int index) {
+    if (isRecomputing()) return false;
     if (index < 0 || index >= changeCount()) return false;
     navigateToHunk(index);
     return true;
@@ -537,15 +569,34 @@ void FileDiffWidget::setPaths(const QString& leftPath, const QString& rightPath)
 
 bool FileDiffWidget::loadFromPaths(const QString& leftPath,
                                    const QString& rightPath) {
-    auto readFile = [&](const QString& path, TextSnapshot& out) -> bool {
+    if (isModified(Side::Left) || isModified(Side::Right)) {
+        emit operationFailed(QStringLiteral("Save or discard edits before loading other files")); return false;
+    }
+    std::array<bool, 2> bom{}, unsafe{};
+    std::array<QByteArray, 2> hashes;
+    std::array<QByteArray, 2> rawBytes;
+    bool binary = false;
+    auto readFile = [&](const QString& path, TextSnapshot& out, int i) -> bool {
+        if (path.isEmpty()) { out = {}; return true; }
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly)) {
             emit loadFailed(QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
             return false;
         }
-        QTextStream in(&f);
+        if (f.size() > 8 * 1024 * 1024) { emit loadFailed(QStringLiteral("File exceeds the text preview byte limit")); return false; }
+        auto bytes = f.readAll();
+        if (bytes.size() > 8 * 1024 * 1024) { emit loadFailed(QStringLiteral("File grew beyond the text preview byte limit")); return false; }
+        rawBytes[i] = bytes;
+        hashes[i] = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+        if (f.error() != QFileDevice::NoError) { emit loadFailed(f.errorString()); return false; }
+        if (bytes.contains('\0')) { binary = true; out = {}; return true; }
+        bom[i] = bytes.startsWith("\xef\xbb\xbf");
+        if (bom[i]) bytes.remove(0, 3);
+        QStringDecoder decoder(QStringDecoder::Utf8);
+        const QString decoded = decoder(bytes);
+        unsafe[i] = decoder.hasError();
         try {
-            out = TextSnapshot::fromText(in.readAll(), path, path);
+            out = TextSnapshot::fromText(decoded, path, path);
             return true;
         } catch (const std::exception& error) {
             emit loadFailed(QString::fromUtf8(error.what()));
@@ -554,14 +605,30 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     };
 
     TextSnapshot left, right;
-    if (!readFile(leftPath, left)) return false;
-    if (!readFile(rightPath, right)) return false;
+    if (!readFile(leftPath, left, 0)) return false;
+    if (!readFile(rightPath, right, 1)) return false;
+    if (binary) left = right = {};
 
     auto result = prepareComparison(left, right);
     if (result.status != PreparationStatus::Ready) { emit loadFailed(result.message); return false; }
     m_leftPathEdit->setText(leftPath);
     m_rightPathEdit->setText(rightPath);
     setComparison(std::move(result.comparison));
+    setSaveTarget(Side::Left, leftPath); setSaveTarget(Side::Right, rightPath);
+    m_editing->bom = bom;
+    m_editing->encodingUnsafe = unsafe;
+    m_editing->diskHash = hashes;
+    if (binary) {
+        m_binaryInput = true; m_editing->unsafe = {true, true};
+        m_binaryNotice->setText(QStringLiteral("Binary files %1 — left %2 bytes, right %3 bytes")
+            .arg(rawBytes[0] == rawBytes[1] ? QStringLiteral("are identical") : QStringLiteral("differ"))
+            .arg(rawBytes[0].size()).arg(rawBytes[1].size()));
+        m_binaryNotice->show(); m_splitter->hide(); m_unifiedEditor->hide();
+    }
+    updateEditability();
+    emit editableChanged(Side::Left, isEditable(Side::Left)); emit editableChanged(Side::Right, isEditable(Side::Right));
+    m_leftPathEdit->setToolTip(unsafe[0] ? QStringLiteral("Not UTF-8: read-only") : QString{});
+    m_rightPathEdit->setToolTip(unsafe[1] ? QStringLiteral("Not UTF-8: read-only") : QString{});
     emit pathsChanged(leftPath, rightPath);
     return true;
 }
@@ -583,7 +650,11 @@ void FileDiffWidget::reloadFromPathBar() {
     const QString l = m_leftPathEdit->text().trimmed();
     const QString r = m_rightPathEdit->text().trimmed();
     if (l.isEmpty() || r.isEmpty()) return;
-    loadFromPaths(l, r);
+    if (isModified(Side::Left) || isModified(Side::Right)) {
+        emit comparisonReplacementRequested(l,r); return;
+    }
+    if (!loadFromPaths(l,r) && m_comparison)
+        setPaths(saveTarget(Side::Left),saveTarget(Side::Right));
 }
 
 void FileDiffWidget::setBackVisible(bool visible) {
@@ -635,6 +706,9 @@ void FileDiffWidget::updateHorizontalScrollRange() {
 
 int FileDiffWidget::unifiedLine(Side side, int line) const { return m_projection.rowFor(side, line); }
 void FileDiffWidget::setViewMode(ViewMode mode) {
+    if ((isModified(Side::Left) || isModified(Side::Right) || isRecomputing()) && mode != m_viewMode) {
+        emit operationFailed(QStringLiteral("Save or discard edits before changing the presentation")); return;
+    }
     if (m_viewMode == mode) return;
     Side anchorSide = Side::Right;
     int anchor = 0;
@@ -660,11 +734,16 @@ void FileDiffWidget::setViewMode(ViewMode mode) {
         m_leftEditor->edit()->area()->verticalScrollBar()->setValue(m_leftEditor->displayLine(anchorSide == Side::Left ? anchor : other));
         m_rightEditor->edit()->area()->verticalScrollBar()->setValue(m_rightEditor->displayLine(anchorSide == Side::Right ? anchor : other));
     }
+    updateEditability();
     emit viewModeChanged(mode);
 }
 void FileDiffWidget::setUnchangedLinesSkipped(bool skipped) {
+    if ((isModified(Side::Left) || isModified(Side::Right) || isRecomputing()) && skipped != m_skipUnchanged) {
+        emit operationFailed(QStringLiteral("Save or discard edits before changing the presentation")); return;
+    }
     if (m_skipUnchanged == skipped) return;
     m_skipUnchanged = skipped; m_openedFolds.clear(); rebuildProjection();
+    updateEditability();
     emit unchangedLinesSkippedChanged(skipped);
 }
 void FileDiffWidget::setContextLines(int lines) {
@@ -696,8 +775,8 @@ void FileDiffWidget::rebuildProjection() {
         unifiedSide = r.rightLine >= 0 ? Side::Right : Side::Left;
         unifiedAnchor = unifiedSide == Side::Right ? r.rightLine : r.leftLine;
     }
-    m_splitter->setVisible(m_viewMode == ViewMode::SideBySide);
-    m_unifiedEditor->setVisible(m_viewMode == ViewMode::Unified);
+    m_splitter->setVisible(!m_binaryInput && m_viewMode == ViewMode::SideBySide);
+    m_unifiedEditor->setVisible(!m_binaryInput && m_viewMode == ViewMode::Unified);
     if (!m_comparison) {
         m_projection = {};
         m_unifiedEditor->setAlignedModel(nullptr); return;
@@ -725,6 +804,7 @@ void FileDiffWidget::rebuildProjection() {
     for (Side side : {Side::Left, Side::Right}) {
         auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
         if (m_skipUnchanged) {
+            m_editing->raw[side == Side::Left ? 0 : 1] = false;
             QVector<ViewRow> rows;
             for (const auto& row : m_projection.rows()) if ((side == Side::Left ? row.leftLine : row.rightLine) >= 0) rows.append(row);
             editor->setProjection(m_comparison, rows, false);

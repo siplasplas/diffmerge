@@ -2,6 +2,8 @@
 #define DIFFMERGE_GUI_DIFFCONNECTORSPLITTER_H
 
 #include <QSplitter>
+#include <functional>
+#include <diffmerge/AlignedLineModel.h>
 
 namespace diffmerge::gui {
 
@@ -17,6 +19,8 @@ public:
 
     void setModel(const AlignedLineModel* model);
     void updateConnections();
+    void setCopyActions(bool leftEditable, bool rightEditable,
+                        std::function<void(int, Side)> callback);
 
 protected:
     QSplitterHandle* createHandle() override;
@@ -25,6 +29,8 @@ private:
     DiffEditor* m_left;
     DiffEditor* m_right;
     const AlignedLineModel* m_model;
+    bool m_leftEditable = false, m_rightEditable = false;
+    std::function<void(int, Side)> m_copy;
 };
 
 }  // namespace diffmerge::gui

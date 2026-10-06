@@ -20,6 +20,7 @@ namespace diffmerge::gui {
 
 class DiffEditor;
 class DiffConnectorSplitter;
+struct FileEditingState;
 
 class FileDiffWidget : public QWidget {
     Q_OBJECT
@@ -31,9 +32,20 @@ public:
                     const QStringList& rightLines,
                     const diffcore::DiffOptions& opts = {.alignWhitespaceChanges = true});
 
-    // GUI-thread only. Null clears the view; no algorithms are run here.
+    // GUI-thread only. Refused while modified: the host must save or explicitly
+    // discardChanges() after its own confirmation. The widget shows no dialogs.
     void setComparison(std::shared_ptr<const PreparedComparison> comparison);
     void clearComparison() { setComparison(nullptr); }
+    void setEditable(Side side, bool editable);
+    bool isEditable(Side side) const;
+    bool isModified(Side side) const;
+    QString text(Side side) const; // Normalized LF text, including the final newline.
+    void discardChanges();
+    void setSaveTarget(Side side, const QString& path);
+    QString saveTarget(Side side) const;
+    bool save(Side side, QString* error = nullptr, bool overwriteChanged = false);
+    bool copyChange(int index, Side source);
+    bool isRecomputing() const;
     std::shared_ptr<const PreparedComparison> comparison() const { return m_comparison; }
     std::chrono::nanoseconds lastInstallationTime() const { return m_installationTime; }
 
@@ -96,13 +108,27 @@ signals:
     void unchangedLinesSkippedChanged(bool skipped);
     void backRequested();
     void fileBrowseRequested(Side side, const QString& currentPath);
+    // Path-bar reload with modified content: the host asks, then saves/discards
+    // and loads these paths, or restores the displayed paths after cancellation.
+    void comparisonReplacementRequested(const QString& leftPath, const QString& rightPath);
+    void saveRequested(Side side);
     void loadFailed(const QString& message);
     void currentChangeChanged(int index);
     void comparisonChanged(int changeCount);
+    void modifiedChanged(Side side, bool modified);
+    void editableChanged(Side side, bool editable);
+    void operationFailed(const QString& message);
     // Emitted after a successful loadFromPaths so MainWindow can update title.
     void pathsChanged(const QString& leftPath, const QString& rightPath);
 
 private:
+    void setupEditing();
+    void resetEditing();
+    void updateEditability();
+    void documentEdited(Side side);
+    void recomputeEditedComparison();
+    void installEditedComparison(std::shared_ptr<const PreparedComparison> comparison);
+    std::unique_ptr<FileEditingState> m_editing;
     void updateHorizontalScrollRange();
     bool m_syncingHorizontal = false;
     int m_horizontalOffset = 0;
@@ -142,6 +168,13 @@ private:
     QToolButton*  m_leftBrowse    = nullptr;
     QLineEdit*    m_rightPathEdit = nullptr;
     QToolButton*  m_rightBrowse   = nullptr;
+    QToolButton* m_leftLock = nullptr;
+    QToolButton* m_rightLock = nullptr;
+    QToolButton* m_leftSave = nullptr;
+    QToolButton* m_rightSave = nullptr;
+    QLabel* m_editHint = nullptr;
+    QLabel* m_binaryNotice = nullptr;
+    bool m_binaryInput = false;
     std::shared_ptr<const PreparedComparison> m_comparison;
     const AlignedLineModel* m_model = nullptr;
     int m_notifiedChange = -1;

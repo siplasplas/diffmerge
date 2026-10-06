@@ -34,7 +34,7 @@ public:
     explicit DiffEditor(Side side, QWidget* parent = nullptr);
     ~DiffEditor() override;
 
-    void setAlignedModel(const AlignedLineModel* model);
+    void setAlignedModel(const AlignedLineModel* model, bool preserveDocument = false);
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
     void setColorScheme(const ColorScheme& scheme);
     // GUI-thread only. The file name selects installed Kate XML rules.
@@ -66,7 +66,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    void applyModel();
+    void applyModel(bool preserveDocument = false);
     void applyHighlighter();
     void applyColorScheme(const ColorScheme& scheme);
 

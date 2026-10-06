@@ -59,6 +59,7 @@ public:
     const AlignedLineModel& model() const { return m_model; }
     const IntraLineDiffEngine::Result& highlights() const { return m_highlights; }
     const ScrollSyncMapper& scrollMapping() const { return m_mapping; }
+    const ComparisonOptions& options() const { return m_options; }
     const QVector<ChangeBlock>& changes() const { return m_model.changeBlocks(); }
 private:
     PreparedComparison() = default;
@@ -67,6 +68,7 @@ private:
     AlignedLineModel m_model;
     IntraLineDiffEngine::Result m_highlights;
     ScrollSyncMapper m_mapping;
+    ComparisonOptions m_options;
     friend PrepareResult prepareComparison(const TextSnapshot&, const TextSnapshot&,
         const ComparisonOptions&, const diffcore::CancellationToken&);
 };
