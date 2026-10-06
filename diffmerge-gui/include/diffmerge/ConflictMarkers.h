@@ -22,6 +22,7 @@ struct MarkerImportResult {
     MergeSessionStatus status = MergeSessionStatus::Error;
     QVector<ImportedConflict> conflicts; // Empty on any failure, never partial.
     QString message;
+    std::uint64_t workPerformed = 0;
 };
 // Read-only, worker-safe import. RESULT bytes and host resolution states are never
 // changed. Common text outside zdiff3 regions remains in the original seed.

@@ -115,6 +115,7 @@ MarkerImportResult importConflictMarkers(const PreparedMergeSession& session,
     }
     if (result.status != MergeSessionStatus::Ready && lineNumber >= 0)
         result.message.prepend(QStringLiteral("RESULT line %1: ").arg(lineNumber + 1));
+    result.workPerformed = control.workPerformed();
     return result;
 }
 } // namespace diffmerge::gui

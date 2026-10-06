@@ -283,6 +283,19 @@ std::optional<QByteArray> MergeWidget::resultBytes() const {
     if (!m_session || !m_session->resultText()) return std::nullopt;
     return serialize(m_editing->text,m_editing->current.endings,m_editing->bom,m_editing->limits);
 }
+std::optional<MergeExportInput> MergeWidget::captureExportInput() const {
+    const auto bytes = resultBytes();
+    if (!bytes) return std::nullopt;
+    return MergeExportInput{m_session,*bytes,m_editing->current.conflicts,m_editing->options,isEditable()};
+}
+PrepareMergeExportResult MergeWidget::exportResult(const MergeExportOptions& options,
+    const MergeSessionLimits& limits, const diffcore::CancellationToken& cancellation) const {
+    if (options.disposition == MergeExportDisposition::Cancelled)
+        return prepareMergeExport({},options,limits,cancellation);
+    const auto input = captureExportInput();
+    if (!input) return {MergeSessionStatus::Error,std::nullopt,QStringLiteral("RESULT cannot be serialized losslessly")};
+    return prepareMergeExport(*input,options,limits,cancellation);
+}
 void MergeWidget::documentEdited() {
     if (m_editing->installing) return;
     const auto next = documentText(m_result->edit()->area()); const auto before = m_editing->text;

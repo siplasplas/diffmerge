@@ -58,6 +58,8 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/IntraLineDiffEngine.cpp
     src/fileview/ViewProjection.cpp
     src/merge/ConflictMarkers.cpp
+    src/merge/MergeExport.cpp
+    include/diffmerge/MergeExport.h
     src/merge/MergeWidget.cpp
     include/diffmerge/MergeWidget.h
     src/merge/MergePreviewWidget.cpp

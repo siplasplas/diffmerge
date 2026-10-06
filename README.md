@@ -648,7 +648,7 @@ checks embedding and resource loading without opening a window.
 `<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Widgets`.
 It can run on a worker without GUI resources and produces an immutable
 `PreparedMergeSession`. This first stage prepares source data for inspection;
-the standalone merge algorithm and structured export are subsequent stages.
+the standalone merge algorithm remains a subsequent stage.
 
 Pass independent `MergeFileInput` descriptors for BASE, OURS and THEIRS. Each owns
 its bytes, opaque source/object identity, raw path, optional mode, display label
@@ -763,13 +763,74 @@ Use `isModified()`, `unresolvedCount()`, `modifiedChanged`,
 `unresolvedCountChanged` and `conflictStatesChanged` for host controls. Replacing a
 modified session is refused; `discardChanges()` explicitly restores its initial
 RESULT and conflict states. Zero unresolved conflicts is an editor state, not
-an accepted, saved or staged resolution. Structured Draft/Resolved export, save
-requests and filesystem saving are still subsequent stages.
+an accepted, saved or staged resolution. Structured export is described below;
+save requests and filesystem saving are still subsequent stages.
 
 The desktop has **Edit RESULT (in memory)**, fragment buttons, range review and
 native Undo/Redo. F7 / Shift+F7 navigate conflicts; the three-pane gap stays 24 px.
 Closing a modified result asks whether to discard it. This stage does not save
 edits to disk, and the desktop is not yet a complete mergetool.
+
+### Structured merge export
+
+`<diffmerge/MergeExport.h>` defines the owned `MergeExportInput` and
+`prepareMergeExport()`. Capture `MergeWidget::captureExportInput()` on the GUI
+thread, then pass that independent snapshot to a worker. `exportResult()` is a
+synchronous convenience wrapper. Neither function writes a file, clears the
+modified flag, changes editor history, stages content or closes the widget.
+
+`MergeExportOptions::disposition` selects **Cancelled**, **Draft** or **Resolved**.
+A deliberate Cancelled request returns a Ready outcome with no payload; worker
+cancellation returns Cancelled status with no outcome. Errors and resource limits
+also return no partial outcome. All output values are owned. The outcome retains
+its immutable captured session (source identities, raw paths, modes and original
+bytes), the RESULT fingerprint, current conflict IDs/states/provenance and output
+UTF-8 serialization metadata (BOM, final newline and each line ending).
+
+**Draft** retains unresolved regions as complete, well-formed markers. The default
+`MergeMarkerStyle::Preserve` preserves exact current bytes, including mixed line
+endings and manually edited marker fragments. Other styles explicitly select
+merge/diff3/zdiff3, marker length, delimiter line endings and optional single-line
+labels. Conversion keeps the current fragments and common text outside conflicts;
+zdiff3 output preserves existing common-text placement rather than computing new
+factoring. Diff3/zdiff3 requires an existing BASE fragment. Exported conflict ranges
+refer to the resulting normalized text, including changed delimiter lengths.
+Unmapped/overlapping ranges, untracked/malformed markers, or unresolved fragments
+whose markers were manually removed are refused with a diagnostic. Export never
+reconstructs over a manual edit to manufacture a draft. Explicitly literal marker
+lines can be retained in an unchanged seed; edited text with such consent requires
+coordinate review before export: update the captured input's literal line set
+and explicitly set `literalMarkerLinesReviewed`.
+
+**Resolved** requires writable mode, all conflicts explicitly resolved, valid
+mapped ranges and no remaining nonliteral markers. When the authoritative host
+conflict list is unknown, the caller must additionally set
+`confirmUnknownConflictState`; removing markers alone is insufficient. The outcome's
+`explicitlyCompleted` records the editor decision only, without claiming host
+acceptance, saving or staging.
+
+`MergeFileAction::Keep` returns bytes; zero bytes means an existing empty file.
+`MergeFileAction::Delete` requires Resolved and `confirmFileDeletion`. This is a
+whole-file decision, distinct from deleting a conflict fragment: it explicitly
+resolves the captured conflicts as deletion, with no text serialization payload.
+It never deletes anything on disk. `rawPath` and `mode` default to RESULT seed
+metadata; the host can explicitly provide a different opaque path or mode. No
+output path is required for in-memory buffers. The host validates stale fingerprints,
+path/mode conflicts, filters and publication before accepting the outcome.
+
+```cpp
+auto captured = widget.captureExportInput(); // GUI thread
+if (captured) {
+    diffmerge::gui::MergeExportOptions options;
+    options.disposition = diffmerge::gui::MergeExportDisposition::Resolved;
+    // Set confirmUnknownConflictState only after explicit host/user review.
+    auto exported = diffmerge::gui::prepareMergeExport(*captured, options);
+    // Only a Ready outcome may be considered for host acceptance.
+}
+```
+
+The existing demo remains an in-memory conflict editor. Filesystem saving,
+mergetool completion and save/export request signals are the next stage.
 
 ### Presentation API
 

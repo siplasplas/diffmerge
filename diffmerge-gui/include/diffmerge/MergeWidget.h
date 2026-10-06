@@ -1,17 +1,8 @@
 #pragma once
 #include <diffmerge/MergePreviewWidget.h>
+#include <diffmerge/MergeExport.h>
 #include <memory>
 namespace diffmerge::gui {
-enum class MergeChoice { Unresolved, Ours, Theirs, OursThenTheirs, TheirsThenOurs, Base, Delete, Manual };
-// Half-open UTF-16 offsets in normalized RESULT text, not display rows or bytes.
-struct MergeResultRange { int start = 0, length = 0; };
-struct MergeEditableConflict {
-    QString id;
-    MergeResultRange range;
-    bool mapped = false;
-    MergeResolutionState state = MergeResolutionState::Unresolved;
-    MergeChoice choice = MergeChoice::Unresolved;
-};
 struct MergeEditingState;
 // Sources remain immutable. RESULT edits and explicit resolution decisions share
 // the result editor's native Undo stack. This component performs no host writes.
@@ -30,6 +21,9 @@ public:
     // in editor lines or an exceeded limit returns nullopt, never lossy bytes.
     std::optional<QByteArray> resultBytes() const;
     QVector<MergeEditableConflict> conflicts() const;
+    std::optional<MergeExportInput> captureExportInput() const;
+    PrepareMergeExportResult exportResult(const MergeExportOptions& options = {},
+        const MergeSessionLimits& limits = {}, const diffcore::CancellationToken& cancellation = {}) const;
     int unresolvedCount() const;
     const QVector<ImportedConflict>& markerConflicts() const override;
     void navigateToNextUnresolvedConflict();
