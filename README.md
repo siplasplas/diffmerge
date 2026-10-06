@@ -211,6 +211,21 @@ remains a separate option. The file view already compares lines without their
 terminators. Embedded hosts choose options with `FileDiffWidget::setDiffOptions()`
 and `DirDiffWidget::setDiffOptions()`; labels and save targets are preserved.
 
+The desktop watches compared file targets and their parent directories. While
+the file view is open, external changes automatically reload an unmodified side,
+keeping its viewport and the other side's edits and Undo history. For a modified
+side, it asks whether to reload and discard that side's edits or keep them.
+Keeping edits does not bypass the external-change check when saving. Watches are
+renewed after atomic replacement; saving through the desktop does not trigger a
+redundant reload. Failed reloads keep the existing documents intact. A file that
+becomes binary requires reopening the comparison to show the binary summary.
+
+**View > Refresh**, F5 in the file view, and Ctrl+R reread compared files with the
+same per-side discard confirmation. Ctrl+R rescans directories; F5 there still
+copies left to right. Embedded hosts can call `reloadSide(side)` and explicitly
+authorize discarding that side's edits with `reloadSide(side, true)`. File watching,
+confirmation dialogs, and shortcuts belong to the desktop application.
+
 Select rows and use **Copy →**, **← Copy**, Alt+Right/Alt+Left, or F5 (left to
 right). These copy files/directories, not text blocks. The desktop asks first,
 listing destination entries and marking files to overwrite. Regular files

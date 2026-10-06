@@ -64,6 +64,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/fileview/DiffConnectorSplitter.cpp
     src/fileview/ScrollSyncMapper.cpp
     src/fileview/FileEditing.cpp
+    src/fileview/FileReload.cpp
     src/dirview/DirectoryOperations.cpp
     src/dirview/DirDiffModel.cpp
     src/dirview/DirDiffWidget.cpp

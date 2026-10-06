@@ -21,16 +21,43 @@
 #include <QSettings>
 #include <QStatusBar>
 #include <QTimer>
+#include <QFileSystemWatcher>
+#include <QCryptographicHash>
+#include <QScopedValueRollback>
 #include <qce/kate/KateDataDownloader.h>
 
 #include <diffmerge/DirDiffWidget.h>
 #include <diffmerge/FileDiffWidget.h>
 
 namespace diffmerge::gui {
+namespace {
+QByteArray fileStamp(const QString& path) {
+    if(path.isEmpty()) return {};
+    const QFileInfo info(path);
+    if(!info.exists()) return QByteArrayLiteral("missing");
+    QByteArray stamp=info.canonicalFilePath().toUtf8()+':'+QByteArray::number(info.size())+':'+QByteArray::number(int(info.permissions()));
+    QFile file(path);
+    if(info.size()<=8*1024*1024 && file.open(QIODevice::ReadOnly)) {
+        const auto bytes=file.read(8*1024*1024+1);
+        if(file.error()==QFileDevice::NoError) return stamp+QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
+    }
+    return stamp+':'+QByteArray::number(info.lastModified().toMSecsSinceEpoch());
+}
+}
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_stack      = new QStackedWidget(this);
     m_diffWidget = new FileDiffWidget(m_stack);
+    m_fileWatcher = new QFileSystemWatcher(this);
+    m_fileWatchTimer = new QTimer(this); m_fileWatchTimer->setSingleShot(true); m_fileWatchTimer->setInterval(200);
+    connect(m_fileWatcher,&QFileSystemWatcher::fileChanged,this,[this] { m_fileWatchTimer->start(); });
+    connect(m_fileWatcher,&QFileSystemWatcher::directoryChanged,this,[this] { m_fileWatchTimer->start(); });
+    connect(m_fileWatchTimer,&QTimer::timeout,this,&MainWindow::checkFileChanges);
+    connect(m_diffWidget,&FileDiffWidget::pathsChanged,this,[this] {
+        configureFileWatching(true);
+        // Directory activation can assign a missing side's save target after load.
+        QTimer::singleShot(0,this,[this] { configureFileWatching(false); });
+    });
     connect(m_diffWidget, &FileDiffWidget::operationFailed, this, &MainWindow::showError);
     connect(m_diffWidget, &FileDiffWidget::modifiedChanged, this, [this] { updateModifiedTitle(); });
     connect(m_diffWidget, &FileDiffWidget::saveRequested, this, [this](Side side) { saveSide(side == Side::Left); });
@@ -81,6 +108,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* previous = new QShortcut(Qt::SHIFT | Qt::Key_F7, m_diffWidget);
     previous->setContext(Qt::WidgetWithChildrenShortcut);
     connect(previous, &QShortcut::activated, m_diffWidget, &FileDiffWidget::navigateToPrev);
+    auto* refresh=new QShortcut(Qt::Key_F5,m_diffWidget);
+    refresh->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(refresh,&QShortcut::activated,this,&MainWindow::refreshFiles);
+    auto* refreshBoth=new QShortcut(QKeySequence(QStringLiteral("Ctrl+R")),this);
+    connect(refreshBoth,&QShortcut::activated,this,[this] {
+        if(m_stack->currentWidget()==m_diffWidget) refreshFiles(); else m_dirWidget->refresh();
+    });
     for (Side source : {Side::Left, Side::Right}) {
         auto* copy = new QShortcut(source == Side::Left ? Qt::ALT | Qt::Key_Right : Qt::ALT | Qt::Key_Left, m_diffWidget);
         copy->setContext(Qt::WidgetWithChildrenShortcut);
@@ -250,6 +284,10 @@ void MainWindow::setupMenus() {
     });
 
     viewMenu->addSeparator();
+    auto* refreshAction=viewMenu->addAction(QStringLiteral("Refresh (F5 files / Ctrl+R)"));
+    connect(refreshAction,&QAction::triggered,this,[this] {
+        if(m_stack->currentWidget()==m_diffWidget) refreshFiles(); else m_dirWidget->refresh();
+    });
     const auto ignoreOption=[&](const QString& label, const QString& name, bool diffcore::DiffOptions::* field) {
         auto* action=viewMenu->addAction(label); action->setCheckable(true); action->setObjectName(name);
         const auto apply=[this,field](bool enabled) {
@@ -406,6 +444,75 @@ void MainWindow::setIgnoreOptions(bool whitespace, bool trailingWhitespace, bool
     findChild<QAction*>(QStringLiteral("ignoreTrailingWhitespace"))->setChecked(trailingWhitespace);
     findChild<QAction*>(QStringLiteral("ignoreCase"))->setChecked(caseInsensitive);
 }
+void MainWindow::configureFileWatching(bool resetObserved) {
+    QStringList watches;
+    for(int i=0;i<2;++i) {
+        const auto path=m_diffWidget->saveTarget(i==0 ? Side::Left : Side::Right);
+        if(resetObserved || path!=m_watchedPaths[i]) m_observedFiles[i]=fileStamp(path);
+        m_watchedPaths[i]=path;
+        if(path.isEmpty()) continue;
+        const QFileInfo info(path);
+        if(info.exists()) {
+            watches.append(info.absoluteFilePath());
+            if(!info.canonicalFilePath().isEmpty()) watches.append(info.canonicalFilePath());
+        }
+        QStringList parents{info.absolutePath()};
+        if(!info.canonicalFilePath().isEmpty()) parents.append(QFileInfo(info.canonicalFilePath()).absolutePath());
+        for(auto parent : parents) {
+            while(!QFileInfo(parent).isDir()) {
+                const auto ancestor=QFileInfo(parent).absolutePath();
+                if(ancestor==parent) break;
+                parent=ancestor;
+            }
+            if(QFileInfo(parent).isDir()) watches.append(parent);
+        }
+    }
+    watches.removeDuplicates();
+    const auto existing=m_fileWatcher->files()+m_fileWatcher->directories();
+    if(!existing.isEmpty()) m_fileWatcher->removePaths(existing);
+    if(!watches.isEmpty()) m_fileWatcher->addPaths(watches);
+}
+void MainWindow::checkFileChanges() {
+    if(m_stack->currentWidget()!=m_diffWidget) return;
+    if(m_checkingFiles) { m_fileWatchTimer->start(); return; }
+    QScopedValueRollback<bool> checking(m_checkingFiles,true);
+    configureFileWatching(false);
+    for(int i=0;i<2;++i) {
+        const auto path=m_watchedPaths[i];
+        const auto stamp=fileStamp(path);
+        if(path.isEmpty() || stamp==m_observedFiles[i]) continue;
+        m_observedFiles[i]=stamp;
+        const Side side=i==0 ? Side::Left : Side::Right;
+        bool discard=false;
+        if(m_diffWidget->isModified(side)) {
+            discard=QMessageBox::question(this,QStringLiteral("Compared file changed"),
+                QStringLiteral("%1 changed on disk. Reload this side and discard its unsaved edits?\n"
+                    "Choose No to keep your edits; saving will still check the external change.").arg(path),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes;
+            if(!discard) continue;
+        }
+        if(m_diffWidget->reloadSide(side,discard)) m_observedFiles[i]=fileStamp(path);
+    }
+    configureFileWatching(false);
+}
+void MainWindow::refreshFiles() {
+    if(m_checkingFiles) return;
+    QScopedValueRollback<bool> checking(m_checkingFiles,true);
+    for(int i=0;i<2;++i) {
+        const Side side=i==0 ? Side::Left : Side::Right;
+        const auto path=m_diffWidget->saveTarget(side);
+        if(path.isEmpty() || (!QFileInfo::exists(path) && m_observedFiles[i]==QByteArrayLiteral("missing"))) continue;
+        bool discard=false;
+        if(m_diffWidget->isModified(side)) {
+            discard=QMessageBox::question(this,QStringLiteral("Refresh compared file"),
+                QStringLiteral("Reload %1 and discard this side's unsaved edits?").arg(path),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes;
+            if(!discard) continue;
+        }
+        if(m_diffWidget->reloadSide(side,discard)) m_observedFiles[i]=fileStamp(path);
+    }
+    configureFileWatching(false);
+}
 
 bool MainWindow::saveSide(bool left) {
     const Side side = left ? Side::Left : Side::Right;
@@ -420,11 +527,15 @@ bool MainWindow::saveSide(bool left) {
             QMessageBox::question(this, QStringLiteral("File changed on disk"),
                 QStringLiteral("Overwrite the externally changed file %1?").arg(m_diffWidget->saveTarget(side)),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
-            if (m_diffWidget->save(side, &error, true)) { m_dirWidget->refresh(); return true; }
+            if (m_diffWidget->save(side, &error, true)) {
+                m_observedFiles[left ? 0 : 1]=fileStamp(m_diffWidget->saveTarget(side));
+                configureFileWatching(false); m_dirWidget->refresh(); return true;
+            }
         }
         showError(error); return false;
     }
-    m_dirWidget->refresh(); return true;
+    m_observedFiles[left ? 0 : 1]=fileStamp(m_diffWidget->saveTarget(side));
+    configureFileWatching(false); m_dirWidget->refresh(); return true;
 }
 
 bool MainWindow::confirmModified() {

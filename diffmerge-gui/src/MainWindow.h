@@ -3,6 +3,9 @@
 
 #include <QMainWindow>
 #include <QStackedWidget>
+#include <array>
+class QFileSystemWatcher;
+class QTimer;
 
 namespace qce::kate { class KateDataDownloader; }
 
@@ -37,6 +40,9 @@ private:
     bool confirmModified();
     bool saveSide(bool left);
     void updateModifiedTitle();
+    void configureFileWatching(bool resetObserved);
+    void checkFileChanges();
+    void refreshFiles();
 protected:
     void closeEvent(QCloseEvent* event) override;
 private:
@@ -50,6 +56,11 @@ private:
     QStackedWidget* m_stack      = nullptr;
     FileDiffWidget* m_diffWidget = nullptr;
     DirDiffWidget*  m_dirWidget  = nullptr;
+    QFileSystemWatcher* m_fileWatcher = nullptr;
+    QTimer* m_fileWatchTimer = nullptr;
+    std::array<QString, 2> m_watchedPaths;
+    std::array<QByteArray, 2> m_observedFiles;
+    bool m_checkingFiles = false;
 };
 
 }  // namespace diffmerge::gui

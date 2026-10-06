@@ -85,6 +85,9 @@ public:
     // Load files from disk, update path bar, and show diff.
     // Returns false and emits loadFailed if either file cannot be read.
     bool loadFromPaths(const QString& leftPath, const QString& rightPath);
+    // Reload only this save target, preserving the other document and its Undo.
+    // Modified text is replaced only with an explicit host decision.
+    bool reloadSide(Side side, bool discardModified = false);
 
     // Fill path edits without loading (used for command-line pre-fill).
     void setPaths(const QString& leftPath, const QString& rightPath);
