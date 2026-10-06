@@ -57,6 +57,10 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/SyntaxLoader.cpp
     src/editor/IntraLineDiffEngine.cpp
     src/fileview/ViewProjection.cpp
+    src/merge/ConflictMarkers.cpp
+    src/merge/MergePreviewWidget.cpp
+    include/diffmerge/ConflictMarkers.h
+    include/diffmerge/MergePreviewWidget.h
     src/merge/MergeSession.cpp
     include/diffmerge/MergeSession.h
     src/fileview/Comparison.cpp

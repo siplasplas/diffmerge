@@ -34,6 +34,7 @@ public:
 private slots:
     void onOpenFiles();
     void onOpenDirectories();
+    void onInspectConflictMarkers();
     void onFileActivated(const QString& leftPath, const QString& rightPath);
 
 private:

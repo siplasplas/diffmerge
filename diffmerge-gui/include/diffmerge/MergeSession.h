@@ -29,7 +29,7 @@ struct MergeResultSeed {
 };
 struct MergeConflict {
     QString id; // Stable, unique within this session.
-    std::optional<diffcore::LineRange> base, ours, theirs, result;
+    std::optional<diffcore::LineRange> base{}, ours{}, theirs{}, result{};
     MergeResolutionState state = MergeResolutionState::Unresolved;
 };
 struct MergeSessionInputs {

@@ -643,12 +643,12 @@ Alternatively, pass `-DDIFFMERGE_SOURCE_DIR=/path/to/diffmerge` to build the exa
 against a checkout. `QT_QPA_PLATFORM=offscreen ./build-example/embedded-diff --smoke`
 checks embedding and resource loading without opening a window.
 
-### Merge session inputs (first stage)
+### Merge session inputs
 
 `<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Widgets`.
 It can run on a worker without GUI resources and produces an immutable
 `PreparedMergeSession`. This first stage prepares source data for inspection;
-the merge algorithm, marker importer and three-pane editor are subsequent stages.
+the merge algorithm and editable conflict resolver are subsequent stages.
 
 Pass independent `MergeFileInput` descriptors for BASE, OURS and THEIRS. Each owns
 its bytes, opaque source/object identity, raw path, optional mode, display label
@@ -667,8 +667,8 @@ explicitly empty list. Conflict IDs must be unique and nonempty; optional source
 and result line ranges use original, half-open coordinates and must be within an
 available text snapshot. Resolution states are supplied explicitly, never inferred
 from the presence or absence of markers. Missing result ranges remain unmapped.
-No markers are parsed at this stage and no resolution, export, save or repository
-operation is performed.
+Session preparation does not parse markers or perform resolution, export, save
+or repository operations.
 
 Preparation reports `Ready`, `Cancelled`, `ResourceLimit`, `Error` or `Unsupported`.
 Only `Ready` contains a session. Aggregate byte, metadata, line, UTF-16, per-line,
@@ -676,6 +676,47 @@ conflict-count and work limits cover all four inputs. Binary content (NUL), inva
 UTF-8 and present symlink/submodule/other file kinds are unsupported for text
 preparation and never become placeholder text. Owned input buffers must already
 exist before preparation; limits do not bound allocations made by the host.
+
+### Conflict marker import and read-only merge preview
+
+`importConflictMarkers()` in `<diffmerge/ConflictMarkers.h>` reads the existing
+RESULT of a prepared session. Its state machine imports merge and diff3 marker
+blocks, including zdiff3 blocks with common text outside the delimiters. Pass the
+configured positive `markerSize` (default 7); LF, CRLF, CR, empty fragments,
+optional labels and an unterminated final line are supported. Each imported region
+has original RESULT line and byte ranges, exact fragment bytes, and a stable ID
+within the unchanged seed. Byte ranges exclude the file BOM and include marker
+line terminators. BASE fragments are optional and never imply a complete ancestor.
+
+Nested, missing, repeated, orphan or out-of-order delimiters are diagnostics.
+Failures publish no partial conflict list. Import honors resource limits and
+cancellation and never rewrites RESULT or changes host resolution states. Removing
+markers does not imply a resolved session. Marker recognition requires host
+conflict metadata or explicit `allowUnconfirmedMarkers` consent. A host can mark
+known literal marker lines with `literalMarkerLines`; these remain ordinary text.
+
+`MergePreviewWidget` in `<diffmerge/MergePreviewWidget.h>` is a read-only view of
+OURS / RESULT / THEIRS, with optional BASE. Pass a prepared session to
+`setSession(session, markerOptions)`. Available complete sources stay complete;
+when a source is unknown or absent, selected marker fragments are explicitly
+labelled as fragments rather than reconstructed source files. The entire RESULT,
+including surrounding manual edits and markers, stays visible. Invalid replacement
+imports keep the previous session. The header reports marker regions separately
+from the host's unresolved count or unknown resolution state.
+
+Use `navigateToConflict()`, `navigateToNextConflict()` and
+`navigateToPreviousConflict()` for navigation, `setBaseVisible()` to inspect BASE,
+and `setPanelSpacing()` for the gaps (default **24 px**, range 8–160). Two-pane
+comparisons retain their **48 px** default. The preview does not yet align source
+fragments with RESULT, draw merge connectors, edit, save or resolve conflicts.
+
+The desktop offers **File > Inspect conflict markers...** in a separate read-only
+window, with F7 / Shift+F7 navigation, configurable marker length and a spacing
+slider. The same keys navigate differences in two-pane comparisons and marker
+conflicts in the merge preview; key bindings belong to the desktop, not the widget.
+Input loading and session preparation run on a worker; closing the window cancels preparation.
+The desktop reads only the selected regular file and does not read Git stages or
+change the repository. This preview is not yet a `git mergetool` resolver.
 
 ### Presentation API
 

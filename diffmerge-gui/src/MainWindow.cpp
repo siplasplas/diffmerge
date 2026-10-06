@@ -2,6 +2,13 @@
 
 #include <qxfiledialog.h>
 #include <QShortcut>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QSpinBox>
+#include <QFutureWatcher>
+#include <QVBoxLayout>
+#include <QtConcurrent/QtConcurrentRun>
+#include <diffmerge/MergePreviewWidget.h>
 #include <QInputDialog>
 #include <QSlider>
 #include <QWidgetAction>
@@ -198,6 +205,9 @@ void MainWindow::setupMenus() {
     openDirsAction->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_O);
     connect(openDirsAction, &QAction::triggered, this, &MainWindow::onOpenDirectories);
 
+    auto* inspect = fileMenu->addAction(QStringLiteral("Inspect conflict markers..."));
+    inspect->setObjectName(QStringLiteral("inspectConflictMarkers"));
+    connect(inspect, &QAction::triggered, this, &MainWindow::onInspectConflictMarkers);
     fileMenu->addSeparator();
 
     auto* saveAction = fileMenu->addAction(QStringLiteral("Save"));
@@ -421,6 +431,78 @@ void MainWindow::onOpenFiles() {
         this, QStringLiteral("Select right file"), {});
     if (right.isEmpty()) return;
     loadFiles(left, right);
+}
+
+void MainWindow::onInspectConflictMarkers() {
+    const auto path = QxFileDialog::getOpenFileName(this, QStringLiteral("Inspect a file with conflict markers"), {});
+    if (path.isEmpty()) return;
+    QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Conflict marker inspection — read-only")); dialog.resize(1200, 700);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* status = new QLabel(QStringLiteral("Loading conflict markers…"), &dialog);
+    status->setTextFormat(Qt::PlainText); status->setWordWrap(true); layout->addWidget(status);
+    auto* close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog); layout->addWidget(close);
+    connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    diffcore::CancellationToken cancellation;
+    auto* watcher = new QFutureWatcher<PrepareMergeSessionResult>(&dialog);
+    connect(watcher, &QFutureWatcher<PrepareMergeSessionResult>::finished, &dialog, [&dialog, layout, status, watcher] {
+        const auto prepared = watcher->result();
+        if (prepared.status != MergeSessionStatus::Ready) { status->setText(prepared.message); return; }
+        auto* preview = new MergePreviewWidget(&dialog);
+        connect(preview, &MergePreviewWidget::operationFailed, status, [status](const QString& message) {
+            status->setText(message); status->show();
+        });
+        layout->insertWidget(1, preview, 1);
+        auto* controls = new QWidget(&dialog); auto* row = new QHBoxLayout(controls);
+        auto* markerSize = new QSpinBox(controls); markerSize->setRange(1, 200000); markerSize->setValue(7);
+        auto* spacing = new QSlider(Qt::Horizontal, controls); spacing->setRange(8, 160); spacing->setValue(24);
+        row->addWidget(new QLabel(QStringLiteral("Marker length"), controls)); row->addWidget(markerSize);
+        row->addWidget(new QLabel(QStringLiteral("Panel spacing"), controls)); row->addWidget(spacing, 1);
+        layout->insertWidget(2, controls);
+        const auto import = [preview, status, session = prepared.session](int size) {
+            MarkerImportOptions options; options.markerSize = size; options.allowUnconfirmedMarkers = true;
+            if (preview->setSession(session, options)) status->hide();
+        };
+        connect(markerSize, &QSpinBox::valueChanged, preview, import);
+        connect(spacing, &QSlider::valueChanged, preview, &MergePreviewWidget::setPanelSpacing);
+        import(7);
+        auto* next = new QShortcut(Qt::Key_F7, &dialog);
+        connect(next, &QShortcut::activated, preview, &MergePreviewWidget::navigateToNextConflict);
+        auto* previous = new QShortcut(Qt::SHIFT | Qt::Key_F7, &dialog);
+        connect(previous, &QShortcut::activated, preview, &MergePreviewWidget::navigateToPreviousConflict);
+    });
+    watcher->setFuture(QtConcurrent::run([path, cancellation] {
+        const auto fail = [](MergeSessionStatus status, const QString& message) {
+            PrepareMergeSessionResult result; result.status = status; result.message = message; return result;
+        };
+        const QFileInfo info(path);
+        if (!info.isFile() || info.isSymLink()) return fail(MergeSessionStatus::Unsupported, QStringLiteral("Select a regular text file"));
+        MergeSessionLimits limits;
+        if (std::uint64_t(info.size()) > limits.maxInputBytes)
+            return fail(MergeSessionStatus::ResourceLimit, QStringLiteral("File exceeds the merge preview byte limit"));
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return fail(MergeSessionStatus::Error, file.errorString());
+        QByteArray bytes;
+        while (!file.atEnd()) {
+            if (cancellation.isCancellationRequested()) return fail(MergeSessionStatus::Cancelled, QStringLiteral("Preview cancelled"));
+            const auto block = file.read(65536);
+            if (file.error() != QFileDevice::NoError || block.isEmpty()) return fail(MergeSessionStatus::Error, QStringLiteral("Could not read preview input"));
+            if (std::uint64_t(block.size()) > limits.maxInputBytes - std::uint64_t(bytes.size()))
+                return fail(MergeSessionStatus::ResourceLimit, QStringLiteral("File exceeds the merge preview byte limit"));
+            bytes += block;
+        }
+        const QFileInfo after(path);
+        if (info.size() != after.size() || info.lastModified() != after.lastModified())
+            return fail(MergeSessionStatus::Error, QStringLiteral("File changed while loading the preview"));
+        MergeSessionInputs inputs; MergeResultSeed seed;
+        seed.origin = ResultSeedOrigin::WorkingFile; seed.file.availability = MergeAvailability::Present;
+        seed.file.bytes = bytes; seed.file.rawPath = QFile::encodeName(path); seed.file.label = path; seed.file.fileName = info.fileName();
+        seed.fingerprint = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+        inputs.resultSeed = std::move(seed);
+        // Syntax hints do not pretend that marker fragments are complete sources.
+        inputs.base.fileName = inputs.ours.fileName = inputs.theirs.fileName = info.fileName();
+        return prepareMergeSession(inputs, limits, cancellation);
+    }));
+    dialog.exec(); cancellation.requestCancellation();
 }
 
 void MainWindow::onOpenDirectories() {
