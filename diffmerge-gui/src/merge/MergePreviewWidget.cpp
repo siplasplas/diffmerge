@@ -1,4 +1,5 @@
 #include <diffmerge/MergePreviewWidget.h>
+#include "MergePresentation.h"
 #include <diffmerge/DiffEditor.h>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -32,7 +33,7 @@ MergePreviewWidget::MergePreviewWidget(QWidget* parent) : QWidget(parent) {
     m_showBase->setObjectName(QStringLiteral("showMergeBase"));
     navigation->addWidget(m_previous); navigation->addWidget(m_next); navigation->addWidget(m_summary); navigation->addWidget(m_showBase);
     layout->addLayout(navigation);
-    m_splitter = new QSplitter(Qt::Horizontal, this); m_splitter->setChildrenCollapsible(false); m_splitter->setHandleWidth(24);
+    m_splitter = createMergeSplitter(this); m_splitter->setChildrenCollapsible(false); m_splitter->setHandleWidth(24);
     const auto pane = [this](const QString& role, Side side, DiffEditor*& editor, QLabel*& label, QSplitter* splitter) {
         auto* widget = new QWidget(this); auto* row = new QVBoxLayout(widget); row->setContentsMargins(0, 0, 0, 0);
         label = new QLabel(role, widget); label->setTextFormat(Qt::PlainText); label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -50,6 +51,7 @@ MergePreviewWidget::MergePreviewWidget(QWidget* parent) : QWidget(parent) {
     connect(m_showBase, &QToolButton::toggled, this, &MergePreviewWidget::setBaseVisible);
     connect(m_previous, &QToolButton::clicked, this, &MergePreviewWidget::navigateToPreviousConflict);
     connect(m_next, &QToolButton::clicked, this, &MergePreviewWidget::navigateToNextConflict);
+    m_presentation = new MergePresentation(this,m_splitter);
     updateSummary();
 }
 bool MergePreviewWidget::setSession(std::shared_ptr<const PreparedMergeSession> session, const MarkerImportOptions& options) {
@@ -62,7 +64,9 @@ bool MergePreviewWidget::setSession(std::shared_ptr<const PreparedMergeSession> 
     const auto label = m_session && m_session->inputs().resultSeed ? m_session->inputs().resultSeed->file.label : QString{};
     m_resultLabel->setText(QStringLiteral("RESULT — %1").arg(m_session && m_session->resultText() ? label : QStringLiteral("unavailable")));
     m_resultLabel->setToolTip(m_resultLabel->text());
+    m_sourcesInstalledFor.reset();
     updateSources(); updateSummary();
+    m_presentation->requestUpdate();
     if (!m_conflicts.isEmpty()) navigateToConflict(0);
     else emit currentConflictChanged(-1);
     return true;
@@ -89,9 +93,12 @@ void MergePreviewWidget::updateSources() {
             }
         }
         label->setText(role + QStringLiteral(" — ") + description); label->setToolTip(label->text());
-        display(sourceEditor(source), text);
+        if (m_sourcesInstalledFor != m_session || !m_session || !m_session->sourceText(source))
+            display(sourceEditor(source), text);
     }
+    m_sourcesInstalledFor = m_session;
 }
+bool MergePreviewWidget::isComparisonUpdating() const { return m_presentation->isUpdating(); }
 void MergePreviewWidget::updateSummary() {
     QString text = m_current >= 0 ? QStringLiteral("Marker conflict %1 of %2").arg(m_current + 1).arg(m_conflicts.size())
                                  : QStringLiteral("No marker conflicts");
@@ -119,6 +126,7 @@ void MergePreviewWidget::setPanelSpacing(int pixels) { m_splitter->setHandleWidt
 int MergePreviewWidget::panelSpacing() const { return m_splitter->handleWidth(); }
 void MergePreviewWidget::setBaseVisible(bool visible) {
     QSignalBlocker blocker(m_showBase); m_showBase->setChecked(visible); m_basePane->setVisible(visible);
+    if (m_presentation) m_presentation->requestUpdate();
 }
 bool MergePreviewWidget::baseVisible() const { return !m_basePane->isHidden(); }
 DiffEditor* MergePreviewWidget::sourceEditor(MergeSource source) const {

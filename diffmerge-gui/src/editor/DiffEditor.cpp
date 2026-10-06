@@ -279,6 +279,17 @@ void DiffEditor::setAlignedModel(const AlignedLineModel* model, bool preserveDoc
     applyModel(preserveDocument);
 }
 
+void DiffEditor::setDocumentDiffs(const QVector<diffcore::ChangeType>& changes,
+    const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges) {
+    Q_ASSERT(!hasProjection());
+    m_model = nullptr;
+    m_docLineChanges = changes; m_intraLineDiffs = ranges;
+    m_lineNumbers->setData(nullptr, m_scheme);
+    m_boundaries->setBoundaries({}, m_scheme);
+    applyHighlighter();
+    m_edit->area()->viewport()->update();
+}
+
 void DiffEditor::setIntraLineDiffs(
     const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges)
 {

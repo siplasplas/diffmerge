@@ -62,6 +62,8 @@ set(DIFFMERGE_WIDGET_SOURCES
     include/diffmerge/MergeExport.h
     src/merge/MergeWidget.cpp
     include/diffmerge/MergeWidget.h
+    src/merge/MergePresentation.cpp
+    src/merge/MergePresentation.h
     src/merge/MergePreviewWidget.cpp
     include/diffmerge/ConflictMarkers.h
     include/diffmerge/MergePreviewWidget.h

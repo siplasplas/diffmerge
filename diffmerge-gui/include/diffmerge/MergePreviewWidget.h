@@ -6,6 +6,7 @@ class QSplitter;
 class QToolButton;
 namespace diffmerge::gui {
 class DiffEditor;
+class MergePresentation;
 // Read-only inspection. No key bindings, save actions or implicit resolution.
 class MergePreviewWidget : public QWidget {
     Q_OBJECT
@@ -25,8 +26,10 @@ public:
     bool baseVisible() const;
     DiffEditor* sourceEditor(MergeSource source) const;
     DiffEditor* resultEditor() const { return m_result; }
+    bool isComparisonUpdating() const;
 signals:
     void currentConflictChanged(int index);
+    void comparisonsUpdated();
     void operationFailed(const QString& message);
 protected:
     void updateSources();
@@ -39,5 +42,7 @@ protected:
     QLabel *m_oursLabel, *m_resultLabel, *m_theirsLabel, *m_baseLabel, *m_summary;
     QWidget* m_basePane;
     QToolButton *m_previous, *m_next, *m_showBase;
+    std::shared_ptr<const PreparedMergeSession> m_sourcesInstalledFor;
+    MergePresentation* m_presentation = nullptr;
 };
 } // namespace diffmerge::gui

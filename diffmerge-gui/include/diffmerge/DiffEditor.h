@@ -35,6 +35,10 @@ public:
     ~DiffEditor() override;
 
     void setAlignedModel(const AlignedLineModel* model, bool preserveDocument = false);
+    // Decorate real document lines without replacing text, cursor or Undo history.
+    void setDocumentDiffs(const QVector<diffcore::ChangeType>& changes,
+        const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
+    const QVector<diffcore::ChangeType>& documentLineChanges() const { return m_docLineChanges; }
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
     void setColorScheme(const ColorScheme& scheme);
     // GUI-thread only. The file name selects installed Kate XML rules.

@@ -802,6 +802,20 @@ lines can be retained in an unchanged seed; edited text with such consent requir
 coordinate review before export: update the captured input's literal line set
 and explicitly set `literalMarkerLinesReviewed`.
 
+The merge view compares full, available OURS and THEIRS against the current
+RESULT, and BASE when its pane is visible. Line colors, word/character highlights,
+curved connectors and synchronized vertical scrolling use real source/result
+coordinates. No filler lines enter RESULT. Horizontal scrolling shares the range
+of all visible panes, including short documents, and does not initiate vertical
+synchronization. Navigating conflicts retains the installed source documents.
+After editing or Undo, bounded comparisons run in the background with a debounce;
+stale work is cancelled and stale decorations are cleared. These comparisons are
+observational: they never infer resolution, replace text, clear Undo or change
+export coordinates. `isComparisonUpdating()` and `comparisonsUpdated()` let a host
+observe completion; a comparison limit/error leaves text intact and emits
+`operationFailed`. Unavailable sources remain explicitly unavailable or show only
+the imported fragment; they do not acquire invented full-file mappings.
+
 For a host that retains an unfinished merge in memory, explicitly choose
 `MergeDraftFormat::HostBuffer`. This Draft preserves exact current bytes and all
 conflict IDs, ranges, ambiguity, states and choices, even when manual edits removed
