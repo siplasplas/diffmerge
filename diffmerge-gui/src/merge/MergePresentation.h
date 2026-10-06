@@ -16,6 +16,7 @@ public:
     bool isUpdating() const;
 private:
     void startUpdate();
+    void decorateConflicts();
     void synchronizeVertical(int pane);
     void updateHorizontalRanges();
     std::unique_ptr<MergePresentationState> m_state;

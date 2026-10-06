@@ -259,11 +259,47 @@ bool MergeWidget::setSession(std::shared_ptr<const PreparedMergeSession> session
     if (!m_conflicts.isEmpty()) navigateToConflict(0);
     notifyState(); emit editableChanged(isEditable()); return true;
 }
+bool MergeWidget::setViewMode(MergeViewMode mode) {
+    if (mode == viewMode()) return true;
+    if (isModified()) { emit operationFailed(QStringLiteral("Export or discard edits before changing merge view mode")); return false; }
+    return MergePreviewWidget::setViewMode(mode);
+}
+QVector<MergeConflictPresentation> MergeWidget::conflictPresentation() const {
+    if (!m_editing) return {};
+    QVector<MergeConflictPresentation> result;
+    for (const auto& conflict : m_editing->current.conflicts) {
+        MergeConflictPresentation item; item.id = conflict.id; item.state = conflict.state;
+        if (conflict.mapped && validRange(m_editing->text,conflict.range)) {
+            const int start = m_editing->text.left(conflict.range.start).count('\n');
+            const int end = m_editing->text.left(conflict.range.start+conflict.range.length).count('\n');
+            const bool partial = conflict.range.length>0 && m_editing->text[conflict.range.start+conflict.range.length-1]!='\n';
+            item.result = diffcore::LineRange{start,end-start+(partial ? 1 : 0)};
+        }
+        if (m_session && m_session->inputs().hostConflicts) for (const auto& host : *m_session->inputs().hostConflicts)
+            if (host.id == item.id) { item.ours = host.ours; item.theirs = host.theirs; item.base = host.base; break; }
+        result.append(item);
+    }
+    return result;
+}
+bool MergeWidget::canChooseSource(const QString& id, MergeSource source) const {
+    if (source != MergeSource::Ours && source != MergeSource::Theirs && source != MergeSource::Base) return false;
+    for (int i=0;i<m_editing->current.conflicts.size();++i)
+        if (m_editing->current.conflicts[i].id == id)
+            return canChooseConflict(i,source == MergeSource::Ours ? MergeChoice::Ours : source == MergeSource::Theirs ? MergeChoice::Theirs : MergeChoice::Base);
+    return false;
+}
+bool MergeWidget::chooseSource(const QString& id, MergeSource source) {
+    if (!canChooseSource(id,source)) return false;
+    for (int i=0;i<m_editing->current.conflicts.size();++i)
+        if (m_editing->current.conflicts[i].id == id)
+            return chooseConflict(i,source == MergeSource::Ours ? MergeChoice::Ours : source == MergeSource::Theirs ? MergeChoice::Theirs : MergeChoice::Base);
+    return false;
+}
 void MergeWidget::setEditable(bool editable) {
     if (editable && m_conflicts.size() > 4096) {
         emit operationFailed(QStringLiteral("Too many conflicts for editable Undo history (limit 4096)")); editable = false;
     }
-    m_editing->editable = editable; m_result->edit()->area()->setReadOnly(!isEditable()); updateSummary(); emit editableChanged(isEditable()); }
+    m_editing->editable = editable; m_result->edit()->area()->setReadOnly(!isEditable()); updateSummary(); emit editableChanged(isEditable()); emit presentationChanged(); }
 bool MergeWidget::isWritable() const { return m_editing->editable && m_conflicts.size() <= 4096 && bool(m_session); }
 bool MergeWidget::isEditable() const { return isWritable() && m_session->resultText().has_value(); }
 bool MergeWidget::isModified() const { return m_editing->text != m_editing->cleanText || !same(m_editing->current,m_editing->clean); }
@@ -520,7 +556,7 @@ void MergeWidget::notifyState() {
     if (m_editing->lastModified != isModified()) { m_editing->lastModified = isModified(); emit modifiedChanged(m_editing->lastModified); }
     const int unresolved = unresolvedCount();
     if (m_editing->lastUnresolved != unresolved) { m_editing->lastUnresolved = unresolved; emit unresolvedCountChanged(unresolved); }
-    updateSummary(); emit conflictStatesChanged();
+    updateSummary(); emit conflictStatesChanged(); emit presentationChanged();
 }
 void MergeWidget::updateSummary() {
     if (!m_editing) { MergePreviewWidget::updateSummary(); return; }

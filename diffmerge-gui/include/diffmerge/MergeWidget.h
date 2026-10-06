@@ -13,6 +13,10 @@ public:
     ~MergeWidget() override;
     bool setSession(std::shared_ptr<const PreparedMergeSession> session,
                     const MarkerImportOptions& options = {}) override;
+    bool setViewMode(MergeViewMode mode) override;
+    QVector<MergeConflictPresentation> conflictPresentation() const override;
+    bool canChooseSource(const QString& id, MergeSource source) const override;
+    bool chooseSource(const QString& id, MergeSource source) override;
     void setEditable(bool editable);
     bool isEditable() const;
     // Writable decisions remain available when RESULT is absent (modify/delete).

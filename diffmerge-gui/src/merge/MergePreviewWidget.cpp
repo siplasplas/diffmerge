@@ -99,6 +99,21 @@ void MergePreviewWidget::updateSources() {
     m_sourcesInstalledFor = m_session;
 }
 bool MergePreviewWidget::isComparisonUpdating() const { return m_presentation->isUpdating(); }
+bool MergePreviewWidget::setViewMode(MergeViewMode mode) {
+    if (mode != MergeViewMode::Conflicts && mode != MergeViewMode::SourceDifferences) return false;
+    m_viewMode = mode; emit presentationChanged(); m_presentation->requestUpdate(); return true;
+}
+QVector<MergeConflictPresentation> MergePreviewWidget::conflictPresentation() const {
+    QVector<MergeConflictPresentation> result;
+    if (m_session && m_session->inputs().hostConflicts) {
+        for (const auto& host : *m_session->inputs().hostConflicts)
+            result.append({host.id,host.result,host.ours,host.theirs,host.base,host.state});
+    } else for (const auto& marker : m_conflicts)
+        result.append({marker.id,marker.resultLines,{},{},{},MergeResolutionState::Unresolved});
+    return result;
+}
+bool MergePreviewWidget::canChooseSource(const QString&, MergeSource) const { return false; }
+bool MergePreviewWidget::chooseSource(const QString&, MergeSource) { return false; }
 void MergePreviewWidget::updateSummary() {
     QString text = m_current >= 0 ? QStringLiteral("Marker conflict %1 of %2").arg(m_current + 1).arg(m_conflicts.size())
                                  : QStringLiteral("No marker conflicts");

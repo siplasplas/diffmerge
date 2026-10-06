@@ -1062,3 +1062,13 @@ The recorded match rate increased from approximately 32% to 91%.
 - Unified/context CLI output and recursive CLI comparison.
 - Optional three-way merge.
 - Platform packaging.
+
+### Conflict-focused merge presentation
+
+`MergeWidget` and `MergePreviewWidget` offer `setViewMode(MergeViewMode::Conflicts)`
+to decorate only tracked conflicts. Ordinary source/RESULT differences remain
+available for scroll mapping but never become merge decisions. An authoritative
+empty host conflict list produces no conflict decoration; unknown status is still
+reported separately. `SourceDifferences` retains the previous comparison view.
+Navigation visits tracked conflicts, including resolved ones, with no-op boundaries.
+The component installs no keyboard shortcuts; applications own F7/Shift+F7 bindings.

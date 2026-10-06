@@ -118,7 +118,13 @@ MergePresentation::MergePresentation(MergePreviewWidget* owner,QSplitter* splitt
         const auto batch=state.watcher->result();
         if (batch.revision!=state.revision) { if (state.pending) state.timer->start(0); return; }
         state.pending=false; state.comparisons=batch.comparisons;
-        state.splitter->setComparisons(state.comparisons);
+        state.splitter->setComparisons(state.owner->viewMode()==MergeViewMode::Conflicts ? Comparisons{} : state.comparisons);
+        if (state.owner->viewMode()==MergeViewMode::Conflicts) {
+            decorateConflicts();
+            synchronizeVertical(1);
+            if (!batch.error.isEmpty()) emit state.owner->operationFailed(batch.error);
+            emit state.owner->comparisonsUpdated(); return;
+        }
         auto* result=state.editors[1];
         QVector<diffcore::ChangeType> changes(result->edit()->area()->document()->lineCount(),diffcore::ChangeType::Equal);
         QVector<QVector<IntraLineDiffEngine::CharRange>> ranges(changes.size());
@@ -150,6 +156,7 @@ MergePresentation::MergePresentation(MergePreviewWidget* owner,QSplitter* splitt
         synchronizeVertical(1);
         emit state.owner->comparisonsUpdated();
     });
+    connect(owner,&MergePreviewWidget::presentationChanged,this,[this] { decorateConflicts(); });
     for (int i=0;i<4;++i) {
         auto* area=s.editors[i]->edit()->area(); s.views[i]=area->viewportState();
         connect(area,&qce::CodeEditArea::viewportChanged,this,[this,i](const auto& view) {
@@ -180,7 +187,22 @@ void MergePresentation::requestUpdate() {
     auto& s=*m_state; ++s.revision; s.pending=true; s.cancellation.requestCancellation();
     s.comparisons={}; s.splitter->setComparisons(s.comparisons);
     for (auto* editor:s.editors) editor->setDocumentDiffs({},{});
+    decorateConflicts();
     s.timer->start(100);
+}
+void MergePresentation::decorateConflicts() {
+    auto& s=*m_state;
+    if (s.owner->viewMode()!=MergeViewMode::Conflicts) return;
+    std::array<QVector<diffcore::ChangeType>,4> changes;
+    for (int i=0;i<4;++i) changes[i].fill(diffcore::ChangeType::Equal,s.editors[i]->edit()->area()->document()->lineCount());
+    for (const auto& conflict : s.owner->conflictPresentation()) {
+        const std::array<std::optional<diffcore::LineRange>,4> ranges{conflict.ours,conflict.result,conflict.theirs,conflict.base};
+        for (int i=0;i<4;++i) if (ranges[i] && conflict.state!=MergeResolutionState::Resolved)
+            for (int line=std::max(0,ranges[i]->start);line<ranges[i]->end() && line<changes[i].size();++line)
+                changes[i][line]=diffcore::ChangeType::Replace;
+    }
+    for (int i=0;i<4;++i) s.editors[i]->setDocumentDiffs(changes[i],{});
+    s.splitter->setComparisons({});
 }
 void MergePresentation::startUpdate() {
     auto& s=*m_state; if (s.running) return;

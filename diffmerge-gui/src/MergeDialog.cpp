@@ -60,7 +60,8 @@ int runMergeDialog(const MergeLaunchOptions& launch, QWidget* parent) {
     QObject::connect(watcher,&QFutureWatcher<MergePreviewLoadResult>::finished,&dialog,[&dialog,layout,status,watcher,launch] {
         const auto loaded = watcher->result(); const auto& prepared = loaded.prepared;
         if (prepared.status != MergeSessionStatus::Ready || !loaded.stamp) { status->setText(prepared.message); return; }
-        auto* preview = new MergeWidget(&dialog); dialog.merge = preview;
+        auto* preview = new MergeWidget(&dialog);
+        preview->setViewMode(MergeViewMode::Conflicts); dialog.merge = preview;
         QObject::connect(preview,&MergePreviewWidget::operationFailed,status,[status](const QString& message) { status->setText(message); status->show(); });
         layout->insertWidget(1,preview,1);
         auto* controls = new QWidget(&dialog); auto* row = new QHBoxLayout(controls);

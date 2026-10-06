@@ -7,6 +7,12 @@ class QToolButton;
 namespace diffmerge::gui {
 class DiffEditor;
 class MergePresentation;
+enum class MergeViewMode { SourceDifferences, Conflicts };
+struct MergeConflictPresentation {
+    QString id;
+    std::optional<diffcore::LineRange> result, ours, theirs, base;
+    MergeResolutionState state = MergeResolutionState::Unresolved;
+};
 // Read-only inspection. No key bindings, save actions or implicit resolution.
 class MergePreviewWidget : public QWidget {
     Q_OBJECT
@@ -27,9 +33,15 @@ public:
     DiffEditor* sourceEditor(MergeSource source) const;
     DiffEditor* resultEditor() const { return m_result; }
     bool isComparisonUpdating() const;
+    virtual bool setViewMode(MergeViewMode mode);
+    MergeViewMode viewMode() const { return m_viewMode; }
+    virtual QVector<MergeConflictPresentation> conflictPresentation() const;
+    virtual bool canChooseSource(const QString& id, MergeSource source) const;
+    virtual bool chooseSource(const QString& id, MergeSource source);
 signals:
     void currentConflictChanged(int index);
     void comparisonsUpdated();
+    void presentationChanged();
     void operationFailed(const QString& message);
 protected:
     void updateSources();
@@ -44,5 +56,6 @@ protected:
     QToolButton *m_previous, *m_next, *m_showBase;
     std::shared_ptr<const PreparedMergeSession> m_sourcesInstalledFor;
     MergePresentation* m_presentation = nullptr;
+    MergeViewMode m_viewMode = MergeViewMode::SourceDifferences;
 };
 } // namespace diffmerge::gui
