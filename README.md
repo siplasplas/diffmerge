@@ -648,7 +648,7 @@ checks embedding and resource loading without opening a window.
 `<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Widgets`.
 It can run on a worker without GUI resources and produces an immutable
 `PreparedMergeSession`. This first stage prepares source data for inspection;
-the merge algorithm and editable conflict resolver are subsequent stages.
+the standalone merge algorithm and structured export are subsequent stages.
 
 Pass independent `MergeFileInput` descriptors for BASE, OURS and THEIRS. Each owns
 its bytes, opaque source/object identity, raw path, optional mode, display label
@@ -710,13 +710,66 @@ and `setPanelSpacing()` for the gaps (default **24 px**, range 8–160). Two-pan
 comparisons retain their **48 px** default. The preview does not yet align source
 fragments with RESULT, draw merge connectors, edit, save or resolve conflicts.
 
-The desktop offers **File > Inspect conflict markers...** in a separate read-only
-window, with F7 / Shift+F7 navigation, configurable marker length and a spacing
+The desktop offers **File > Open conflict editor...** in a separate window, with F7 / Shift+F7 navigation, configurable marker length and a spacing
 slider. The same keys navigate differences in two-pane comparisons and marker
 conflicts in the merge preview; key bindings belong to the desktop, not the widget.
 Input loading and session preparation run on a worker; closing the window cancels preparation.
 The desktop reads only the selected regular file and does not read Git stages or
 change the repository. This preview is not yet a `git mergetool` resolver.
+
+### Editable RESULT and conflict decisions
+
+`MergeWidget` in `<diffmerge/MergeWidget.h>` extends the preview with an editable
+RESULT. It starts read-only; call `setEditable(true)` to enable editing. OURS,
+BASE and THEIRS remain immutable reference material. Neither switching edit mode
+nor making decisions writes a file or changes a repository.
+
+`chooseConflict(index, choice)` takes OURS, THEIRS, BASE, both sides in either
+explicit order, or deletes only that fragment. Combined choices concatenate the
+exact fragments without adding a separator. Missing sources and unavailable BASE
+are disabled; an existing empty fragment is a valid choice. Host ranges that
+exactly match imported marker ranges share one conflict identity, and available
+host source fragments take precedence over marker fragments. Unmapped host
+conflicts remain separate and unresolved rather than being guessed or dropped.
+
+`conflicts()` exposes stable IDs, current half-open UTF-16 ranges in normalized
+RESULT, mapping validity, explicit resolution states and chosen provenance.
+Edits before a conflict move its range; edits inside it require review. Removing
+or crossing its boundary makes the mapping ambiguous and disables fragment
+replacement. `reviewConflictRange()` (or **Review selected range**) supplies an
+explicit new range. `markConflictResolved()` confirms a reviewed manual result;
+`markConflictUnresolved()` restores its unresolved state without discarding text.
+Deleting markers alone never resolves a conflict.
+
+Fragment choices, range review and state decisions each use one step on the
+result editor's native Undo stack. Native typing and Undo/Redo restore conflict
+states and original line endings with the text. History is bounded to 32 steps;
+the editor accepts at most 4096 conflicts. `MergePreviewWidget` remains available
+for larger read-only inspections. Overlapping mapped ranges refuse fragment
+replacement until reviewed. Navigation uses current RESULT coordinates;
+`navigateToNextUnresolvedConflict()` and `navigateToPreviousUnresolvedConflict()`
+skip explicitly resolved conflicts. `markerConflicts()` retains the original
+imported marker regions, separate from the current editable ranges.
+
+`resultText()` returns normalized editor text; `resultBytes()` returns exact
+current UTF-8 bytes with the RESULT seed's BOM and retained per-line endings.
+Unchanged CRLF/CR/LF terminators survive; new manually inserted line breaks use
+the preceding available terminator, falling back to the seed's first or LF.
+Chosen fragments keep their own terminators. Serialization returns `nullopt`
+for unsupported text or exceeded limits, never silently replacing invalid data.
+The session's original bytes, source identities and fingerprint remain immutable.
+
+Use `isModified()`, `unresolvedCount()`, `modifiedChanged`,
+`unresolvedCountChanged` and `conflictStatesChanged` for host controls. Replacing a
+modified session is refused; `discardChanges()` explicitly restores its initial
+RESULT and conflict states. Zero unresolved conflicts is an editor state, not
+an accepted, saved or staged resolution. Structured Draft/Resolved export, save
+requests and filesystem saving are still subsequent stages.
+
+The desktop has **Edit RESULT (in memory)**, fragment buttons, range review and
+native Undo/Redo. F7 / Shift+F7 navigate conflicts; the three-pane gap stays 24 px.
+Closing a modified result asks whether to discard it. This stage does not save
+edits to disk, and the desktop is not yet a complete mergetool.
 
 ### Presentation API
 

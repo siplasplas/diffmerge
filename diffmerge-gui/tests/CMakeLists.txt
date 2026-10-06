@@ -1,6 +1,6 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
 
-foreach(test IN ITEMS test_merge_session test_merge_preview test_directories test_diff_editor test_aligned_model test_scroll_sync_mapper test_intra_line_diff test_syntax_highlighting)
+foreach(test IN ITEMS test_merge_editing test_merge_session test_merge_preview test_directories test_diff_editor test_aligned_model test_scroll_sync_mapper test_intra_line_diff test_syntax_highlighting)
     add_executable(${test} ${test}.cpp)
     target_link_libraries(${test} PRIVATE DiffMerge::Widgets Qt6::Test)
     add_test(NAME ${test} COMMAND ${test})
@@ -18,7 +18,7 @@ if(DIFFMERGE_BUILD_GUI)
     target_link_libraries(test_syntax_highlighting PRIVATE qt-extra qcodeedit::katedata)
     target_compile_definitions(test_syntax_highlighting PRIVATE DIFFMERGE_TEST_SYNTAX_STARTUP)
 endif()
-set_tests_properties(test_merge_preview test_directories test_diff_editor test_syntax_highlighting PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(test_merge_editing test_merge_preview test_directories test_diff_editor test_syntax_highlighting PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(screenshot_tool screenshot_tool.cpp)
 target_link_libraries(screenshot_tool PRIVATE DiffMerge::Widgets)

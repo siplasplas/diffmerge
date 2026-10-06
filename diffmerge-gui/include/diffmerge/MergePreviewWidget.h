@@ -11,12 +11,12 @@ class MergePreviewWidget : public QWidget {
     Q_OBJECT
 public:
     explicit MergePreviewWidget(QWidget* parent = nullptr);
-    bool setSession(std::shared_ptr<const PreparedMergeSession> session,
+    virtual bool setSession(std::shared_ptr<const PreparedMergeSession> session,
                     const MarkerImportOptions& options = {});
     std::shared_ptr<const PreparedMergeSession> session() const { return m_session; }
-    const QVector<ImportedConflict>& markerConflicts() const { return m_conflicts; }
+    virtual const QVector<ImportedConflict>& markerConflicts() const { return m_conflicts; }
     int currentConflictIndex() const { return m_current; }
-    bool navigateToConflict(int index);
+    virtual bool navigateToConflict(int index);
     void navigateToNextConflict();
     void navigateToPreviousConflict();
     void setPanelSpacing(int pixels); // 8..160; default 24 logical pixels.
@@ -28,9 +28,9 @@ public:
 signals:
     void currentConflictChanged(int index);
     void operationFailed(const QString& message);
-private:
+protected:
     void updateSources();
-    void updateSummary();
+    virtual void updateSummary();
     std::shared_ptr<const PreparedMergeSession> m_session;
     QVector<ImportedConflict> m_conflicts;
     int m_current = -1;

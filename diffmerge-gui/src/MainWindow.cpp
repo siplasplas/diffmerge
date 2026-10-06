@@ -8,7 +8,8 @@
 #include <QFutureWatcher>
 #include <QVBoxLayout>
 #include <QtConcurrent/QtConcurrentRun>
-#include <diffmerge/MergePreviewWidget.h>
+#include <diffmerge/MergeWidget.h>
+#include <QCheckBox>
 #include <QInputDialog>
 #include <QSlider>
 #include <QWidgetAction>
@@ -38,6 +39,17 @@
 
 namespace diffmerge::gui {
 namespace {
+class MergeEditDialog : public QDialog {
+public:
+    using QDialog::QDialog;
+    MergeWidget* merge = nullptr;
+    void reject() override {
+        if (merge && merge->isModified() && QMessageBox::question(this,QStringLiteral("Discard merge edits?"),
+            QStringLiteral("These edits exist only in memory. Saving is not available at this stage. Discard them?"),
+            QMessageBox::Discard | QMessageBox::Cancel,QMessageBox::Cancel) != QMessageBox::Discard) return;
+        QDialog::reject();
+    }
+};
 QByteArray fileStamp(const QString& path) {
     if(path.isEmpty()) return {};
     const QFileInfo info(path);
@@ -205,7 +217,7 @@ void MainWindow::setupMenus() {
     openDirsAction->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_O);
     connect(openDirsAction, &QAction::triggered, this, &MainWindow::onOpenDirectories);
 
-    auto* inspect = fileMenu->addAction(QStringLiteral("Inspect conflict markers..."));
+    auto* inspect = fileMenu->addAction(QStringLiteral("Open conflict editor..."));
     inspect->setObjectName(QStringLiteral("inspectConflictMarkers"));
     connect(inspect, &QAction::triggered, this, &MainWindow::onInspectConflictMarkers);
     fileMenu->addSeparator();
@@ -436,7 +448,7 @@ void MainWindow::onOpenFiles() {
 void MainWindow::onInspectConflictMarkers() {
     const auto path = QxFileDialog::getOpenFileName(this, QStringLiteral("Inspect a file with conflict markers"), {});
     if (path.isEmpty()) return;
-    QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Conflict marker inspection — read-only")); dialog.resize(1200, 700);
+    MergeEditDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Conflict editing — in-memory result")); dialog.resize(1200, 700);
     auto* layout = new QVBoxLayout(&dialog);
     auto* status = new QLabel(QStringLiteral("Loading conflict markers…"), &dialog);
     status->setTextFormat(Qt::PlainText); status->setWordWrap(true); layout->addWidget(status);
@@ -447,7 +459,7 @@ void MainWindow::onInspectConflictMarkers() {
     connect(watcher, &QFutureWatcher<PrepareMergeSessionResult>::finished, &dialog, [&dialog, layout, status, watcher] {
         const auto prepared = watcher->result();
         if (prepared.status != MergeSessionStatus::Ready) { status->setText(prepared.message); return; }
-        auto* preview = new MergePreviewWidget(&dialog);
+        auto* preview = new MergeWidget(&dialog); dialog.merge = preview;
         connect(preview, &MergePreviewWidget::operationFailed, status, [status](const QString& message) {
             status->setText(message); status->show();
         });
@@ -455,6 +467,13 @@ void MainWindow::onInspectConflictMarkers() {
         auto* controls = new QWidget(&dialog); auto* row = new QHBoxLayout(controls);
         auto* markerSize = new QSpinBox(controls); markerSize->setRange(1, 200000); markerSize->setValue(7);
         auto* spacing = new QSlider(Qt::Horizontal, controls); spacing->setRange(8, 160); spacing->setValue(24);
+        auto* editable = new QCheckBox(QStringLiteral("Edit RESULT (in memory)"), controls);
+        row->addWidget(editable);
+        connect(editable,&QCheckBox::toggled,preview,&MergeWidget::setEditable);
+        connect(preview,&MergeWidget::editableChanged,editable,[editable](bool enabled) {
+            QSignalBlocker blocker(editable); editable->setChecked(enabled);
+        });
+        connect(preview,&MergeWidget::modifiedChanged,markerSize,[markerSize](bool modified) { markerSize->setEnabled(!modified); });
         row->addWidget(new QLabel(QStringLiteral("Marker length"), controls)); row->addWidget(markerSize);
         row->addWidget(new QLabel(QStringLiteral("Panel spacing"), controls)); row->addWidget(spacing, 1);
         layout->insertWidget(2, controls);
