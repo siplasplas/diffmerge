@@ -715,7 +715,8 @@ slider. The same keys navigate differences in two-pane comparisons and marker
 conflicts in the merge preview; key bindings belong to the desktop, not the widget.
 Input loading and session preparation run on a worker; closing the window cancels preparation.
 The desktop reads only the selected regular file and does not read Git stages or
-change the repository. This preview is not yet a `git mergetool` resolver.
+change the repository. `MergePreviewWidget` stays read-only; the desktop resolver
+and standalone invocation are described below.
 
 ### Editable RESULT and conflict decisions
 
@@ -768,8 +769,7 @@ save requests and desktop filesystem saving are described below.
 
 The desktop has **Edit RESULT**, fragment buttons, range review and native
 Undo/Redo. F7 / Shift+F7 navigate conflicts; the three-pane gap stays 24 px.
-Saving and close prompts are described below. The desktop is not yet a complete
-mergetool with command-line input roles and resolution exit status.
+Saving, standalone invocation and completion status are described below.
 
 ### Structured merge export
 
@@ -876,9 +876,65 @@ still act between the final check and atomic rename; this is not a filesystem
 compare-and-swap or an exclusive lock against other processes.
 
 The filesystem helper belongs to the desktop target, not `DiffMerge::Widgets`;
-buffer-only hosts require neither a disk path nor `qt-extra`. Standalone
-`--merge` role arguments and `git mergetool` completion exit status remain the
-next stage; this window must not yet be configured as a trusted mergetool.
+buffer-only hosts require neither a disk path nor `qt-extra`.
+
+### Standalone merge and Git mergetool
+
+```sh
+diffmerge-gui --merge BASE LOCAL REMOTE -o MERGED
+```
+
+BASE, LOCAL and REMOTE are immutable, independently loaded sources. LOCAL is
+shown as OURS and REMOTE as THEIRS; **Show BASE** reveals the ancestor. MERGED
+must already exist as a separate regular UTF-8 text file and supplies the initial
+RESULT, including prior manual edits and common text outside conflict markers.
+The desktop does not compute a fresh automatic merge or copy LOCAL over MERGED.
+No output path or source is inferred. Symbolic links and output aliases to sources
+(including Unix hard links) are refused. Binary/unsupported text and resource
+limits cannot produce a saveable placeholder result. Default aggregate limits
+include all four inputs.
+
+`-L LABEL` can repeat up to four times for BASE, LOCAL, REMOTE and RESULT.
+Labels are display text; they do not discover branches, change source identities
+or rewrite marker labels. `--marker-size N` selects the input marker run length
+(default 7). `--base-absent` requires the BASE argument `-` and explicitly represents
+no ancestor. An existing zero-byte BASE remains a present empty file. Missing BASE
+without the explicit option is an error, not an invented empty ancestor.
+`--readonly` opens inspection with editing disabled and never reports successful
+resolution. Comparison-only `--edit` and ignore options are rejected in merge mode.
+The ordinary zero/one/two-path comparison invocation is unchanged.
+
+The merge process returns:
+
+- **0** only after a verified, explicitly Resolved save of the current result;
+- **1** for Draft, cancellation, unsupported/loading/saving failure, closing
+  without a Resolved save, unsaved changes, or output changed after saving;
+- **2** for invalid invocation or initial path validation failure.
+
+The output is checked again when the window closes. Removing markers or closing
+an unchanged, already edited seed is insufficient: use **Save resolved** (and
+confirm explicit review when the host conflict list is unknown). The final status
+is a completion contract for the invoking host, not a claim that an index was
+updated or an operation continued. Starting a later save job resets success; a
+failed or cancelled job does not reuse an earlier successful status. F7 / Shift+F7 remain desktop navigation keys.
+
+Example repository-local configuration when `diffmerge-gui` is on PATH:
+
+```sh
+git config merge.tool diffmerge-qt
+git config mergetool.diffmerge-qt.cmd 'if test -f "$BASE"; then diffmerge-gui --merge "$BASE" "$LOCAL" "$REMOTE" -o "$MERGED"; else diffmerge-gui --merge --base-absent - "$LOCAL" "$REMOTE" -o "$MERGED"; fi'
+git config mergetool.diffmerge-qt.trustExitCode true
+git mergetool
+```
+
+The wrapper explicitly supplies absent BASE when Git supplies no ancestor file.
+Git supplies the temporary inputs and destination and consumes the trusted exit
+status, as described in the [Git mergetool documentation](https://git-scm.com/docs/git-mergetool).
+DiffMerge does not invoke Git, alter its backup policy, stage files, update refs or
+continue an operation. Git's mergetool driver owns its post-success repository
+handling. During rebase, LOCAL/REMOTE describe the supplied stage roles rather
+than guessing which side belongs to the user's branch; pass informative labels
+when the caller knows the operation.
 
 ### Presentation API
 

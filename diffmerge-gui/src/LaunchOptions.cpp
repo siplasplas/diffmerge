@@ -1,6 +1,35 @@
 #include "LaunchOptions.h"
 #include <QFileInfo>
+#include <QFile>
+#ifdef Q_OS_UNIX
+#include <sys/stat.h>
+#endif
 namespace diffmerge::gui {
+QString validateMergeLaunch(const MergeLaunchOptions& options) {
+    if (options.resultPath.isEmpty()) return QStringLiteral("--merge requires -o MERGED with an existing RESULT seed");
+    if (options.labels.size()>4) return QStringLiteral("Merge accepts at most four labels: BASE, LOCAL, REMOTE, RESULT");
+    if (options.markerSize<1 || options.markerSize>200000) return QStringLiteral("--marker-size must be between 1 and 200000");
+    if (options.baseAbsent && options.basePath!=QStringLiteral("-")) return QStringLiteral("Use BASE '-' with --base-absent; an existing empty BASE is not absent");
+    QStringList sources{options.localPath,options.remotePath};
+    if (!options.baseAbsent) sources.prepend(options.basePath);
+    for (const auto& path : sources+QStringList{options.resultPath}) {
+        const QFileInfo file(path);
+        if (path.isEmpty() || !file.exists() || !file.isFile() || file.isSymLink())
+            return QStringLiteral("Merge requires existing regular files, not symbolic links: %1").arg(path);
+    }
+    const QFileInfo result(options.resultPath);
+    for (const auto& path : sources) {
+        if (QFileInfo(path).canonicalFilePath()==result.canonicalFilePath())
+            return QStringLiteral("MERGED must be separate from BASE, LOCAL and REMOTE");
+#ifdef Q_OS_UNIX
+        struct stat source{}, output{};
+        if (::lstat(QFile::encodeName(path).constData(),&source)==0 && ::lstat(QFile::encodeName(options.resultPath).constData(),&output)==0
+            && source.st_dev==output.st_dev && source.st_ino==output.st_ino)
+            return QStringLiteral("MERGED must not alias an input file through a hard link");
+#endif
+    }
+    return {};
+}
 LaunchOptions validateLaunchPaths(const QStringList& paths,const QStringList& labels) {
     LaunchOptions result; result.paths=paths; result.labels=labels;
     const auto fail=[&](const QString& message) { result.kind=LaunchKind::Error; result.error=message; return result; };

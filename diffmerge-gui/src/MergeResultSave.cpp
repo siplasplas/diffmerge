@@ -28,9 +28,9 @@ bool sameMetadata(const MergeSaveStamp& a, const MergeSaveStamp& b) {
         && a.modified == b.modified && a.permissions == b.permissions && a.hasIdentity == b.hasIdentity
         && (!a.hasIdentity || (a.device == b.device && a.inode == b.inode));
 }
-bool same(const MergeSaveStamp& a, const MergeSaveStamp& b) {
-    return sameMetadata(a,b) && a.fingerprint == b.fingerprint;
 }
+bool sameMergeSaveStamp(const MergeSaveStamp& a, const MergeSaveStamp& b) {
+    return sameMetadata(a,b) && a.fingerprint == b.fingerprint;
 }
 MergeFileReadResult readMergeResultFile(const QString& path, const MergeSessionLimits& limits,
     const diffcore::CancellationToken& cancellation) {
@@ -94,7 +94,7 @@ MergeFileSaveResult saveMergeResultFile(const MergeExportInput& input, const Mer
         if (current.status != MergeSaveStatus::Saved || !current.stamp) {
             result.status = current.status; result.message = current.message; return false;
         }
-        if (!same(*current.stamp,expected)) { result.status = MergeSaveStatus::Stale; result.message = QStringLiteral("The output file changed since it was loaded or last saved. Reload and review before saving."); return false; }
+        if (!sameMergeSaveStamp(*current.stamp,expected)) { result.status = MergeSaveStatus::Stale; result.message = QStringLiteral("The output file changed since it was loaded or last saved. Reload and review before saving."); return false; }
         if (!(current.stamp->permissions & (QFileDevice::WriteOwner | QFileDevice::WriteGroup | QFileDevice::WriteOther)) || !QFileInfo(expected.path).isWritable()) {
             result.message = QStringLiteral("The output file is read-only"); return false;
         }

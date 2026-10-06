@@ -27,6 +27,7 @@ struct MergeFileSaveResult {
     std::optional<MergeExportOutcome> outcome;
     QString message;
 };
+bool sameMergeSaveStamp(const MergeSaveStamp& a, const MergeSaveStamp& b);
 using MergeSaveProgress = std::function<void(qint64,qint64)>;
 // Desktop-only filesystem helpers. The embedded widget never calls these.
 MergeFileReadResult readMergeResultFile(const QString& path,
