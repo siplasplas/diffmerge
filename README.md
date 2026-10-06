@@ -198,6 +198,19 @@ to `.git`, `build`, `build-*`, `cmake-build-*`, `node_modules`, `__pycache__`.
 Excluded names are neither scanned nor included in directory status. The
 desktop app remembers these choices; widgets do not persist preferences.
 
+The View menu also provides **Ignore whitespace differences**, **Ignore trailing
+whitespace** and **Ignore case**, shared by file and directory comparisons.
+Whitespace equivalence trims the edges and collapses internal runs to one space;
+it does not remove every internal space. The desktop accepts the matching CLI
+flags `-w`, `-b`, `-i` (and their long forms). File comparisons are recomputed
+asynchronously when these options change, preserving edits, their modified state,
+and Undo/Redo. Ignored differences produce no change blocks. Directory comparison
+uses the same normalization on valid UTF-8 files within the size limit; binary
+and invalid UTF-8 inputs remain byte-exact. Directory line-ending equivalence
+remains a separate option. The file view already compares lines without their
+terminators. Embedded hosts choose options with `FileDiffWidget::setDiffOptions()`
+and `DirDiffWidget::setDiffOptions()`; labels and save targets are preserved.
+
 Select rows and use **Copy →**, **← Copy**, Alt+Right/Alt+Left, or F5 (left to
 right). These copy files/directories, not text blocks. The desktop asks first,
 listing destination entries and marking files to overwrite. Regular files

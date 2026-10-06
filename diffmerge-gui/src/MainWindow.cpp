@@ -250,6 +250,21 @@ void MainWindow::setupMenus() {
     });
 
     viewMenu->addSeparator();
+    const auto ignoreOption=[&](const QString& label, const QString& name, bool diffcore::DiffOptions::* field) {
+        auto* action=viewMenu->addAction(label); action->setCheckable(true); action->setObjectName(name);
+        const auto apply=[this,field](bool enabled) {
+            auto options=m_diffWidget->diffOptions(); options.*field=enabled;
+            m_diffWidget->setDiffOptions(options); m_dirWidget->setDiffOptions(options);
+        };
+        action->setChecked(settings.value(QStringLiteral("comparison/")+name,false).toBool());
+        apply(action->isChecked());
+        connect(action,&QAction::toggled,this,[apply,name](bool enabled) {
+            apply(enabled); QSettings().setValue(QStringLiteral("comparison/")+name,enabled);
+        });
+    };
+    ignoreOption(QStringLiteral("Ignore whitespace differences"),QStringLiteral("ignoreWhitespace"),&diffcore::DiffOptions::ignoreWhitespace);
+    ignoreOption(QStringLiteral("Ignore trailing whitespace"),QStringLiteral("ignoreTrailingWhitespace"),&diffcore::DiffOptions::ignoreTrailingWhitespace);
+    ignoreOption(QStringLiteral("Ignore case"),QStringLiteral("ignoreCase"),&diffcore::DiffOptions::ignoreCase);
     auto* differences=viewMenu->addAction(QStringLiteral("Show differences only (directories)"));
     differences->setCheckable(true);
     differences->setChecked(settings.value(QStringLiteral("directories/differencesOnly"),false).toBool());
@@ -385,6 +400,11 @@ void MainWindow::loadDirectories(const QString& leftPath, const QString& rightPa
 void MainWindow::setEditMode(bool left, bool right) {
     m_diffWidget->setEditable(Side::Left, left); m_diffWidget->setEditable(Side::Right, right);
     m_dirWidget->setReadOnly(Side::Left, !left); m_dirWidget->setReadOnly(Side::Right, !right);
+}
+void MainWindow::setIgnoreOptions(bool whitespace, bool trailingWhitespace, bool caseInsensitive) {
+    findChild<QAction*>(QStringLiteral("ignoreWhitespace"))->setChecked(whitespace);
+    findChild<QAction*>(QStringLiteral("ignoreTrailingWhitespace"))->setChecked(trailingWhitespace);
+    findChild<QAction*>(QStringLiteral("ignoreCase"))->setChecked(caseInsensitive);
 }
 
 bool MainWindow::saveSide(bool left) {

@@ -46,6 +46,9 @@ public:
     bool save(Side side, QString* error = nullptr, bool overwriteChanged = false);
     bool copyChange(int index, Side source);
     bool isRecomputing() const;
+    // Recompute presentation without replacing documents or their undo history.
+    void setDiffOptions(const diffcore::DiffOptions& options);
+    diffcore::DiffOptions diffOptions() const { return m_options.diff; }
     std::shared_ptr<const PreparedComparison> comparison() const { return m_comparison; }
     std::chrono::nanoseconds lastInstallationTime() const { return m_installationTime; }
 
@@ -129,6 +132,7 @@ private:
     void recomputeEditedComparison();
     void installEditedComparison(std::shared_ptr<const PreparedComparison> comparison);
     std::unique_ptr<FileEditingState> m_editing;
+    ComparisonOptions m_options;
     void updateHorizontalScrollRange();
     bool m_syncingHorizontal = false;
     int m_horizontalOffset = 0;

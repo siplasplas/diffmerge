@@ -100,6 +100,15 @@ void FileDiffWidget::setupEditing() {
 bool FileDiffWidget::isEditable(Side side) const { return m_editing->editable[index(side)] && !m_editing->unsafe[index(side)] && !m_editing->encodingUnsafe[index(side)]; }
 bool FileDiffWidget::isModified(Side side) const { return m_editing->modified[index(side)]; }
 bool FileDiffWidget::isRecomputing() const { return m_editing->pending; }
+void FileDiffWidget::setDiffOptions(const diffcore::DiffOptions& options) {
+    m_options.diff = options;
+    if (!m_comparison || m_binaryInput) return;
+    // Invalidate old ranges immediately; debounce keeps rapid toggles inexpensive.
+    ++m_editing->generation; m_editing->cancellation.requestCancellation();
+    m_editing->pending = true; m_editing->timer->start();
+    m_model = nullptr; clearSearchHighlights(); m_splitter->setModel(nullptr);
+    m_currentHunk = -1; updateNavLabel();
+}
 QString FileDiffWidget::text(Side side) const {
     if (!m_comparison) return {};
     return m_editing->raw[index(side)] ? documentText(side == Side::Left ? m_leftEditor : m_rightEditor)
@@ -178,10 +187,10 @@ void FileDiffWidget::recomputeEditedComparison() {
     if (!m_comparison) return;
     const auto make = [&](Side side) {
         const auto& old = m_comparison->snapshot(side);
-        return TextSnapshot::fromText(text(side), old.label, old.fileName);
+        return m_editing->raw[index(side)] ? TextSnapshot::fromText(text(side), old.label, old.fileName) : old;
     };
     auto left = make(Side::Left), right = make(Side::Right);
-    const auto options = m_comparison->options();
+    const auto options = m_options;
     const auto generation = m_editing->generation;
     m_editing->cancellation = {}; const auto token = m_editing->cancellation;
     auto* watcher = new QFutureWatcher<PrepareResult>(this);
@@ -199,15 +208,18 @@ void FileDiffWidget::installEditedComparison(std::shared_ptr<const PreparedCompa
     QScopedValueRollback<bool> syncing(m_syncingScroll, true);
     m_comparison = std::move(comparison); m_model = &m_comparison->model();
     const auto threshold = m_syncMapper.threshold(); m_syncMapper = m_comparison->scrollMapping(); m_syncMapper.setThreshold(threshold);
-    m_leftEditor->setAlignedModel(m_model, true); m_rightEditor->setAlignedModel(m_model, true);
-    m_leftEditor->setIntraLineDiffs(m_comparison->highlights().leftRanges);
-    m_rightEditor->setIntraLineDiffs(m_comparison->highlights().rightRanges);
+    if(!m_skipUnchanged) {
+        m_leftEditor->setAlignedModel(m_model, true); m_rightEditor->setAlignedModel(m_model, true);
+        m_leftEditor->setIntraLineDiffs(m_comparison->highlights().leftRanges);
+        m_rightEditor->setIntraLineDiffs(m_comparison->highlights().rightRanges);
+    }
     m_splitter->setModel(m_model); m_currentHunk = -1; updateNavLabel();
+    if(m_viewMode != ViewMode::SideBySide || m_skipUnchanged) rebuildProjection();
     emit comparisonChanged(changeCount());
 }
 void FileDiffWidget::discardChanges() {
     if (!isModified(Side::Left) && !isModified(Side::Right)) return;
-    auto prepared = prepareComparison(m_editing->cleanSnapshots[0], m_editing->cleanSnapshots[1], m_comparison->options());
+    auto prepared = prepareComparison(m_editing->cleanSnapshots[0], m_editing->cleanSnapshots[1], m_options);
     if (prepared.status != PreparationStatus::Ready) { emit operationFailed(prepared.message); return; }
     for (Side side : {Side::Left, Side::Right}) {
         m_editing->modified[index(side)] = false; emit modifiedChanged(side, false);

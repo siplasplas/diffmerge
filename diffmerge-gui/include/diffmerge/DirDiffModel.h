@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QVector>
 #include <diffcore/ComputationControl.h>
+#include <diffcore/DiffTypes.h>
 
 namespace diffmerge::gui {
 enum class DirEntryStatus { OnlyLeft, OnlyRight, Same, Different, Directory, Error };
@@ -24,6 +25,7 @@ struct DirectoryScanOptions {
     qint64 maxComparedFileBytes = 64 * 1024 * 1024;
     int maxEntries = 100000;
     bool ignoreLineEndings = false;
+    diffcore::DiffOptions diff{};
 };
 enum class DirectoryScanStatus { Ready, Cancelled, ResourceLimit, Error };
 struct DirectoryScanResult {

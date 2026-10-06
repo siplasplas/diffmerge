@@ -282,6 +282,7 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
     m_leftEditor->setIntraLineDiffs({});
     m_rightEditor->setIntraLineDiffs({});
     m_comparison = std::move(comparison);
+    if(m_comparison) m_options = m_comparison->options();
     m_model = m_comparison ? &m_comparison->model() : nullptr;
     const double threshold = m_syncMapper.threshold();
     m_syncMapper = m_comparison ? m_comparison->scrollMapping() : ScrollSyncMapper{};
@@ -609,7 +610,7 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     if (!readFile(rightPath, right, 1)) return false;
     if (binary) left = right = {};
 
-    auto result = prepareComparison(left, right);
+    auto result = prepareComparison(left, right, m_options);
     if (result.status != PreparationStatus::Ready) { emit loadFailed(result.message); return false; }
     m_leftPathEdit->setText(leftPath);
     m_rightPathEdit->setText(rightPath);

@@ -4,6 +4,9 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
+#include <QStringConverter>
+#include <diffcore/LineInterner.h>
+#include <diffmerge/Comparison.h>
 #include <algorithm>
 #include <stdexcept>
 
@@ -32,6 +35,8 @@ public:
     }
     void compare(DirDiffEntry& entry, const QFileInfo& left, const QFileInfo& right) {
         checkpoint();
+        const bool normalized = options.ignoreLineEndings || options.diff.ignoreWhitespace ||
+            options.diff.ignoreTrailingWhitespace || options.diff.ignoreCase;
         if (left.isSymLink() || right.isSymLink()) {
             entry.contentVerified = true;
             entry.status = left.isSymLink() && right.isSymLink() && left.symLinkTarget() == right.symLinkTarget()
@@ -41,7 +46,7 @@ public:
         if (!left.isFile() || !right.isFile()) {
             entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("Unsupported file type"); return;
         }
-        if (left.size() != right.size() && !options.ignoreLineEndings) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
+        if (left.size() != right.size() && !normalized) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
         if (left.size() > options.maxComparedFileBytes || right.size() > options.maxComparedFileBytes) {
             entry.status = left.size() == right.size() && left.lastModified() == right.lastModified() ? DirEntryStatus::Same : DirEntryStatus::Different;
             return;
@@ -52,7 +57,7 @@ public:
             entry.diagnostic = QStringLiteral("Cannot read compared files"); return;
         }
         entry.status = DirEntryStatus::Same;
-        if (options.ignoreLineEndings) {
+        if (normalized) {
             const auto readBytes = [&](QFile& file, qint64 expected) {
                 QByteArray bytes;
                 while (bytes.size() < expected) {
@@ -69,16 +74,24 @@ public:
             catch (const std::runtime_error& error) {
                 entry.status = DirEntryStatus::Error; entry.diagnostic = QString::fromUtf8(error.what()); return;
             }
-            // Binary data remains byte-exact. Preserve final-newline differences.
+            // Binary and invalid UTF-8 data remain byte-exact.
             if (!x.contains('\0') && !y.contains('\0')) {
-                x.replace("\r\n", "\n"); x.replace('\r', '\n');
-                checkpoint();
-                y.replace("\r\n", "\n"); y.replace('\r', '\n');
+                QStringDecoder leftDecoder(QStringDecoder::Utf8), rightDecoder(QStringDecoder::Utf8);
+                const QString leftText = leftDecoder(x), rightText = rightDecoder(y);
+                if (!leftDecoder.hasError() && !rightDecoder.hasError()) {
+                    const auto leftSnapshot = TextSnapshot::fromText(leftText), rightSnapshot = TextSnapshot::fromText(rightText);
+                    diffcore::ComputationControl control(token);
+                    const auto ids = diffcore::LineInterner{}.intern(leftSnapshot.lines, rightSnapshot.lines, options.diff, &control);
+                    entry.status = ids.leftIds == ids.rightIds && leftSnapshot.finalNewline == rightSnapshot.finalNewline &&
+                        (options.ignoreLineEndings || leftSnapshot.lineEndings == rightSnapshot.lineEndings)
+                        ? DirEntryStatus::Same : DirEntryStatus::Different;
+                } else entry.status = x == y ? DirEntryStatus::Same : DirEntryStatus::Different;
+            } else {
+                entry.status = x == y ? DirEntryStatus::Same : DirEntryStatus::Different;
             }
-            entry.status = x == y ? DirEntryStatus::Same : DirEntryStatus::Different;
         }
         qint64 read = 0;
-        while (!options.ignoreLineEndings && read < left.size()) {
+        while (!normalized && read < left.size()) {
             checkpoint();
             const auto x = a.read(64 * 1024), y = b.read(64 * 1024);
             if (a.error() != QFileDevice::NoError || b.error() != QFileDevice::NoError || x.isEmpty() || y.isEmpty()) {

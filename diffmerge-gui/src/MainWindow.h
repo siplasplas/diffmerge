@@ -19,6 +19,7 @@ public:
     void chooseFiles() { onOpenFiles(); }
     void setFileLabels(const QStringList& labels);
     void setEditMode(bool left, bool right);
+    void setIgnoreOptions(bool whitespace, bool trailingWhitespace, bool caseInsensitive);
     void loadFiles(const QString& leftPath, const QString& rightPath,
                    bool fromDir = false);
     void loadDirectories(const QString& leftPath, const QString& rightPath);

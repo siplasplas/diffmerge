@@ -16,6 +16,9 @@ int main(int argc,char* argv[]) {
     parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display label and fallback syntax file name (repeat for the right side)"),QStringLiteral("LABEL")});
     parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right (default), left, both, none"), QStringLiteral("SIDE"), QStringLiteral("right")});
     parser.addOption({QStringLiteral("readonly"), QStringLiteral("Make both sides read-only")});
+    parser.addOption({{QStringLiteral("w"),QStringLiteral("ignore-whitespace")},QStringLiteral("Ignore leading/trailing whitespace and collapse internal whitespace runs")});
+    parser.addOption({{QStringLiteral("b"),QStringLiteral("ignore-trailing-whitespace")},QStringLiteral("Ignore trailing whitespace")});
+    parser.addOption({{QStringLiteral("i"),QStringLiteral("ignore-case")},QStringLiteral("Ignore case")});
     if(!parser.parse(app.arguments())) {
         QTextStream(stderr)<<parser.errorText()<<'\n'; return 2;
     }
@@ -31,6 +34,8 @@ int main(int argc,char* argv[]) {
         QTextStream(stderr) << "--edit must be right, left, both or none\n"; return 2;
     }
     window.setEditMode(edit == "left" || edit == "both", edit == "right" || edit == "both");
+    if(parser.isSet("w") || parser.isSet("b") || parser.isSet("i"))
+        window.setIgnoreOptions(parser.isSet("w"),parser.isSet("b"),parser.isSet("i"));
     using diffmerge::gui::LaunchKind;
     switch(options.kind) {
         case LaunchKind::PrefillFile: window.prefillFiles(options.paths[0]); break;

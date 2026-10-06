@@ -26,6 +26,8 @@ public:
     bool hideEmptyDirectories() const { return m_hideEmptyDirectories; }
     void setIgnoreLineEndings(bool enabled);
     bool ignoreLineEndings() const { return m_options.ignoreLineEndings; }
+    void setDiffOptions(const diffcore::DiffOptions& options);
+    diffcore::DiffOptions diffOptions() const { return m_options.diff; }
     void setExclusions(const QStringList& patterns);
     QStringList exclusions() const { return m_options.exclusions; }
     void setReadOnly(Side side, bool readOnly);

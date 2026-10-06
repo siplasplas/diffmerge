@@ -203,4 +203,5 @@ void DirDiffWidget::setIgnoreLineEndings(bool enabled) {
     m_options.ignoreLineEndings=enabled; refresh();
 }
 void DirDiffWidget::setExclusions(const QStringList& patterns) { m_options.exclusions=patterns; refresh(); }
+void DirDiffWidget::setDiffOptions(const diffcore::DiffOptions& options) { m_options.diff=options; refresh(); }
 }
