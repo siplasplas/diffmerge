@@ -43,6 +43,9 @@ public:
     bool unchangedLinesSkipped() const { return m_skipUnchanged; }
     void setContextLines(int lines);
     int contextLines() const { return m_contextLines; }
+    // Width in logical pixels of the connector between the panes (8..160).
+    void setPanelSpacing(int pixels);
+    int panelSpacing() const;
     DiffEditor* unifiedEditor() const { return m_unifiedEditor; }
 
     // Original coordinates, never indices from another diff implementation.

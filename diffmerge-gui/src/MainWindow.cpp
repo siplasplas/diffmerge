@@ -3,6 +3,9 @@
 #include <qxfiledialog.h>
 #include <QShortcut>
 #include <QInputDialog>
+#include <QSlider>
+#include <QWidgetAction>
+#include <QHBoxLayout>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
@@ -135,6 +138,28 @@ void MainWindow::setupMenus() {
     auto* unified = viewMenu->addAction(QStringLiteral("Unified"));
     for (auto* action : {sideBySide, unified}) { action->setCheckable(true); modes->addAction(action); }
     QSettings settings;
+    m_diffWidget->setPanelSpacing(settings.value(QStringLiteral("view/panelSpacing"), 48).toInt());
+    auto* spacingMenu = viewMenu->addMenu(QStringLiteral("Panel spacing"));
+    auto* spacingRow = new QWidget(spacingMenu);
+    auto* spacingLayout = new QHBoxLayout(spacingRow);
+    auto* spacingSlider = new QSlider(Qt::Horizontal, spacingRow);
+    spacingSlider->setObjectName(QStringLiteral("panelSpacingSlider"));
+    spacingSlider->setRange(8, 160);
+    spacingSlider->setValue(m_diffWidget->panelSpacing());
+    spacingSlider->setMinimumWidth(200);
+    auto* spacingLabel = new QLabel(QStringLiteral("%1 px").arg(spacingSlider->value()), spacingRow);
+    spacingLayout->addWidget(spacingSlider);
+    spacingLayout->addWidget(spacingLabel);
+    auto* spacingAction = new QWidgetAction(spacingMenu);
+    spacingAction->setDefaultWidget(spacingRow);
+    spacingMenu->addAction(spacingAction);
+    connect(spacingSlider, &QSlider::valueChanged, this, [this, spacingLabel](int pixels) {
+        m_diffWidget->setPanelSpacing(pixels);
+        spacingLabel->setText(QStringLiteral("%1 px").arg(pixels));
+        QSettings().setValue(QStringLiteral("view/panelSpacing"), pixels);
+    });
+    connect(spacingMenu->addAction(QStringLiteral("Reset to 48 px")), &QAction::triggered,
+            spacingSlider, [spacingSlider] { spacingSlider->setValue(48); });
     const auto mode = settings.value(QStringLiteral("view/unified"), false).toBool() ? ViewMode::Unified : ViewMode::SideBySide;
     m_diffWidget->setViewMode(mode);
     (mode == ViewMode::Unified ? unified : sideBySide)->setChecked(true);

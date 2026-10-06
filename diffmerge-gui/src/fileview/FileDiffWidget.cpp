@@ -595,6 +595,15 @@ void FileDiffWidget::setSyncThreshold(double fraction) {
     m_syncMapper.setThreshold(fraction);
 }
 
+void FileDiffWidget::setPanelSpacing(int pixels) {
+    m_splitter->setHandleWidth(std::clamp(pixels, 8, 160));
+    m_splitter->updateConnections();
+}
+
+int FileDiffWidget::panelSpacing() const {
+    return m_splitter->handleWidth();
+}
+
 double FileDiffWidget::syncThreshold() const {
     return m_syncMapper.threshold();
 }

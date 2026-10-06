@@ -14,6 +14,7 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QSettings>
+#include <QSlider>
 #endif
 #include <QDir>
 #include <qce/kate/KatePaths.h>
@@ -59,6 +60,26 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void panelSpacingChangesConnectorGeometry() {
+        FileDiffWidget widget;
+        widget.setContent({"unchanged", "old"}, {"unchanged", "new", "extra"});
+        widget.resize(850, 300); widget.show(); QApplication::processEvents();
+        auto* splitter = widget.findChild<QSplitter*>(); QVERIFY(splitter);
+        QCOMPARE(widget.panelSpacing(), 48);
+        for (int width : {8, 24, 80, 160}) {
+            widget.setPanelSpacing(width); QApplication::processEvents();
+            QCOMPARE(widget.panelSpacing(), width);
+            QCOMPARE(splitter->handle(1)->width(), width);
+            QVERIFY(widget.leftEditor()->width() > 0 && widget.rightEditor()->width() > 0);
+            QVERIFY(!splitter->handle(1)->grab().isNull());
+        }
+        widget.setPanelSpacing(-10); QCOMPARE(widget.panelSpacing(), 8);
+        widget.setPanelSpacing(1000); QCOMPARE(widget.panelSpacing(), 160);
+        widget.setViewMode(ViewMode::Unified);
+        widget.setPanelSpacing(32); widget.setViewMode(ViewMode::SideBySide);
+        widget.resize(850, 180); QApplication::processEvents();
+        QCOMPARE(splitter->handle(1)->width(), 32);
+    }
     void horizontalScrollingSharesRangeAndOffset_data() {
         QTest::addColumn<bool>("longOnLeft");
         QTest::newRow("long-left") << true;
@@ -129,12 +150,15 @@ private slots:
             QVERIFY(unified && side && skip); QVERIFY(side->isChecked());
             unified->trigger(); skip->trigger();
             auto* widget=window.findChild<FileDiffWidget*>(); QVERIFY(widget);
+            auto* slider=window.findChild<QSlider*>("panelSpacingSlider"); QVERIFY(slider);
+            slider->setValue(28); QCOMPARE(widget->panelSpacing(),28);
             QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
             QVERIFY(!side->isChecked());
         }
         MainWindow second;
         const auto* widget=second.findChild<FileDiffWidget*>(); QVERIFY(widget);
         QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
+        QCOMPARE(widget->panelSpacing(),28);
     }
 #endif
 

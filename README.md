@@ -115,6 +115,11 @@ git config difftool.diffmerge.cmd 'diffmerge-gui "$LOCAL" "$REMOTE"'
 ```
 
 **View > Side by Side / Unified** switches file presentation. The desktop app
+offers a live slider under **View > Panel spacing** (8–160 logical pixels,
+default 48) and remembers the width of the connector between the panes. This
+allows trying compact and spacious layouts at different window heights; the
+width is currently manual, with no automatic height adjustment.
+The desktop app
 remembers this choice and **View > Skip unchanged lines**. Unified shows old
 and new line numbers and `−`/`+` markers in its gutter; the document contains
 only code, so copying code does not include these markers. Removed lines precede
