@@ -643,6 +643,40 @@ Alternatively, pass `-DDIFFMERGE_SOURCE_DIR=/path/to/diffmerge` to build the exa
 against a checkout. `QT_QPA_PLATFORM=offscreen ./build-example/embedded-diff --smoke`
 checks embedding and resource loading without opening a window.
 
+### Merge session inputs (first stage)
+
+`<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Widgets`.
+It can run on a worker without GUI resources and produces an immutable
+`PreparedMergeSession`. This first stage prepares source data for inspection;
+the merge algorithm, marker importer and three-pane editor are subsequent stages.
+
+Pass independent `MergeFileInput` descriptors for BASE, OURS and THEIRS. Each owns
+its bytes, opaque source/object identity, raw path, optional mode, display label
+and syntax hint. `Present` with zero bytes is an existing empty file; `Absent`
+and `Unknown` are separate states and have no text snapshot. Role names have no
+branch, filesystem or operation interpretation in the library.
+
+An optional `MergeResultSeed` retains an existing working buffer, host-generated
+merge buffer or retained result, including its opaque fingerprint. The seed is
+never replaced by an automatically generated merge. Original UTF-8 bytes, BOM,
+per-line LF/CRLF/CR endings and final-newline state remain available independently
+of display text. The host owns encoding conversions and stale-input checks.
+
+Optional `hostConflicts` distinguish an unavailable conflict list from an
+explicitly empty list. Conflict IDs must be unique and nonempty; optional source
+and result line ranges use original, half-open coordinates and must be within an
+available text snapshot. Resolution states are supplied explicitly, never inferred
+from the presence or absence of markers. Missing result ranges remain unmapped.
+No markers are parsed at this stage and no resolution, export, save or repository
+operation is performed.
+
+Preparation reports `Ready`, `Cancelled`, `ResourceLimit`, `Error` or `Unsupported`.
+Only `Ready` contains a session. Aggregate byte, metadata, line, UTF-16, per-line,
+conflict-count and work limits cover all four inputs. Binary content (NUL), invalid
+UTF-8 and present symlink/submodule/other file kinds are unsupported for text
+preparation and never become placeholder text. Owned input buffers must already
+exist before preparation; limits do not bound allocations made by the host.
+
 ### Presentation API
 
 `FileDiffWidget::viewMode()` and `unchangedLinesSkipped()` report the current
