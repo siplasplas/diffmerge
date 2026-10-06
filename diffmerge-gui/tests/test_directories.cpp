@@ -1,0 +1,137 @@
+#include <QApplication>
+#include <QDir>
+#include <QFile>
+#include <QSignalSpy>
+#include <QTableView>
+#include <QTemporaryDir>
+#include <QTest>
+#include <diffmerge/DirDiffWidget.h>
+#include <diffmerge/DirectoryOperations.h>
+#ifdef DIFFMERGE_TEST_LAUNCH
+#include "../src/LaunchOptions.h"
+#endif
+using namespace diffmerge::gui;
+
+class TestDirectories : public QObject {
+    Q_OBJECT
+    static bool write(const QString& path, const QByteArray& bytes) {
+        if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+    }
+    static QByteArray read(const QString& path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return {};
+        return file.readAll();
+    }
+    static const DirDiffEntry* find(const DirectoryScanResult& result, const QString& path) {
+        for (const auto& entry : result.entries) if (entry.relativePath == path) return &entry;
+        return nullptr;
+    }
+private slots:
+    void contentAndDirectorySummaries() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left = temporary.filePath("left"), right = temporary.filePath("right");
+        QVERIFY(write(left+"/changed", "abcd")); QVERIFY(write(right+"/changed", "abce"));
+        QVERIFY(write(left+"/equal", "equal")); QVERIFY(write(right+"/equal", "equal"));
+        QVERIFY(write(left+"/nested/file", "a")); QVERIFY(write(right+"/nested/file", "b"));
+        QVERIFY(write(left+"/only/sub/file", "x"));
+        QVERIFY(write(left+"/.git/ignored", "excluded")); QVERIFY(write(right+"/.hidden", "visible"));
+        QVERIFY(write(left+"/Case", "upper")); QVERIFY(write(right+"/case", "lower"));
+        const auto time=QDateTime::fromSecsSinceEpoch(1700000000);
+        for(const auto& path : {left+"/changed",right+"/changed"}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::ReadWrite));
+            QVERIFY(file.setFileTime(time,QFileDevice::FileModificationTime));
+        }
+        QFile equal(left+"/equal"); QVERIFY(equal.open(QIODevice::ReadWrite));
+        QVERIFY(equal.setFileTime(time,QFileDevice::FileModificationTime)); equal.close();
+        const auto result = scanDirectories(left,right);
+        QCOMPARE(result.status,DirectoryScanStatus::Ready);
+        QVERIFY(find(result,"changed")); QCOMPARE(find(result,"changed")->status,DirEntryStatus::Different);
+        QCOMPARE(find(result,"equal")->status,DirEntryStatus::Same);
+        QVERIFY(find(result,"equal")->contentVerified);
+        QCOMPARE(find(result,"nested")->status,DirEntryStatus::Different);
+        QCOMPARE(find(result,"only/sub/file")->status,DirEntryStatus::OnlyLeft);
+        QVERIFY(!find(result,".git")); QVERIFY(find(result,".hidden"));
+        QCOMPARE(find(result,"Case")->status,DirEntryStatus::OnlyLeft);
+        QCOMPARE(find(result,"case")->status,DirEntryStatus::OnlyRight);
+        auto limited = DirectoryScanOptions{}; limited.maxComparedFileBytes=1;
+        const auto metadata = scanDirectories(left,right,limited);
+        QVERIFY(!find(metadata,"equal")->contentVerified);
+        QCOMPARE(scanDirectories(left,right,{.exclusions={},.maxComparedFileBytes=64,.maxEntries=1}).status,DirectoryScanStatus::ResourceLimit);
+        diffcore::CancellationToken token; token.requestCancellation();
+        QCOMPARE(scanDirectories(left,right,{},token).status,DirectoryScanStatus::Cancelled);
+        QCOMPARE(scanDirectories(left,temporary.filePath("missing")).status,DirectoryScanStatus::Error);
+    }
+    void tableNavigationFiltersAndReadOnlyRequests() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left=temporary.filePath("left"), right=temporary.filePath("right");
+        QVERIFY(write(left+"/same/file","same")); QVERIFY(write(right+"/same/file","same"));
+        QVERIFY(write(left+"/only/nested/file","only")); QVERIFY(write(right+"/right","right"));
+        DirDiffWidget widget; QSignalSpy finished(&widget,&DirDiffWidget::scanFinished);
+        QSignalSpy copy(&widget,&DirDiffWidget::copyRequested);
+        widget.setDirectories(left,right); widget.show();
+        QTRY_COMPARE(finished.size(),1);
+        auto* view=widget.findChild<QTableView*>("directoryTable"); QVERIFY(view);
+        auto* model=view->model(); QCOMPARE(model->columnCount(),6);
+        QVERIFY(model->index(0,0).data().toString()!="..");
+        QVERIFY(widget.navigateInto("only")); QCOMPARE(widget.currentRelativeDirectory(),QString("only"));
+        QCOMPARE(model->index(0,0).data().toString(),QString(".."));
+        QVERIFY(widget.navigateInto("nested")); QCOMPARE(widget.currentRelativeDirectory(),QString("only/nested"));
+        QTest::keyClick(view,Qt::Key_Backspace); QCOMPARE(widget.currentRelativeDirectory(),QString("only"));
+        QCOMPARE(view->currentIndex().data().toString(),QString("nested"));
+        widget.navigateUp(); QCOMPARE(view->currentIndex().data().toString(),QString("only"));
+        widget.setDifferencesOnly(true);
+        for(int i=0;i<model->rowCount();++i) QVERIFY(model->index(i,0).data().toString()!="same");
+        view->setCurrentIndex(model->index(0,0));
+        QTest::keyClick(view,Qt::Key_F5); QCOMPARE(copy.size(),0);
+        widget.setReadOnly(Side::Right,false); QTest::keyClick(view,Qt::Key_F5); QCOMPARE(copy.size(),1);
+        widget.setExclusions({"only"}); QTRY_COMPARE(finished.size(),2);
+        for(int i=0;i<model->rowCount();++i) QVERIFY(model->index(i,0).data().toString()!="only");
+        widget.setExclusions({}); widget.setDirectories(left,right); QTRY_VERIFY(!widget.isScanning());
+        QVERIFY(widget.navigateInto("same"));
+        QTest::keyClick(view,Qt::Key_R,Qt::ControlModifier); QTRY_VERIFY(!widget.isScanning());
+        QCOMPARE(widget.currentRelativeDirectory(),QString("same"));
+    }
+    void copyPlanIsExplicitAndSafe() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left=temporary.filePath("left"),right=temporary.filePath("right");
+        QVERIFY(write(left+"/folder/file","new")); QVERIFY(write(right+"/folder/file","old"));
+        QVERIFY(write(left+"/folder/child","child"));
+        const auto plan=planDirectoryCopy(left,right,{"folder","folder/file"});
+        QVERIFY2(plan.error.isEmpty(),qPrintable(plan.error)); QCOMPARE(plan.items.size(),3);
+        int overwrites=0; for(const auto& item:plan.items) overwrites+=item.overwrites;
+        QCOMPARE(overwrites,1); QCOMPARE(read(right+"/folder/file"),QByteArray("old"));
+        QVERIFY(executeDirectoryCopy(plan).isEmpty());
+        QCOMPARE(read(right+"/folder/file"),QByteArray("new")); QCOMPARE(read(right+"/folder/child"),QByteArray("child"));
+        QVERIFY(!planDirectoryCopy(left,right,{"../outside"}).error.isEmpty());
+        QVERIFY(!planDirectoryCopy(left,left,{"folder"}).error.isEmpty());
+        QVERIFY(write(right+"/collision","file")); QVERIFY(write(left+"/collision/child","child"));
+        QVERIFY(!planDirectoryCopy(left,right,{"collision"}).error.isEmpty());
+        QVERIFY(!trashDirectoryEntries(right,{"../outside"}).isEmpty());
+        auto stale=planDirectoryCopy(left,right,{"folder/file"});
+        QVERIFY(write(left+"/folder/file","changed length"));
+        QVERIFY(!executeDirectoryCopy(stale).isEmpty()); QCOMPARE(read(right+"/folder/file"),QByteArray("new"));
+        QVERIFY(QFile::link(left+"/folder",right+"/link"));
+        QVERIFY(!planDirectoryCopy(left,right,{"link/child"}).error.isEmpty());
+        QVERIFY(!planDirectoryCopy(right,left,{"link"}).error.isEmpty());
+    }
+#ifdef DIFFMERGE_TEST_LAUNCH
+    void launchPathValidation() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto file=temporary.filePath("file"); QVERIFY(write(file,"content"));
+        const auto second=temporary.filePath("second"); QVERIFY(write(second,"content"));
+        QCOMPARE(validateLaunchPaths({}).kind,LaunchKind::Empty);
+        QCOMPARE(validateLaunchPaths({file}).kind,LaunchKind::PrefillFile);
+        QCOMPARE(validateLaunchPaths({temporary.path()}).kind,LaunchKind::PrefillDirectory);
+        QCOMPARE(validateLaunchPaths({file,second},{"a.cpp","b.cpp"}).kind,LaunchKind::Files);
+        QCOMPARE(validateLaunchPaths({temporary.path(),temporary.path()}).kind,LaunchKind::Directories);
+        const auto mixed=validateLaunchPaths({file,temporary.path()}); QCOMPARE(mixed.kind,LaunchKind::Error);
+        QVERIFY(mixed.error.contains(file)); QVERIFY(mixed.error.contains("directory"));
+        QCOMPARE(validateLaunchPaths({file,temporary.filePath("missing")}).kind,LaunchKind::Error);
+        QCOMPARE(validateLaunchPaths({file,second,file}).kind,LaunchKind::Error);
+    }
+#endif
+};
+QTEST_MAIN(TestDirectories)
+#include "test_directories.moc"

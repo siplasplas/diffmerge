@@ -16,6 +16,8 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(QWidget* parent = nullptr);
 
+    void chooseFiles() { onOpenFiles(); }
+    void setFileLabels(const QStringList& labels);
     void loadFiles(const QString& leftPath, const QString& rightPath,
                    bool fromDir = false);
     void loadDirectories(const QString& leftPath, const QString& rightPath);

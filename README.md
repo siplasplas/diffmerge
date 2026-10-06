@@ -25,7 +25,7 @@ Third-party code and dependencies retain their respective licenses.
 
 - CMake 3.21 or newer.
 - A C++20 compiler.
-- Qt 6.2 or newer: Core for the library and CLI; Gui, Widgets and Svg for the GUI;
+- Qt 6.2 or newer: Core for the library and CLI; Gui, Widgets, Svg and Concurrent for the widgets;
   Network for the corpus downloader; Test when building tests.
 - qt-extra v2.3.0 for the desktop application, fetched from
   https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
@@ -102,7 +102,17 @@ place executables in a configuration subdirectory such as `Debug/`.
 ```
 
 Use **File > Open two files...** or **File > Open two directories...** to switch
-views. Passing a single path pre-fills the left path field.
+views. Passing a single path pre-fills the left path field. Two paths must both
+exist and both be files or directories. Mixed types and missing paths produce an
+error on stderr and in a dialog, then exit with status 2; extra paths are rejected.
+`--help` describes the arguments. `-L LABEL` / `--label LABEL` may be repeated
+for two display labels; a label's file name supplies syntax rules when the
+input file name has no matching definition (useful for temporary difftool files).
+
+```bash
+git config difftool.diffmerge.cmd 'diffmerge-gui "$LOCAL" "$REMOTE"'
+./build/diffmerge-gui/diffmerge-gui -L src/old.cpp -L src/new.cpp old.tmp new.tmp
+```
 
 **View > Side by Side / Unified** switches file presentation. The desktop app
 remembers this choice and **View > Skip unchanged lines**. Unified shows old
@@ -151,10 +161,46 @@ File comparison provides:
   visible changes. This does not equate lines split or joined by a formatter.
 - Editable path fields and file selection buttons for reloading comparisons.
 
-Directory comparison shows a tree with `same`, `different`, `only left` and
-`only right` statuses, and recurses into directories present on both sides.
-Activate a file present on both sides to open its text comparison; use
-**Directories** to return to the tree.
+Directory comparison shows a six-column table for the current directory:
+name, left size/time, status, and right size/time. Directories come first; names
+remain case-sensitive. Enter or double-click a directory to enter it on both
+sides, including directories present on only one side. `..` and Backspace go
+up, selecting the directory just left. Typing a name's initial uses the table's
+keyboard search. Open a file to compare it; a one-sided text file uses an empty
+other side. **Directories** or Backspace in the file view returns to the retained
+directory and selection.
+
+Scans run on a worker and cancel when roots/options change. The default byte
+comparison limit is 64 MiB per file: equal-size regular files within the limit
+are compared in cancellable 64 KiB chunks, regardless of timestamps. Larger
+files use size/time and are explicitly marked `metadata only`; read errors
+are displayed. Directory statuses summarize their descendants, including
+one-sided subtrees. Symbolic-link directories are not traversed. The default
+entry and nesting limits are 100,000 entries and 128 levels.
+
+**View > Show differences only (directories)** hides equal entries and equal
+subtrees. **Directory exclusions...** edits wildcard name patterns, defaulting
+to `.git`, `build`, `build-*`, `cmake-build-*`, `node_modules`, `__pycache__`.
+Excluded names are neither scanned nor included in directory status. The
+desktop app remembers these choices; widgets do not persist preferences.
+
+Select rows and use **Copy →**, **← Copy**, Alt+Right/Alt+Left, or F5 (left to
+right). These copy files/directories, not text blocks. The desktop asks first,
+listing destination entries and marking files to overwrite. Regular files
+are copied atomically with their permissions, directories recursively; a failed
+multi-file copy may leave earlier successful copies and is followed by a rescan.
+Changed sources/destinations detected since confirmation refuse the copy.
+Disjoint roots are required; symbolic links, escaping paths and file/directory
+collisions are refused. **Delete left/right** asks before moving selected entries
+to trash; failure never falls back to permanent deletion. All operations also
+appear in the table context menu. Ctrl+R or **Refresh** rescans.
+
+Embedded `DirDiffWidget`s default to both sides read-only. Hosts can opt in with
+`setReadOnly(Side, false)` and handle `copyRequested` / `deleteRequested` signals;
+only the desktop host performs confirmed writes. `setExclusions()`,
+`setDifferencesOnly()`, `currentRelativeDirectory()`, `navigateInto()`,
+`navigateUp()`, `refresh()`, `scanFinished` and `operationFailed` expose navigation
+and scanning independently of the desktop menus.
 
 ### Syntax highlighting
 
@@ -195,15 +241,20 @@ from the new snapshots. An unknown file name or absent XML uses plain text plus
 diff colors. XML loading and editor syntax highlighting happen on the GUI thread;
 worker comparison preparation stays independent of syntax data and GUI resources.
 
+One-sided binary, invalid UTF-8 or over-8-MiB inputs refuse text preview rather
+than showing fabricated saveable content. Editing and copying text blocks remain
+planned work; directory copying does not enable editing of source documents.
+
 ### Current limitations
 
 - Files cannot be edited and changes cannot be applied between panes.
 - There is no overview minimap or three-way merge.
 - The editor displays real document lines without visual filler rows, so panes
   can have different heights around insertions and deletions.
-- Directory file statuses use size and modification time, rather than a content
-  comparison. Names are matched without regard to case and hidden entries are
-  excluded. Files present on only one side cannot be opened from the tree.
+- Directory copies refuse symbolic links and file/directory type collisions;
+  an operation spanning multiple entries is not one atomic transaction.
+- Files above the directory byte-comparison limit use marked metadata-only status.
+  Trash support depends on the platform; unsupported trash never deletes permanently.
 
 ## CLI
 
@@ -290,7 +341,7 @@ Two static libraries are available; both propagate the C++20 requirement:
 | CMake target | Purpose | Dependencies |
 | --- | --- | --- |
 | `DiffMerge::Core` | Line and generic sequence diff algorithms | Qt6 Core |
-| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg, qcodeedit + qcodeedit-kate >= 1.6.0 |
+| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg/Concurrent, qcodeedit + qcodeedit-kate >= 1.6.0 |
 
 For a source dependency (including CMake FetchContent), use:
 
@@ -378,7 +429,8 @@ outlive worker locals and be shared across views. `setComparison()` runs on the
 GUI thread without recomputing a diff; replacing it or calling `clearComparison()`
 detaches the previous data and clears transient overlays. The host owns worker
 scheduling and rejects stale results using its own generation ID. The example
-shows this with QtConcurrent; DiffMerge itself does not require QtConcurrent.
+shows this with QtConcurrent. File comparison preparation itself uses QtCore;
+directory widgets use QtConcurrent internally for cancellable background scans.
 
 `PrepareResult::status` distinguishes `Ready`, `Cancelled`, `ResourceLimit` and
 `Error`. Only `Ready` contains a comparison. Cancellation is cooperative inside

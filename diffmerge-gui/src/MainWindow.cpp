@@ -2,6 +2,13 @@
 
 #include <qxfiledialog.h>
 #include <QShortcut>
+#include <QInputDialog>
+#include <QDir>
+#include <QFileInfo>
+#include <QFile>
+#include <QStringConverter>
+#include <diffmerge/DiffEditor.h>
+#include <diffmerge/DirectoryOperations.h>
 #include <QActionGroup>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -19,6 +26,40 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_stack      = new QStackedWidget(this);
     m_diffWidget = new FileDiffWidget(m_stack);
     m_dirWidget  = new DirDiffWidget(m_stack);
+    // The desktop host permits filesystem operations; embedded widgets default read-only.
+    m_dirWidget->setReadOnly(Side::Left,false); m_dirWidget->setReadOnly(Side::Right,false);
+    connect(m_dirWidget,&DirDiffWidget::operationFailed,this,&MainWindow::showError);
+    connect(m_dirWidget,&DirDiffWidget::copyRequested,this,[this](Side source,const QStringList& paths) {
+        if(paths.isEmpty()) return;
+        const Side destination=source==Side::Left ? Side::Right : Side::Left;
+        if(m_dirWidget->isReadOnly(destination)) return;
+        const auto plan=planDirectoryCopy(source==Side::Left ? m_dirWidget->leftPath() : m_dirWidget->rightPath(),
+            destination==Side::Left ? m_dirWidget->leftPath() : m_dirWidget->rightPath(),paths);
+        if(!plan.error.isEmpty()) { showError(plan.error); return; }
+        QStringList entries;
+        for(const auto& item:plan.items) entries.append(item.destination+(item.overwrites ? QStringLiteral(" [OVERWRITE]") : QString{}));
+        if(QMessageBox::question(this,QStringLiteral("Copy selected entries"),
+            QStringLiteral("Copy these entries? Existing files marked OVERWRITE will be replaced.\n\n%1").arg(entries.join('\n')),
+            QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes) return;
+        const auto error=executeDirectoryCopy(plan); if(!error.isEmpty()) showError(error);
+        m_dirWidget->refresh();
+    });
+    connect(m_dirWidget,&DirDiffWidget::deleteRequested,this,[this](Side side,const QStringList& paths) {
+        if(paths.isEmpty() || m_dirWidget->isReadOnly(side)) return;
+        const auto root=side==Side::Left ? m_dirWidget->leftPath() : m_dirWidget->rightPath();
+        QStringList absolute; for(const auto& path:paths) absolute.append(QDir(root).filePath(path));
+        if(QMessageBox::question(this,QStringLiteral("Move selected entries to trash"),absolute.join('\n'),
+            QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes) return;
+        const auto error=trashDirectoryEntries(root,paths); if(!error.isEmpty()) showError(error);
+        m_dirWidget->refresh();
+    });
+    for(auto* editor : {m_diffWidget->leftEditor(),m_diffWidget->rightEditor(),m_diffWidget->unifiedEditor()}) {
+        auto* backspace=new QShortcut(Qt::Key_Backspace,editor);
+        backspace->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(backspace,&QShortcut::activated,this,[this] {
+            if(!m_dirWidget->leftPath().isEmpty()) m_stack->setCurrentWidget(m_dirWidget);
+        });
+    }
 
     auto* next = new QShortcut(Qt::Key_F7, m_diffWidget);
     next->setContext(Qt::WidgetWithChildrenShortcut);
@@ -113,6 +154,24 @@ void MainWindow::setupMenus() {
         skip->setChecked(value); QSettings().setValue(QStringLiteral("view/skipUnchanged"), value);
     });
 
+    viewMenu->addSeparator();
+    auto* differences=viewMenu->addAction(QStringLiteral("Show differences only (directories)"));
+    differences->setCheckable(true);
+    differences->setChecked(settings.value(QStringLiteral("directories/differencesOnly"),false).toBool());
+    m_dirWidget->setDifferencesOnly(differences->isChecked());
+    connect(differences,&QAction::toggled,this,[this](bool enabled) {
+        m_dirWidget->setDifferencesOnly(enabled); QSettings().setValue(QStringLiteral("directories/differencesOnly"),enabled);
+    });
+    m_dirWidget->setExclusions(settings.value(QStringLiteral("directories/exclusions"),m_dirWidget->exclusions()).toStringList());
+    auto* exclusions=viewMenu->addAction(QStringLiteral("Directory exclusions..."));
+    connect(exclusions,&QAction::triggered,this,[this] {
+        bool accepted=false;
+        const auto text=QInputDialog::getMultiLineText(this,QStringLiteral("Directory exclusions"),
+            QStringLiteral("One wildcard name pattern per line"),m_dirWidget->exclusions().join('\n'),&accepted);
+        if(!accepted) return;
+        QStringList patterns; for(const auto& line:text.split('\n')) if(!line.trimmed().isEmpty()) patterns.append(line.trimmed());
+        m_dirWidget->setExclusions(patterns); QSettings().setValue(QStringLiteral("directories/exclusions"),patterns);
+    });
     auto* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
     auto* syntaxAction = toolsMenu->addAction(QStringLiteral("Update Syntax Definitions..."));
     connect(syntaxAction, &QAction::triggered, this, &MainWindow::updateSyntaxData);
@@ -157,6 +216,16 @@ void MainWindow::updateSyntaxData() {
     syntaxDownloader()->start();
 }
 
+void MainWindow::setFileLabels(const QStringList& labels) {
+    if(labels.isEmpty()) return;
+    for(int i=0;i<labels.size() && i<2;++i) {
+        const Side side=i==0 ? Side::Left : Side::Right;
+        const auto* editor=side==Side::Left ? m_diffWidget->leftEditor() : m_diffWidget->rightEditor();
+        if(editor->syntaxLanguage().isEmpty()) m_diffWidget->setSyntaxFileName(side,QFileInfo(labels[i]).fileName());
+    }
+    setWindowTitle(QStringLiteral("DiffMerge — %1").arg(labels.join(QStringLiteral(" vs "))));
+}
+
 void MainWindow::showError(const QString& message) {
     QMessageBox::critical(this, QStringLiteral("Error"), message);
 }
@@ -184,7 +253,22 @@ void MainWindow::onOpenDirectories() {
 void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
                            bool fromDir) {
     m_diffWidget->setBackVisible(fromDir);
-    m_diffWidget->loadFromPaths(leftPath, rightPath);
+    if(leftPath.isEmpty() || rightPath.isEmpty()) {
+        const auto path=leftPath.isEmpty() ? rightPath : leftPath;
+        QFile file(path);
+        if(!file.open(QIODevice::ReadOnly)) { showError(file.errorString()); return; }
+        if(file.size()>8*1024*1024) { showError(QStringLiteral("File exceeds the text preview byte limit")); return; }
+        const auto bytes=file.readAll();
+        if(file.error()!=QFileDevice::NoError) { showError(file.errorString()); return; }
+        if(bytes.contains('\0')) { showError(QStringLiteral("Binary files cannot be displayed as text")); return; }
+        QStringDecoder decoder(QStringDecoder::Utf8);
+        const auto text=decoder(bytes);
+        if(decoder.hasError()) { showError(QStringLiteral("File is not valid UTF-8")); return; }
+        const auto source=TextSnapshot::fromText(text,path,path);
+        auto prepared=leftPath.isEmpty() ? prepareComparison({},source) : prepareComparison(source,{});
+        if(prepared.status!=PreparationStatus::Ready) { showError(prepared.message); return; }
+        m_diffWidget->setPaths(leftPath,rightPath); m_diffWidget->setComparison(prepared.comparison);
+    } else m_diffWidget->loadFromPaths(leftPath, rightPath);
     m_stack->setCurrentWidget(m_diffWidget);
 }
 
@@ -204,11 +288,6 @@ void MainWindow::prefillDirs(const QString& leftPath, const QString& rightPath) 
 }
 
 void MainWindow::onFileActivated(const QString& leftPath, const QString& rightPath) {
-    if (leftPath.isEmpty() || rightPath.isEmpty()) {
-        showError(QStringLiteral("File exists only on one side:\n%1\n%2")
-                      .arg(leftPath, rightPath));
-        return;
-    }
     loadFiles(leftPath, rightPath, /*fromDir=*/true);
 }
 

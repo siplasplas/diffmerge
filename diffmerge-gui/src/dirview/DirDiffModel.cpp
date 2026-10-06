@@ -1,97 +1,143 @@
 #include <diffmerge/DirDiffModel.h>
-
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QHash>
+#include <QRegularExpression>
+#include <algorithm>
+#include <stdexcept>
 
 namespace diffmerge::gui {
-
 namespace {
-
-// Quick compare: same size + same last-modified time → treat as identical.
-// A future version could do a byte-level check, but this is fast enough for
-// interactive use.
-DirEntryStatus compareFiles(const QFileInfo& left, const QFileInfo& right) {
-    if (left.size() == right.size() &&
-        left.lastModified() == right.lastModified())
-        return DirEntryStatus::Same;
-    return DirEntryStatus::Different;
-}
-
-void scanRecursive(const QString& leftRoot, const QString& rightRoot,
-                   const QString& relDir, int depth,
-                   QVector<DirDiffEntry>& out) {
-    const QString leftDir  = relDir.isEmpty() ? leftRoot
-                                               : leftRoot + QLatin1Char('/') + relDir;
-    const QString rightDir = relDir.isEmpty() ? rightRoot
-                                               : rightRoot + QLatin1Char('/') + relDir;
-
-    const QDir::Filters filter = QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot;
-    const QDir::SortFlags sort = QDir::Name | QDir::DirsFirst | QDir::IgnoreCase;
-
-    const QFileInfoList leftList  = QDir(leftDir).entryInfoList(filter, sort);
-    const QFileInfoList rightList = QDir(rightDir).entryInfoList(filter, sort);
-
-    // Build name sets for fast lookup
-    QHash<QString, QFileInfo> leftMap, rightMap;
-    for (const QFileInfo& fi : leftList)
-        leftMap.insert(fi.fileName().toLower(), fi);
-    for (const QFileInfo& fi : rightList)
-        rightMap.insert(fi.fileName().toLower(), fi);
-
-    // Merge-iterate by sorted name (dirs first, then files)
-    QStringList allNames;
-    for (const QFileInfo& fi : leftList)  allNames.append(fi.fileName());
-    for (const QFileInfo& fi : rightList) {
-        if (!leftMap.contains(fi.fileName().toLower()))
-            allNames.append(fi.fileName());
+class Scanner {
+public:
+    DirectoryScanOptions options;
+    diffcore::CancellationToken token;
+    DirectoryScanResult result;
+    QVector<QRegularExpression> exclusions;
+    void checkpoint() const {
+        if (token.isCancellationRequested()) throw diffcore::ComputationStopped(diffcore::StopReason::Cancelled);
     }
-    // Re-sort: dirs first, then files, case-insensitive
-    std::sort(allNames.begin(), allNames.end(), [&](const QString& a, const QString& b) {
-        const bool aDir = leftMap.value(a.toLower()).isDir() ||
-                          rightMap.value(a.toLower()).isDir();
-        const bool bDir = leftMap.value(b.toLower()).isDir() ||
-                          rightMap.value(b.toLower()).isDir();
-        if (aDir != bDir) return aDir > bDir;
-        return a.toLower() < b.toLower();
-    });
-    // Deduplicate
-    allNames.removeDuplicates();
-
-    for (const QString& name : allNames) {
-        const QString key  = name.toLower();
-        const bool hasLeft  = leftMap.contains(key);
-        const bool hasRight = rightMap.contains(key);
-        const QFileInfo& lfi = hasLeft  ? leftMap[key]  : QFileInfo{};
-        const QFileInfo& rfi = hasRight ? rightMap[key] : QFileInfo{};
-        const bool isDir = (hasLeft ? lfi.isDir() : rfi.isDir());
-
-        const QString rel = relDir.isEmpty() ? name : relDir + QLatin1Char('/') + name;
-        DirDiffEntry entry;
-        entry.relativePath = rel;
-        entry.leftPath     = hasLeft  ? lfi.absoluteFilePath() : QString{};
-        entry.rightPath    = hasRight ? rfi.absoluteFilePath() : QString{};
-        entry.depth        = depth;
-        entry.isDir        = isDir;
-
-        if (!hasLeft)       entry.status = DirEntryStatus::OnlyRight;
-        else if (!hasRight) entry.status = DirEntryStatus::OnlyLeft;
-        else if (isDir)     entry.status = DirEntryStatus::Directory;
-        else                entry.status = compareFiles(lfi, rfi);
-
-        out.append(entry);
-
-        if (isDir && hasLeft && hasRight)
-            scanRecursive(leftRoot, rightRoot, rel, depth + 1, out);
+    bool excluded(const QString& name) const {
+        for (const auto& pattern : exclusions) if (pattern.match(name).hasMatch()) return true;
+        return false;
     }
+    QFileInfoList list(const QString& path) const {
+        if (path.isEmpty()) return {};
+        const QFileInfo info(path);
+        if (!info.exists()) return {};
+        if (!info.isDir() || info.isSymLink() || !info.isReadable())
+            throw std::runtime_error(QStringLiteral("Cannot scan directory: %1").arg(path).toStdString());
+        return QDir(path).entryInfoList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name);
+    }
+    void compare(DirDiffEntry& entry, const QFileInfo& left, const QFileInfo& right) {
+        checkpoint();
+        if (left.isSymLink() || right.isSymLink()) {
+            entry.contentVerified = true;
+            entry.status = left.isSymLink() && right.isSymLink() && left.symLinkTarget() == right.symLinkTarget()
+                ? DirEntryStatus::Same : DirEntryStatus::Different;
+            return;
+        }
+        if (!left.isFile() || !right.isFile()) {
+            entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("Unsupported file type"); return;
+        }
+        if (left.size() != right.size()) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
+        if (left.size() > options.maxComparedFileBytes) {
+            entry.status = left.lastModified() == right.lastModified() ? DirEntryStatus::Same : DirEntryStatus::Different;
+            return;
+        }
+        QFile a(left.absoluteFilePath()), b(right.absoluteFilePath());
+        if (!a.open(QIODevice::ReadOnly) || !b.open(QIODevice::ReadOnly)) {
+            entry.status = DirEntryStatus::Error;
+            entry.diagnostic = QStringLiteral("Cannot read compared files"); return;
+        }
+        entry.status = DirEntryStatus::Same;
+        qint64 read = 0;
+        while (read < left.size()) {
+            checkpoint();
+            const auto x = a.read(64 * 1024), y = b.read(64 * 1024);
+            if (a.error() != QFileDevice::NoError || b.error() != QFileDevice::NoError || x.isEmpty() || y.isEmpty()) {
+                entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("File changed or read failed during comparison"); return;
+            }
+            if (x != y) { entry.status = DirEntryStatus::Different; break; }
+            read += x.size();
+        }
+        if (a.size() != left.size() || b.size() != right.size() ||
+            QFileInfo(left.absoluteFilePath()).lastModified() != left.lastModified() ||
+            QFileInfo(right.absoluteFilePath()).lastModified() != right.lastModified()) {
+            entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("File changed during comparison"); return;
+        }
+        entry.contentVerified = true;
+    }
+    void scan(const QString& leftPath, const QString& rightPath, const QString& relative, int depth) {
+        checkpoint();
+        if (depth > 128) throw std::length_error("Directory nesting limit exceeded");
+        QHash<QString, QFileInfo> left, right;
+        for (const auto& file : list(leftPath)) { checkpoint(); if (!excluded(file.fileName())) left.insert(file.fileName(), file); }
+        for (const auto& file : list(rightPath)) { checkpoint(); if (!excluded(file.fileName())) right.insert(file.fileName(), file); }
+        QStringList names = left.keys();
+        for (const auto& name : right.keys()) if (!left.contains(name)) names.append(name);
+        const auto directory = [&](const QString& name) {
+            return (left.value(name).isDir() && !left.value(name).isSymLink()) ||
+                   (right.value(name).isDir() && !right.value(name).isSymLink());
+        };
+        std::sort(names.begin(), names.end(), [&](const QString& a, const QString& b) {
+            if (directory(a) != directory(b)) return directory(a);
+            const int order = QString::compare(a, b, Qt::CaseInsensitive);
+            return order == 0 ? a < b : order < 0;
+        });
+        for (const auto& name : names) {
+            checkpoint();
+            if (result.entries.size() >= options.maxEntries) throw std::length_error("Directory entry limit exceeded");
+            const bool hasLeft = left.contains(name), hasRight = right.contains(name);
+            const auto l = left.value(name), r = right.value(name);
+            DirDiffEntry entry;
+            entry.relativePath = relative.isEmpty() ? name : relative + '/' + name;
+            entry.leftPath = hasLeft ? l.absoluteFilePath() : QString{};
+            entry.rightPath = hasRight ? r.absoluteFilePath() : QString{};
+            entry.leftSize = l.size(); entry.rightSize = r.size();
+            entry.leftModified = l.lastModified(); entry.rightModified = r.lastModified();
+            entry.depth = depth; entry.isDir = directory(name);
+            entry.contentVerified = true;
+            if (!hasLeft) entry.status = DirEntryStatus::OnlyRight;
+            else if (!hasRight) entry.status = DirEntryStatus::OnlyLeft;
+            else if (l.isDir() != r.isDir() || l.isSymLink() != r.isSymLink()) entry.status = DirEntryStatus::Different;
+            else if (entry.isDir) entry.status = DirEntryStatus::Same;
+            else { entry.contentVerified = false; compare(entry, l, r); }
+            const int index = result.entries.size();
+            result.entries.append(entry);
+            const bool collision = hasLeft && hasRight && (l.isDir() != r.isDir() || l.isSymLink() != r.isSymLink());
+            if (entry.isDir && !collision) {
+                scan(entry.leftPath, entry.rightPath, entry.relativePath, depth+1);
+                for (int i=index+1; i<result.entries.size(); ++i) {
+                    result.entries[index].contentVerified &= result.entries[i].contentVerified;
+                    if (hasLeft && hasRight && result.entries[i].status != DirEntryStatus::Same)
+                        result.entries[index].status = DirEntryStatus::Different;
+                }
+            }
+        }
+    }
+};
 }
-
-}  // namespace
-
-QVector<DirDiffEntry> scanDirDiff(const QString& leftRoot,
-                                  const QString& rightRoot) {
-    QVector<DirDiffEntry> result;
-    scanRecursive(leftRoot, rightRoot, QString{}, 0, result);
-    return result;
+DirectoryScanResult scanDirectories(const QString& leftRoot, const QString& rightRoot,
+    const DirectoryScanOptions& options, const diffcore::CancellationToken& cancellation) {
+    Scanner scanner; scanner.options = options; scanner.token = cancellation;
+    try {
+        if (leftRoot.isEmpty() || rightRoot.isEmpty() || options.maxComparedFileBytes < 0 || options.maxEntries < 0)
+            throw std::invalid_argument("Two directory roots and nonnegative limits are required");
+        for (const auto& pattern : options.exclusions)
+            scanner.exclusions.append(QRegularExpression(QRegularExpression::wildcardToRegularExpression(pattern)));
+        if (!QFileInfo(leftRoot).isDir() || !QFileInfo(rightRoot).isDir()) throw std::invalid_argument("Two existing directory roots are required");
+        scanner.scan(QFileInfo(leftRoot).canonicalFilePath(), QFileInfo(rightRoot).canonicalFilePath(), {}, 0);
+        scanner.checkpoint(); scanner.result.status = DirectoryScanStatus::Ready;
+    } catch (const diffcore::ComputationStopped&) { scanner.result = {DirectoryScanStatus::Cancelled, {}, QStringLiteral("Directory scan cancelled")}; }
+    catch (const std::length_error& error) { scanner.result = {DirectoryScanStatus::ResourceLimit, {}, QString::fromUtf8(error.what())}; }
+    catch (const std::exception& error) { scanner.result = {DirectoryScanStatus::Error, {}, QString::fromUtf8(error.what())}; }
+    return scanner.result;
 }
-
-}  // namespace diffmerge::gui
+QVector<DirDiffEntry> scanDirDiff(const QString& leftRoot, const QString& rightRoot) {
+    auto result = scanDirectories(leftRoot, rightRoot);
+    if (result.status != DirectoryScanStatus::Ready) throw std::runtime_error(result.message.toStdString());
+    return result.entries;
+}
+}

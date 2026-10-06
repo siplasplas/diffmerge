@@ -1,45 +1,39 @@
 #include <QApplication>
-#include <QFileInfo>
-#include <QStringList>
-
+#include <QCommandLineParser>
+#include <QMessageBox>
+#include <QTextStream>
+#include <QTimer>
 #include "MainWindow.h"
-
-int main(int argc, char* argv[]) {
-    QApplication app(argc, argv);
+#include "LaunchOptions.h"
+int main(int argc,char* argv[]) {
+    QApplication app(argc,argv);
     QApplication::setApplicationName(QStringLiteral("DiffMerge"));
     QApplication::setOrganizationName(QStringLiteral("DiffMerge"));
-
-    diffmerge::gui::MainWindow w;
-
-    const QStringList args = QApplication::arguments();
-    // Only the first two extra arguments are considered; the rest are ignored.
-    const int n = std::min(static_cast<int>(args.size()) - 1, 2);
-
-    if (n == 1) {
-        const QString p = args.at(1);
-        if (QFileInfo(p).isDir())
-            w.prefillDirs(p);
-        else
-            w.prefillFiles(p);
-    } else if (n == 2) {
-        const QString p1 = args.at(1);
-        const QString p2 = args.at(2);
-        const bool p1Dir = QFileInfo(p1).isDir();
-        const bool p2Dir = QFileInfo(p2).isDir();
-
-        if (p1Dir && p2Dir) {
-            w.loadDirectories(p1, p2);       // both dirs — scan immediately
-        } else if (!p1Dir && !p2Dir) {
-            w.loadFiles(p1, p2);             // both files — diff immediately
-        } else {
-            // mixed types: first arg decides the view, second pre-filled only
-            if (p1Dir)
-                w.prefillDirs(p1, p2);
-            else
-                w.prefillFiles(p1, p2);
-        }
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("Compare two files or directories"));
+    parser.addHelpOption();
+    parser.addPositionalArgument(QStringLiteral("paths"),QStringLiteral("Zero, one (prefill), or two existing files/directories"),QStringLiteral("[LEFT [RIGHT]]"));
+    parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display label and fallback syntax file name (repeat for the right side)"),QStringLiteral("LABEL")});
+    if(!parser.parse(app.arguments())) {
+        QTextStream(stderr)<<parser.errorText()<<'\n'; return 2;
     }
-
-    w.show();
+    if(parser.isSet(QStringLiteral("help"))) parser.showHelp();
+    const auto options=diffmerge::gui::validateLaunchPaths(parser.positionalArguments(),parser.values(QStringLiteral("label")));
+    if(options.kind==diffmerge::gui::LaunchKind::Error) {
+        QTextStream(stderr)<<options.error<<'\n';
+        QMessageBox::critical(nullptr,QStringLiteral("Cannot compare paths"),options.error); return 2;
+    }
+    diffmerge::gui::MainWindow window;
+    using diffmerge::gui::LaunchKind;
+    switch(options.kind) {
+        case LaunchKind::PrefillFile: window.prefillFiles(options.paths[0]); break;
+        case LaunchKind::PrefillDirectory: window.prefillDirs(options.paths[0]); break;
+        case LaunchKind::Files: window.loadFiles(options.paths[0],options.paths[1]); break;
+        case LaunchKind::Directories: window.loadDirectories(options.paths[0],options.paths[1]); break;
+        default: break;
+    }
+    window.setFileLabels(options.labels);
+    window.show();
+    if(options.kind==LaunchKind::Empty) QTimer::singleShot(0,&window,&diffmerge::gui::MainWindow::chooseFiles);
     return QApplication::exec();
 }

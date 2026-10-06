@@ -1,4 +1,4 @@
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg Concurrent)
 find_package(qcodeedit 1.6.0 CONFIG QUIET)
 if(qcodeedit_FOUND)
     find_package(qcodeedit-kate 1.6.0 CONFIG QUIET)
@@ -63,6 +63,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/fileview/DiffConnectorSplitter.h
     src/fileview/DiffConnectorSplitter.cpp
     src/fileview/ScrollSyncMapper.cpp
+    src/dirview/DirectoryOperations.cpp
     src/dirview/DirDiffModel.cpp
     src/dirview/DirDiffWidget.cpp
     include/diffmerge/Comparison.h
@@ -86,7 +87,7 @@ target_include_directories(diffmerge-widgets PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(diffmerge-widgets PUBLIC
-    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg qcodeedit::kate)
+    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg Qt6::Concurrent qcodeedit::kate)
 
 if(DIFFMERGE_BUILD_GUI)
     include(FetchContent)
@@ -97,7 +98,7 @@ if(DIFFMERGE_BUILD_GUI)
         GIT_TAG v2.3.0
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(qt_extra)
-    add_executable(diffmerge-gui src/main.cpp src/MainWindow.cpp src/MainWindow.h)
+    add_executable(diffmerge-gui src/main.cpp src/LaunchOptions.cpp src/LaunchOptions.h src/MainWindow.cpp src/MainWindow.h)
     target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra qcodeedit::katedata)
     install(TARGETS diffmerge-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
