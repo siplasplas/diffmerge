@@ -129,7 +129,9 @@ File comparison provides:
 - Synchronized vertical scrolling across corresponding changes. Both side-by-side
   panes also share the horizontal offset and scroll range: moving either scrollbar
   or scrolling to the caret shifts both panes by the same number of columns, even
-  when the other pane contains only short lines.
+  when the other pane contains only short lines. Horizontal scrolling preserves
+  both panes' vertical positions and the connector geometry, including partially
+  visible blocks opposite an insertion/deletion boundary.
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
 - Three-level comparison: line alignment, word matching within replacement
   blocks, then character comparison within corresponding changed words.

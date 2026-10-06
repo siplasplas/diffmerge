@@ -186,8 +186,16 @@ void FileDiffWidget::setupUi() {
     }
 
     connect(leftEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [this, rightEdit](const qce::ViewportState& vp) {
-        if (m_syncingScroll || m_viewMode == ViewMode::Unified) return;
+            this, [this, rightEdit, previous = leftEdit->area()->viewportState()](const qce::ViewportState& vp) mutable {
+        // Horizontal scrolling publishes the same signal. Preserve independently
+        // positioned block endpoints unless the vertical viewport actually changes.
+        const bool verticalChanged = vp.firstVisibleLine != previous.firstVisibleLine
+            || vp.lastVisibleLine != previous.lastVisibleLine
+            || vp.contentOffsetY != previous.contentOffsetY
+            || vp.lineHeight != previous.lineHeight
+            || vp.viewportHeight != previous.viewportHeight;
+        previous = vp; // Track guarded navigation and updates to the other pane too.
+        if (!verticalChanged || m_syncingScroll || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = rightEdit->area()->document()->lineCount();
         const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
@@ -199,8 +207,16 @@ void FileDiffWidget::setupUi() {
     });
 
     connect(rightEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [this, leftEdit](const qce::ViewportState& vp) {
-        if (m_syncingScroll || m_viewMode == ViewMode::Unified) return;
+            this, [this, leftEdit, previous = rightEdit->area()->viewportState()](const qce::ViewportState& vp) mutable {
+        // Horizontal scrolling publishes the same signal. Preserve independently
+        // positioned block endpoints unless the vertical viewport actually changes.
+        const bool verticalChanged = vp.firstVisibleLine != previous.firstVisibleLine
+            || vp.lastVisibleLine != previous.lastVisibleLine
+            || vp.contentOffsetY != previous.contentOffsetY
+            || vp.lineHeight != previous.lineHeight
+            || vp.viewportHeight != previous.viewportHeight;
+        previous = vp; // Track guarded navigation and updates to the other pane too.
+        if (!verticalChanged || m_syncingScroll || m_viewMode == ViewMode::Unified) return;
         m_syncingScroll = true;
         const int otherCount = leftEdit->area()->document()->lineCount();
         const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
