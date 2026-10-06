@@ -5,6 +5,7 @@
 #include <QVector>
 #include <diffcore/ComputationControl.h>
 #include <diffcore/DiffTypes.h>
+#include <functional>
 
 namespace diffmerge::gui {
 enum class DirEntryStatus { OnlyLeft, OnlyRight, Same, Different, Directory, Error };
@@ -35,7 +36,8 @@ struct DirectoryScanResult {
 };
 // Owned results, no GUI objects; symbolic-link directories are never followed.
 DirectoryScanResult scanDirectories(const QString& leftRoot, const QString& rightRoot,
-    const DirectoryScanOptions& options = {}, const diffcore::CancellationToken& cancellation = {});
+    const DirectoryScanOptions& options = {}, const diffcore::CancellationToken& cancellation = {},
+    const std::function<void(const QString&, qint64, qint64)>& progress = {});
 // Compatibility adapter. Throws on cancellation, resource limits or scan failure.
 QVector<DirDiffEntry> scanDirDiff(const QString& leftRoot, const QString& rightRoot);
 }

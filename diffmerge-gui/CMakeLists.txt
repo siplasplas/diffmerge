@@ -65,6 +65,7 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/fileview/ScrollSyncMapper.cpp
     src/fileview/FileEditing.cpp
     src/fileview/FileReload.cpp
+    src/fileview/ByteComparison.cpp
     src/dirview/DirectoryOperations.cpp
     src/dirview/DirDiffModel.cpp
     src/dirview/DirDiffWidget.cpp

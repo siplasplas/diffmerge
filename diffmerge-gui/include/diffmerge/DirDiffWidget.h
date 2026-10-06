@@ -6,6 +6,7 @@ class QTableView;
 class QStandardItemModel;
 class QLineEdit;
 class QToolButton;
+class QProgressBar;
 namespace diffmerge::gui {
 class DirDiffWidget : public QWidget {
     Q_OBJECT
@@ -34,6 +35,7 @@ public:
     bool isReadOnly(Side side) const { return side == Side::Left ? m_leftReadOnly : m_rightReadOnly; }
 public slots:
     void refresh();
+    void cancelScan();
     void navigateUp();
 signals:
     void directoryBrowseRequested(Side side, const QString& currentPath);
@@ -58,6 +60,8 @@ private:
     QTableView* m_view = nullptr;
     QStandardItemModel* m_model = nullptr;
     QToolButton *m_copyLeft = nullptr, *m_copyRight = nullptr, *m_deleteLeft = nullptr, *m_deleteRight = nullptr;
+    QToolButton* m_cancelScan = nullptr;
+    QProgressBar* m_scanProgress = nullptr;
     QVector<DirDiffEntry> m_entries;
     QString m_leftPath, m_rightPath, m_relative, m_selectName;
     DirectoryScanOptions m_options;

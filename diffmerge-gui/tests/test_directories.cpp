@@ -29,6 +29,27 @@ class TestDirectories : public QObject {
         return nullptr;
     }
 private slots:
+    void byteProgressAndCancellation() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left=temporary.filePath("left"),right=temporary.filePath("right");
+        QVERIFY(write(left+"/large",QByteArray(128*1024,'a')));
+        QVERIFY(write(right+"/large",QByteArray(128*1024,'a')));
+        DirectoryScanOptions options; options.maxComparedFileBytes=1;
+        int progressCalls=0;
+        const auto result=scanDirectories(left,right,options,{},[&](const QString&,qint64 done,qint64 total) {
+            if(done>0) { ++progressCalls; QVERIFY(done<=total); }
+        });
+        QCOMPARE(result.status,DirectoryScanStatus::Ready); QVERIFY(progressCalls>0);
+        QCOMPARE(find(result,"large")->status,DirEntryStatus::Same); QVERIFY(find(result,"large")->contentVerified);
+        diffcore::CancellationToken token;
+        const auto cancelled=scanDirectories(left,right,options,token,[&](const QString&,qint64 done,qint64) {
+            if(done>0) token.requestCancellation();
+        });
+        QCOMPARE(cancelled.status,DirectoryScanStatus::Cancelled); QVERIFY(cancelled.entries.isEmpty());
+        DirDiffWidget widget; QSignalSpy finished(&widget,&DirDiffWidget::scanFinished);
+        widget.setDirectories(left,right); widget.cancelScan();
+        QTRY_COMPARE(finished.size(),1); QVERIFY(!widget.isScanning());
+    }
     void contentAndDirectorySummaries() {
         QTemporaryDir temporary; QVERIFY(temporary.isValid());
         const auto left = temporary.filePath("left"), right = temporary.filePath("right");
@@ -57,7 +78,9 @@ private slots:
         QCOMPARE(find(result,"case")->status,DirEntryStatus::OnlyRight);
         auto limited = DirectoryScanOptions{}; limited.maxComparedFileBytes=1;
         const auto metadata = scanDirectories(left,right,limited);
-        QVERIFY(!find(metadata,"equal")->contentVerified);
+        QVERIFY(find(metadata,"equal")->contentVerified);
+        QCOMPARE(find(metadata,"changed")->status,DirEntryStatus::Different);
+        QVERIFY(find(metadata,"changed")->contentVerified);
         QCOMPARE(scanDirectories(left,right,{.exclusions={},.maxComparedFileBytes=64,.maxEntries=1}).status,DirectoryScanStatus::ResourceLimit);
         diffcore::CancellationToken token; token.requestCancellation();
         QCOMPARE(scanDirectories(left,right,{},token).status,DirectoryScanStatus::Cancelled);

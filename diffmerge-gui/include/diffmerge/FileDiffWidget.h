@@ -8,6 +8,7 @@
 #include <QToolButton>
 #include <QWidget>
 #include <memory>
+class QProgressBar;
 
 #include <diffcore/DiffTypes.h>
 
@@ -21,6 +22,7 @@ namespace diffmerge::gui {
 class DiffEditor;
 class DiffConnectorSplitter;
 struct FileEditingState;
+enum class ByteComparisonStatus { NotApplicable, Comparing, Identical, Different, Cancelled, Error };
 
 class FileDiffWidget : public QWidget {
     Q_OBJECT
@@ -88,6 +90,8 @@ public:
     // Reload only this save target, preserving the other document and its Undo.
     // Modified text is replaced only with an explicit host decision.
     bool reloadSide(Side side, bool discardModified = false);
+    ByteComparisonStatus byteComparisonStatus() const { return m_byteStatus; }
+    void cancelByteComparison();
 
     // Fill path edits without loading (used for command-line pre-fill).
     void setPaths(const QString& leftPath, const QString& rightPath);
@@ -126,9 +130,12 @@ signals:
     void operationFailed(const QString& message);
     // Emitted after a successful loadFromPaths so MainWindow can update title.
     void pathsChanged(const QString& leftPath, const QString& rightPath);
+    void byteComparisonFinished(ByteComparisonStatus status);
+    void byteComparisonProgress(int perMille, const QString& detail);
 
 private:
     void setupEditing();
+    bool loadByteComparison(const QString& leftPath, const QString& rightPath);
     void resetEditing();
     void updateEditability();
     void documentEdited(Side side);
@@ -181,6 +188,9 @@ private:
     QToolButton* m_rightSave = nullptr;
     QLabel* m_editHint = nullptr;
     QLabel* m_binaryNotice = nullptr;
+    QProgressBar* m_binaryProgress = nullptr;
+    QToolButton* m_binaryCancel = nullptr;
+    ByteComparisonStatus m_byteStatus = ByteComparisonStatus::NotApplicable;
     bool m_binaryInput = false;
     std::shared_ptr<const PreparedComparison> m_comparison;
     const AlignedLineModel* m_model = nullptr;

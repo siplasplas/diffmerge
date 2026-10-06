@@ -177,10 +177,11 @@ keyboard search. Open a file to compare it; a one-sided text file uses an empty
 other side. **Directories** or Backspace in the file view returns to the retained
 directory and selection.
 
-Scans run on a worker and cancel when roots/options change. The default byte
-comparison limit is 64 MiB per file: equal-size regular files within the limit
-are compared in cancellable 64 KiB chunks, regardless of timestamps. Larger
-files use size/time and are explicitly marked `metadata only`; read errors
+Scans run on a worker, show per-file byte progress, and offer **Cancel scan**;
+changing roots/options also cancels the previous scan. Equal-size regular
+files are compared in cancellable 64 KiB chunks, regardless of timestamps.
+The 64 MiB limit applies to optional text normalization; larger files are
+compared byte-for-byte without normalization. Different sizes imply a difference; read errors
 are displayed. Directory statuses summarize their descendants, including
 one-sided subtrees. Symbolic-link directories are not traversed. The default
 entry and nesting limits are 100,000 entries and 128 levels.
@@ -218,7 +219,8 @@ side, it asks whether to reload and discard that side's edits or keep them.
 Keeping edits does not bypass the external-change check when saving. Watches are
 renewed after atomic replacement; saving through the desktop does not trigger a
 redundant reload. Failed reloads keep the existing documents intact. A file that
-becomes binary requires reopening the comparison to show the binary summary.
+becomes binary or large switches to byte comparison when both sides are clean;
+otherwise existing edits remain intact and the host must save or discard them first.
 
 **View > Refresh**, F5 in the file view, and Ctrl+R reread compared files with the
 same per-side discard confirmation. Ctrl+R rescans directories; F5 there still
@@ -327,7 +329,20 @@ confirmation. A changed symlink target refuses saving until explicitly reselecte
 Non-UTF-8 text is shown with a read-only note; it cannot be saved or used as a
 text-block copy source with replacement UTF-8 characters. Binary inputs show a
 byte-equality/size summary with both sides read-only.
-The text preview limit is 8 MiB per file. Loading remains on the GUI thread.
+Files exceeding the 8 MiB text preview limit or text preparation limits use byte comparison instead of
+failing. A NUL byte in the first 8000 bytes triggers binary mode before decoding,
+as in Git's content heuristic; NUL found later also prevents text editing.
+Byte comparisons run on a worker with 64 KiB buffers, a progress bar and processed
+byte count, and **Cancel comparison**. Equal sizes are verified by reading bytes;
+different sizes or the first differing chunk finish early. Cancellation displays
+an unknown result, never "identical". Read errors and detected changes during
+comparison are reported without claiming equality. Binary/large inputs remain
+read-only. Text loading remains on the GUI thread.
+
+Embedded hosts can inspect `byteComparisonStatus()`, receive
+`byteComparisonProgress(perMille, detail)` and `byteComparisonFinished(status)`,
+and call `cancelByteComparison()`. `loadFromPaths()` returns when byte comparison
+starts; its asynchronous result is separate from `changeCount()`.
 
 Embedded widgets remain read-only by default. Hosts use `setEditable(Side,bool)`,
 `setSaveTarget(Side,path)`, `text(Side)`, `isModified(Side)`, `save(Side,error)` and
@@ -347,7 +362,7 @@ of desktop shortcuts. `operationFailed` reports refused operations or worker err
   can have different heights around insertions and deletions.
 - Directory copies refuse symbolic links and file/directory type collisions;
   an operation spanning multiple entries is not one atomic transaction.
-- Files above the directory byte-comparison limit use marked metadata-only status.
+- Directory ignore options apply only within the text-normalization size limit.
   Trash support depends on the platform; unsupported trash never deletes permanently.
 
 ## CLI

@@ -18,6 +18,7 @@ public:
     diffcore::CancellationToken token;
     DirectoryScanResult result;
     QVector<QRegularExpression> exclusions;
+    std::function<void(const QString&,qint64,qint64)> progress;
     void checkpoint() const {
         if (token.isCancellationRequested()) throw diffcore::ComputationStopped(diffcore::StopReason::Cancelled);
     }
@@ -35,8 +36,8 @@ public:
     }
     void compare(DirDiffEntry& entry, const QFileInfo& left, const QFileInfo& right) {
         checkpoint();
-        const bool normalized = options.ignoreLineEndings || options.diff.ignoreWhitespace ||
-            options.diff.ignoreTrailingWhitespace || options.diff.ignoreCase;
+        const bool normalized = left.size() <= options.maxComparedFileBytes && right.size() <= options.maxComparedFileBytes &&
+            (options.ignoreLineEndings || options.diff.ignoreWhitespace || options.diff.ignoreTrailingWhitespace || options.diff.ignoreCase);
         if (left.isSymLink() || right.isSymLink()) {
             entry.contentVerified = true;
             entry.status = left.isSymLink() && right.isSymLink() && left.symLinkTarget() == right.symLinkTarget()
@@ -47,10 +48,6 @@ public:
             entry.status = DirEntryStatus::Error; entry.diagnostic = QStringLiteral("Unsupported file type"); return;
         }
         if (left.size() != right.size() && !normalized) { entry.status = DirEntryStatus::Different; entry.contentVerified = true; return; }
-        if (left.size() > options.maxComparedFileBytes || right.size() > options.maxComparedFileBytes) {
-            entry.status = left.size() == right.size() && left.lastModified() == right.lastModified() ? DirEntryStatus::Same : DirEntryStatus::Different;
-            return;
-        }
         QFile a(left.absoluteFilePath()), b(right.absoluteFilePath());
         if (!a.open(QIODevice::ReadOnly) || !b.open(QIODevice::ReadOnly)) {
             entry.status = DirEntryStatus::Error;
@@ -66,6 +63,7 @@ public:
                     if (chunk.isEmpty() || file.error() != QFileDevice::NoError)
                         throw std::runtime_error("File changed or read failed during comparison");
                     bytes.append(chunk);
+                    if(progress) progress(entry.relativePath,bytes.size(),expected);
                 }
                 return bytes;
             };
@@ -99,6 +97,7 @@ public:
             }
             if (x != y) { entry.status = DirEntryStatus::Different; break; }
             read += x.size();
+            if(progress) progress(entry.relativePath,read,left.size());
         }
         if (a.size() != left.size() || b.size() != right.size() ||
             QFileInfo(left.absoluteFilePath()).lastModified() != left.lastModified() ||
@@ -131,6 +130,7 @@ public:
             const auto l = left.value(name), r = right.value(name);
             DirDiffEntry entry;
             entry.relativePath = relative.isEmpty() ? name : relative + '/' + name;
+            if(progress) progress(entry.relativePath,0,0);
             entry.leftPath = hasLeft ? l.absoluteFilePath() : QString{};
             entry.rightPath = hasRight ? r.absoluteFilePath() : QString{};
             entry.leftSize = l.size(); entry.rightSize = r.size();
@@ -160,8 +160,10 @@ public:
 };
 }
 DirectoryScanResult scanDirectories(const QString& leftRoot, const QString& rightRoot,
-    const DirectoryScanOptions& options, const diffcore::CancellationToken& cancellation) {
+    const DirectoryScanOptions& options, const diffcore::CancellationToken& cancellation,
+    const std::function<void(const QString&,qint64,qint64)>& progress) {
     Scanner scanner; scanner.options = options; scanner.token = cancellation;
+    scanner.progress = progress;
     try {
         if (leftRoot.isEmpty() || rightRoot.isEmpty() || options.maxComparedFileBytes < 0 || options.maxEntries < 0)
             throw std::invalid_argument("Two directory roots and nonnegative limits are required");

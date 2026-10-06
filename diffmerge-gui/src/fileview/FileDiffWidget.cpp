@@ -1,6 +1,8 @@
 #include <diffmerge/FileDiffWidget.h>
 
 #include <QFile>
+#include <QFileInfo>
+#include <QProgressBar>
 #include <QCryptographicHash>
 #include <QFontMetrics>
 #include <QFrame>
@@ -148,6 +150,12 @@ void FileDiffWidget::setupUi() {
     m_binaryNotice = new QLabel(this); m_binaryNotice->setObjectName(QStringLiteral("binaryComparison"));
     m_binaryNotice->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_binaryNotice->hide(); vLayout->addWidget(m_binaryNotice);
+    auto* byteProgress = new QHBoxLayout;
+    m_binaryProgress = new QProgressBar(this); m_binaryProgress->setRange(0,1000); m_binaryProgress->hide();
+    m_binaryCancel = new QToolButton(this); m_binaryCancel->setText(QStringLiteral("Cancel comparison"));
+    m_binaryCancel->setObjectName(QStringLiteral("cancelByteComparison")); m_binaryCancel->hide();
+    connect(m_binaryCancel,&QToolButton::clicked,this,&FileDiffWidget::cancelByteComparison);
+    byteProgress->addWidget(m_binaryProgress); byteProgress->addWidget(m_binaryCancel); vLayout->addLayout(byteProgress);
 
     connect(m_leftBrowse,    &QToolButton::clicked,      this, &FileDiffWidget::onBrowseLeft);
     connect(m_rightBrowse,   &QToolButton::clicked,      this, &FileDiffWidget::onBrowseRight);
@@ -271,6 +279,8 @@ void FileDiffWidget::setComparison(std::shared_ptr<const PreparedComparison> com
     }
     QScopedValueRollback<bool> installing(m_editing->installing, true);
     m_binaryInput = false; m_binaryNotice->hide();
+    m_byteStatus = ByteComparisonStatus::NotApplicable;
+    m_binaryProgress->hide(); m_binaryCancel->hide();
     Q_ASSERT(QThread::currentThread() == thread());
     const auto start = std::chrono::steady_clock::now();
     // Keep the old result alive until documents, painters and callbacks detach.
@@ -573,9 +583,15 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     if (isModified(Side::Left) || isModified(Side::Right)) {
         emit operationFailed(QStringLiteral("Save or discard edits before loading other files")); return false;
     }
+    for(const auto& path : {leftPath,rightPath}) {
+        if(path.isEmpty()) continue;
+        QFile file(path);
+        if(QFileInfo(path).isFile() && file.open(QIODevice::ReadOnly) &&
+            (file.size()>8*1024*1024 || file.peek(8000).contains('\0')))
+            return loadByteComparison(leftPath,rightPath);
+    }
     std::array<bool, 2> bom{}, unsafe{};
     std::array<QByteArray, 2> hashes;
-    std::array<QByteArray, 2> rawBytes;
     bool binary = false;
     auto readFile = [&](const QString& path, TextSnapshot& out, int i) -> bool {
         if (path.isEmpty()) { out = {}; return true; }
@@ -584,10 +600,9 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
             emit loadFailed(QStringLiteral("Cannot open %1: %2").arg(path, f.errorString()));
             return false;
         }
-        if (f.size() > 8 * 1024 * 1024) { emit loadFailed(QStringLiteral("File exceeds the text preview byte limit")); return false; }
-        auto bytes = f.readAll();
-        if (bytes.size() > 8 * 1024 * 1024) { emit loadFailed(QStringLiteral("File grew beyond the text preview byte limit")); return false; }
-        rawBytes[i] = bytes;
+        if (f.size() > 8 * 1024 * 1024) { binary = true; return true; }
+        auto bytes = f.read(8*1024*1024+1);
+        if (bytes.size() > 8 * 1024 * 1024) { binary = true; return true; }
         hashes[i] = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
         if (f.error() != QFileDevice::NoError) { emit loadFailed(f.errorString()); return false; }
         if (bytes.contains('\0')) { binary = true; out = {}; return true; }
@@ -608,9 +623,10 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     TextSnapshot left, right;
     if (!readFile(leftPath, left, 0)) return false;
     if (!readFile(rightPath, right, 1)) return false;
-    if (binary) left = right = {};
+    if (binary) return loadByteComparison(leftPath,rightPath);
 
     auto result = prepareComparison(left, right, m_options);
+    if(result.status==PreparationStatus::ResourceLimit) return loadByteComparison(leftPath,rightPath);
     if (result.status != PreparationStatus::Ready) { emit loadFailed(result.message); return false; }
     m_leftPathEdit->setText(leftPath);
     m_rightPathEdit->setText(rightPath);
@@ -619,13 +635,6 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     m_editing->bom = bom;
     m_editing->encodingUnsafe = unsafe;
     m_editing->diskHash = hashes;
-    if (binary) {
-        m_binaryInput = true; m_editing->unsafe = {true, true};
-        m_binaryNotice->setText(QStringLiteral("Binary files %1 — left %2 bytes, right %3 bytes")
-            .arg(rawBytes[0] == rawBytes[1] ? QStringLiteral("are identical") : QStringLiteral("differ"))
-            .arg(rawBytes[0].size()).arg(rawBytes[1].size()));
-        m_binaryNotice->show(); m_splitter->hide(); m_unifiedEditor->hide();
-    }
     updateEditability();
     emit editableChanged(Side::Left, isEditable(Side::Left)); emit editableChanged(Side::Right, isEditable(Side::Right));
     m_leftPathEdit->setToolTip(unsafe[0] ? QStringLiteral("Not UTF-8: read-only") : QString{});

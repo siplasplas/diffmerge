@@ -66,6 +66,69 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void largeFilesCompareBytesWithProgressAndCancellation() {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        const auto left=dir.filePath("left.bin"), right=dir.filePath("right.bin");
+        const auto write=[](const QString& path,const QByteArray& bytes) {
+            QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();
+        };
+        QByteArray bytes(8*1024*1024+1,'a');
+        QVERIFY(write(left,bytes)); QVERIFY(write(right,bytes));
+        FileDiffWidget widget; widget.setEditable(Side::Right,true);
+        QSignalSpy progress(&widget,&FileDiffWidget::byteComparisonProgress);
+        QVERIFY(widget.loadFromPaths(left,right));
+        QCOMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Comparing);
+        QVERIFY(!widget.isEditable(Side::Right));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Identical);
+        QVERIFY(!widget.isRecomputing()); QVERIFY(!progress.isEmpty());
+        QVERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("are identical"));
+        bytes[bytes.size()-1]='b'; QVERIFY(write(right,bytes));
+        QVERIFY(widget.reloadSide(Side::Right));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Different);
+        QVERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("differ"));
+        QVERIFY(write(left,QByteArray(200001,'a'))); QVERIFY(write(right,QByteArray(200001,'a')));
+        QVERIFY(widget.loadFromPaths(left,right));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Identical);
+        for(const auto& path : {left,right}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); QVERIFY(file.resize(qint64(1024)*1024*1024));
+        }
+        QVERIFY(widget.loadFromPaths(left,right));
+        widget.findChild<QToolButton*>("cancelByteComparison")->click();
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Cancelled);
+        QVERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("unknown"));
+        QVERIFY(widget.loadFromPaths(left,right));
+        widget.setContent({"same"},{"same"});
+        QCOMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::NotApplicable);
+        QTest::qWait(20);
+        QCOMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::NotApplicable);
+        QCOMPARE(widget.text(Side::Left),QString("same"));
+    }
+    void binaryDetectionAndReloadPreserveDirtyText() {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        const auto left=dir.filePath("left.txt"), right=dir.filePath("right.txt");
+        const auto write=[](const QString& path,const QByteArray& bytes) {
+            QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();
+        };
+        QVERIFY(write(left,"text\n")); QVERIFY(write(right,"text\n"));
+        FileDiffWidget widget; widget.setEditable(Side::Right,true); QVERIFY(widget.loadFromPaths(left,right));
+        auto* area=widget.rightEditor()->edit()->area(); area->setCursorPosition({0,0}); QTest::keyClicks(area,"X");
+        const auto edited=widget.text(Side::Right);
+        QVERIFY(write(left,QByteArray("bin\0ary",7)));
+        QVERIFY(!widget.reloadSide(Side::Left));
+        QCOMPARE(widget.text(Side::Right),edited); QVERIFY(widget.isModified(Side::Right));
+        widget.discardChanges(); QVERIFY(widget.reloadSide(Side::Left));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Different);
+        QVERIFY(write(right,QByteArray("bin\0ary",7))); QVERIFY(widget.loadFromPaths(left,right));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Identical);
+        QVERIFY(write(left,QByteArray(8001,'a')+QByteArray("\0",1)));
+        QVERIFY(write(right,QByteArray(8001,'a')+QByteArray("\0",1)));
+        QVERIFY(widget.loadFromPaths(left,right));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Identical);
+        QVERIFY(write(left,QByteArray("bin\0ary",7)));
+        QVERIFY(widget.loadFromPaths(left,dir.filePath("missing")));
+        QTRY_COMPARE(widget.byteComparisonStatus(),ByteComparisonStatus::Error);
+        QVERIFY(!widget.isRecomputing());
+    }
     void editingPreservesDocumentsAndUndo() {
         FileDiffWidget widget;
         widget.setContent({"old"}, {"new"}); widget.resize(850,300); widget.show();
@@ -137,7 +200,7 @@ private slots:
         QVERIFY(!widget.copyChange(0,Side::Right)); QCOMPARE(widget.text(Side::Left),QString("old\n"));
         QVERIFY(write(right,QByteArray("bin\0ary",7))); QVERIFY(widget.loadFromPaths(left,right));
         QVERIFY(!widget.isEditable(Side::Left) && !widget.isEditable(Side::Right));
-        QVERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("differ"));
+        QTRY_VERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("differ"));
         QVERIFY(widget.text(Side::Right).isEmpty());
         QVERIFY(write(right,"target\r\n")); const auto link=directory.filePath("link"); QVERIFY(QFile::link(right,link));
         QVERIFY(widget.loadFromPaths(left,link)); area->setCursorPosition({0,6}); QTest::keyClicks(area,"!");

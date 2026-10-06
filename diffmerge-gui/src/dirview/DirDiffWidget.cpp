@@ -3,6 +3,8 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFutureWatcher>
+#include <QPromise>
+#include <QProgressBar>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -59,6 +61,12 @@ void DirDiffWidget::setupUi() {
     connect(m_deleteLeft,&QToolButton::clicked,this,[this] { if(!m_leftReadOnly) emit deleteRequested(Side::Left,selectedPaths()); });
     connect(m_deleteRight,&QToolButton::clicked,this,[this] { if(!m_rightReadOnly) emit deleteRequested(Side::Right,selectedPaths()); });
     actions->addStretch(); layout->addLayout(actions);
+    auto* scanning=new QHBoxLayout;
+    m_scanProgress=new QProgressBar(this); m_scanProgress->setRange(0,1000); m_scanProgress->hide();
+    m_cancelScan=new QToolButton(this); m_cancelScan->setText(QStringLiteral("Cancel scan"));
+    m_cancelScan->setObjectName(QStringLiteral("cancelDirectoryScan")); m_cancelScan->hide();
+    connect(m_cancelScan,&QToolButton::clicked,this,&DirDiffWidget::cancelScan);
+    scanning->addWidget(m_scanProgress); scanning->addWidget(m_cancelScan); layout->addLayout(scanning);
     m_model = new QStandardItemModel(this);
     m_model->setHorizontalHeaderLabels({QStringLiteral("Name"),QStringLiteral("Left size"),QStringLiteral("Left modified"),
         QStringLiteral("Status"),QStringLiteral("Right size"),QStringLiteral("Right modified")});
@@ -100,17 +108,30 @@ void DirDiffWidget::refresh() {
     const auto token=m_cancellation; const auto generation=++m_generation;
     const auto left=m_leftPath, right=m_rightPath; const auto options=m_options;
     m_scanning=true; m_view->setEnabled(false); updateActions();
+    m_scanProgress->setValue(0); m_scanProgress->setFormat(QStringLiteral("Scanning…")); m_scanProgress->show(); m_cancelScan->show();
     auto* watcher=new QFutureWatcher<DirectoryScanResult>(this);
     connect(watcher,&QFutureWatcher<DirectoryScanResult>::finished,this,[this,watcher,generation] {
         const auto result=watcher->result(); watcher->deleteLater();
         if(generation!=m_generation) return;
         m_scanning=false; m_view->setEnabled(true);
+        m_scanProgress->hide(); m_cancelScan->hide();
         if(result.status == DirectoryScanStatus::Ready) { m_entries=result.entries; populate(); }
         else if(result.status != DirectoryScanStatus::Cancelled) { m_entries.clear(); populate(); emit operationFailed(result.message); }
         updateActions(); emit scanFinished();
     });
-    watcher->setFuture(QtConcurrent::run([left,right,options,token] { return scanDirectories(left,right,options,token); }));
+    connect(watcher,&QFutureWatcher<DirectoryScanResult>::progressValueChanged,this,[this,watcher,generation](int value) {
+        if(generation!=m_generation) return;
+        m_scanProgress->setValue(value); m_scanProgress->setFormat(watcher->future().progressText());
+    });
+    watcher->setFuture(QtConcurrent::run([left,right,options,token](QPromise<DirectoryScanResult>& promise) {
+        promise.setProgressRange(0,1000);
+        promise.addResult(scanDirectories(left,right,options,token,[&promise](const QString& name,qint64 done,qint64 total) {
+            promise.setProgressValueAndText(total>0 ? int(1000.0L*done/total) : 0,
+                total>0 ? QStringLiteral("%1: %2 / %3 bytes").arg(name).arg(done).arg(total) : QStringLiteral("Scanning %1").arg(name));
+        }));
+    }));
 }
+void DirDiffWidget::cancelScan() { m_cancellation.requestCancellation(); }
 void DirDiffWidget::populate() {
     m_model->removeRows(0,m_model->rowCount());
     if(!m_relative.isEmpty()) {

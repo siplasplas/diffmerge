@@ -242,7 +242,7 @@ void FileDiffWidget::setSaveTarget(Side side, const QString& path) {
     const QFileInfo file(path);
     m_editing->diskExists[i] = file.exists();
     m_editing->canonicalTargets[i] = file.exists() ? file.canonicalFilePath() : file.absoluteFilePath();
-    m_editing->diskHash[i] = file.exists() ? fingerprint(path) : QByteArray{};
+    m_editing->diskHash[i] = file.exists() && !m_binaryInput ? fingerprint(path) : QByteArray{};
     m_editing->unsafe[i] = m_binaryInput || (!path.isEmpty() && (!writable(file) || (file.exists() && m_editing->diskHash[i].isEmpty())));
     updateEditability();
     emit editableChanged(side, isEditable(side));

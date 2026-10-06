@@ -29,16 +29,21 @@ bool FileDiffWidget::reloadSide(Side side, bool discardModified) {
     const auto beforeTime = before.lastModified();
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return fail(QStringLiteral("Cannot reload %1: %2").arg(path, file.errorString()));
+    const auto byteFallback = [&] {
+        if(isModified(Side::Left) || isModified(Side::Right))
+            return fail(QStringLiteral("Save or discard edits before switching to byte comparison"));
+        return loadByteComparison(saveTarget(Side::Left),saveTarget(Side::Right));
+    };
     constexpr qint64 limit = 8 * 1024 * 1024;
-    if (file.size() > limit) return fail(QStringLiteral("File exceeds the text preview byte limit"));
+    if (file.size() > limit || file.peek(8000).contains('\0')) return byteFallback();
     auto bytes = file.read(limit + 1);
-    if (bytes.size() > limit) return fail(QStringLiteral("File grew beyond the text preview byte limit"));
+    if (bytes.size() > limit) return byteFallback();
     if (file.error() != QFileDevice::NoError) return fail(file.errorString());
     const QFileInfo after(path);
     if (beforeCanonical != after.canonicalFilePath() || beforeSize != after.size() ||
         beforeTime != after.lastModified() || bytes.size() != after.size())
         return fail(QStringLiteral("File changed during reload; try refreshing again"));
-    if (bytes.contains('\0')) return fail(QStringLiteral("Changed file is binary; reopen the comparison to inspect it"));
+    if (bytes.contains('\0')) return byteFallback();
     const auto hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
     const bool bom = bytes.startsWith("\xef\xbb\xbf");
     if (bom) bytes.remove(0, 3);
@@ -51,6 +56,7 @@ bool FileDiffWidget::reloadSide(Side side, bool discardModified) {
     const auto& otherOld = m_comparison->snapshot(other);
     const auto retained = m_editing->raw[1-i] ? TextSnapshot::fromText(text(other), otherOld.label, otherOld.fileName) : otherOld;
     const auto result = prepareComparison(i == 0 ? replacement : retained, i == 0 ? retained : replacement, m_options);
+    if(result.status==PreparationStatus::ResourceLimit) return byteFallback();
     if (result.status != PreparationStatus::Ready) return fail(result.message);
 
     QScopedValueRollback<bool> installing(m_editing->installing, true);
