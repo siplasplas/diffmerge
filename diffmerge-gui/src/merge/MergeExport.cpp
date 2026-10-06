@@ -53,13 +53,17 @@ PrepareMergeExportResult prepareMergeExport(const MergeExportInput& input, const
             case MergeExportDisposition::Draft: case MergeExportDisposition::Resolved: break;
             default: throw std::invalid_argument("Invalid export disposition");
         }
-        if (!input.session || !input.session->resultText() || !input.session->inputs().resultSeed)
-            throw std::invalid_argument("Export requires an available RESULT seed");
+        if (!input.session) throw std::invalid_argument("Export requires a merge session");
+        if (options.draftFormat != MergeDraftFormat::Markers && options.draftFormat != MergeDraftFormat::HostBuffer)
+            throw std::invalid_argument("Invalid draft format");
+        if (options.wholeFileSource && (options.action != MergeFileAction::Keep
+            || options.disposition != MergeExportDisposition::Resolved || !options.confirmWholeFileReplacement))
+            throw std::invalid_argument("Whole-file replacement requires an explicit resolved Keep decision");
         if (options.disposition == MergeExportDisposition::Resolved && !input.writable)
             throw std::invalid_argument("Read-only sessions cannot export as resolved");
         if (std::uint64_t(input.conflicts.size()) > limits.maxConflicts)
             throw diffcore::ComputationStopped(diffcore::StopReason::ResourceLimit);
-        const auto& seed = *input.session->inputs().resultSeed;
+        const auto seed = input.session->inputs().resultSeed.value_or(MergeResultSeed{});
         outcome.action = options.action; outcome.rawPath = options.rawPath.value_or(seed.file.rawPath);
         outcome.mode = options.mode ? options.mode : seed.file.mode; outcome.kind = seed.file.kind;
         outcome.capturedSession = input.session; outcome.fingerprint = seed.fingerprint;
@@ -110,6 +114,59 @@ PrepareMergeExportResult prepareMergeExport(const MergeExportInput& input, const
                 control.step(0); result.status = MergeSessionStatus::Ready; result.outcome = std::move(outcome); return result;
             case MergeFileAction::Keep: break;
             default: throw std::invalid_argument("Invalid export file action");
+        }
+        if (options.wholeFileSource) {
+            switch (*options.wholeFileSource) {
+                case MergeSource::Base: case MergeSource::Ours: case MergeSource::Theirs: break;
+                default: throw std::invalid_argument("Invalid whole-file source");
+            }
+            const auto& source = input.session->source(*options.wholeFileSource);
+            if (source.availability != MergeAvailability::Present)
+                throw std::invalid_argument("Whole-file Keep requires a present source; use explicit Delete for absence");
+            const auto output = decode(source.bytes,limits,cancellation,control);
+            MarkerImportOptions markerOptions; markerOptions.allowUnconfirmedMarkers = true;
+            markerOptions.markerSize = input.markerOptions.markerSize;
+            auto remaining = limits; remaining.maxWork -= control.workPerformed();
+            const auto markers = importConflictMarkers(*output,markerOptions,remaining,cancellation);
+            control.step(markers.workPerformed);
+            if (markers.status == MergeSessionStatus::Cancelled) throw diffcore::ComputationStopped(diffcore::StopReason::Cancelled);
+            if (markers.status == MergeSessionStatus::ResourceLimit) throw diffcore::ComputationStopped(diffcore::StopReason::ResourceLimit);
+            if (markers.status != MergeSessionStatus::Ready || !markers.conflicts.isEmpty())
+                throw std::invalid_argument("Whole-file source contains conflict markers; review it as RESULT first");
+            outcome.wholeFileSource = options.wholeFileSource;
+            outcome.bytes = source.bytes;
+            outcome.mode = options.mode ? options.mode : source.mode;
+            outcome.kind = source.kind;
+            const auto choice = *options.wholeFileSource == MergeSource::Ours ? MergeChoice::Ours
+                : *options.wholeFileSource == MergeSource::Theirs ? MergeChoice::Theirs : MergeChoice::Base;
+            for (auto& conflict : outcome.conflicts) {
+                conflict.state = MergeResolutionState::Resolved; conflict.choice = choice;
+                conflict.range = {}; conflict.mapped = false;
+            }
+            outcome.serialization = MergeSerialization{output->resultHasUtf8Bom(),output->resultText()->finalNewline.value_or(false),output->resultText()->lineEndings};
+            outcome.explicitlyCompleted = true;
+            control.step(0); result.status = MergeSessionStatus::Ready; result.outcome = std::move(outcome); return result;
+        }
+        if (!input.session->resultText()) throw std::invalid_argument("Text export requires an available RESULT seed");
+        if (options.disposition == MergeExportDisposition::Draft && options.draftFormat == MergeDraftFormat::HostBuffer) {
+            if (options.markerStyle != MergeMarkerStyle::Preserve)
+                throw std::invalid_argument("Host-buffer drafts preserve bytes and do not regenerate markers");
+            const auto output = decode(input.resultBytes,limits,cancellation,control);
+            const auto text = normalized(*output->resultText());
+            for (const auto& conflict : input.conflicts) {
+                control.step();
+                if (!conflict.mapped) continue; // Retain ambiguity for subsequent host review.
+                const auto range = conflict.range;
+                if (range.start < 0 || range.length < 0 || range.start > text.size() || range.length > text.size()-range.start)
+                    throw std::invalid_argument("Invalid mapped host-buffer conflict range");
+                for (const int offset : {range.start,range.start+range.length})
+                    if (offset > 0 && offset < text.size() && text[offset].isLowSurrogate() && text[offset-1].isHighSurrogate())
+                        throw std::invalid_argument("Conflict range splits a Unicode character");
+            }
+            outcome.draftFormat = MergeDraftFormat::HostBuffer;
+            outcome.bytes = input.resultBytes;
+            outcome.serialization = MergeSerialization{output->resultHasUtf8Bom(),output->resultText()->finalNewline.value_or(false),output->resultText()->lineEndings};
+            control.step(0); result.status = MergeSessionStatus::Ready; result.outcome = std::move(outcome); return result;
         }
         if (options.disposition == MergeExportDisposition::Resolved && unresolved)
             throw std::invalid_argument("Resolve or review every conflict before exporting as resolved");

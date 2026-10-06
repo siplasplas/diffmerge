@@ -802,12 +802,38 @@ lines can be retained in an unchanged seed; edited text with such consent requir
 coordinate review before export: update the captured input's literal line set
 and explicitly set `literalMarkerLinesReviewed`.
 
+For a host that retains an unfinished merge in memory, explicitly choose
+`MergeDraftFormat::HostBuffer`. This Draft preserves exact current bytes and all
+conflict IDs, ranges, ambiguity, states and choices, even when manual edits removed
+markers or made a range unmapped. It never marks the file resolved and never
+regenerates delimiters. The host must retain the complete owned capture (including
+its immutable session), not just its bytes. `MergeWidget::restoreDraft(capture)`
+restores those bytes and states with the original source fragments, refuses to
+replace dirty edits, and starts a clean Undo history. It preserves the widget's
+existing write permission. The desktop file saver refuses host-buffer drafts;
+writing an unresolved marker-free buffer to Git's working tree would lose conflict
+information. Hosts decide how to persist scratch sessions and validate freshness.
+
 **Resolved** requires writable mode, all conflicts explicitly resolved, valid
 mapped ranges and no remaining nonliteral markers. When the authoritative host
 conflict list is unknown, the caller must additionally set
 `confirmUnknownConflictState`; removing markers alone is insufficient. The outcome's
 `explicitlyCompleted` records the editor decision only, without claiming host
 acceptance, saving or staging.
+
+For modify/delete and other whole-file decisions, set `wholeFileSource` to BASE,
+OURS or THEIRS, `confirmWholeFileReplacement = true`, and disposition Resolved.
+This exports the exact present source bytes and its mode (unless explicitly
+overridden), with the captured RESULT target path/fingerprint and explicit source
+provenance. It does not replace editor text or erase manual edits. A source with
+remaining markers is refused. All captured conflicts are explicitly resolved by
+this whole-file decision, without invented fragment ranges. An absent source is
+never converted to an empty file: choose explicit Delete instead. Both decisions
+work when RESULT is absent; normal text export still requires a present seed.
+`setEditable(true)` permits these writable decisions through `isWritable()` even
+when `isEditable()` is false because there is no RESULT to edit. The host owns
+confirmation, publication, path/mode validation and staging; the demo's file saver
+does not perform whole-file replacement or deletion.
 
 `MergeFileAction::Keep` returns bytes; zero bytes means an existing empty file.
 `MergeFileAction::Delete` requires Resolved and `confirmFileDeletion`. This is a

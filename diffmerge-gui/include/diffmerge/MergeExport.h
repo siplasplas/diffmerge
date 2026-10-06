@@ -15,10 +15,16 @@ struct MergeEditableConflict {
 };
 enum class MergeExportDisposition { Cancelled, Draft, Resolved };
 enum class MergeFileAction { Keep, Delete };
+// Structured drafts are host-retained buffers, not files suitable for Git.
+enum class MergeDraftFormat { Markers, HostBuffer };
 enum class MergeMarkerStyle { Preserve, Merge, Diff3, ZDiff3 };
 struct MergeExportOptions {
     MergeExportDisposition disposition = MergeExportDisposition::Draft;
     MergeFileAction action = MergeFileAction::Keep;
+    MergeDraftFormat draftFormat = MergeDraftFormat::Markers;
+    // Explicit whole-file replacement; never inferred from fragment choices.
+    std::optional<MergeSource> wholeFileSource;
+    bool confirmWholeFileReplacement = false;
     // nullopt retains the RESULT seed metadata; an empty path is valid for buffers.
     std::optional<QByteArray> rawPath;
     std::optional<std::uint32_t> mode;
@@ -46,6 +52,8 @@ struct MergeSerialization {
 struct MergeExportOutcome {
     MergeExportDisposition disposition = MergeExportDisposition::Cancelled;
     MergeFileAction action = MergeFileAction::Keep;
+    MergeDraftFormat draftFormat = MergeDraftFormat::Markers;
+    std::optional<MergeSource> wholeFileSource;
     QByteArray bytes, rawPath;
     std::optional<std::uint32_t> mode;
     MergeFileKind kind = MergeFileKind::RegularFile;

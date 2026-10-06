@@ -15,6 +15,8 @@ public:
                     const MarkerImportOptions& options = {}) override;
     void setEditable(bool editable);
     bool isEditable() const;
+    // Writable decisions remain available when RESULT is absent (modify/delete).
+    bool isWritable() const;
     bool isModified() const;
     QString resultText() const;
     // Exact serialization of current text/endings/BOM. Invalid UTF-16, literal CR
@@ -22,6 +24,9 @@ public:
     std::optional<QByteArray> resultBytes() const;
     QVector<MergeEditableConflict> conflicts() const;
     std::optional<MergeExportInput> captureExportInput() const;
+    // Resume an owned capture with original sources and exact conflict state.
+    // Refuses dirty replacement; starts a clean Undo history without granting write access.
+    bool restoreDraft(const MergeExportInput& captured);
     PrepareMergeExportResult exportResult(const MergeExportOptions& options = {},
         const MergeSessionLimits& limits = {}, const diffcore::CancellationToken& cancellation = {}) const;
     // Emit owned requests only; the host validates, exports and performs I/O.

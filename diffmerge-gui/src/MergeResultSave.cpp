@@ -76,8 +76,10 @@ MergeFileSaveResult saveMergeResultFile(const MergeExportInput& input, const Mer
         result.status = MergeSaveStatus::Cancelled; result.message = QStringLiteral("Merge save cancelled"); return true;
     };
     if (cancelled()) return result;
-    if (!input.writable || options.disposition == MergeExportDisposition::Cancelled || options.action != MergeFileAction::Keep) {
-        result.status = MergeSaveStatus::Unsupported; result.message = QStringLiteral("Desktop saving requires a writable Keep result"); return result;
+    if (!input.writable || options.disposition == MergeExportDisposition::Cancelled || options.action != MergeFileAction::Keep
+        || options.wholeFileSource || !input.session || !input.session->inputs().resultSeed
+        || (options.disposition == MergeExportDisposition::Draft && options.draftFormat != MergeDraftFormat::Markers)) {
+        result.status = MergeSaveStatus::Unsupported; result.message = QStringLiteral("Desktop saving requires an existing writable RESULT and a marker draft or resolved text"); return result;
     }
     const auto exported = prepareMergeExport(input,options,limits,cancellation);
     if (exported.status != MergeSessionStatus::Ready || !exported.outcome) {
