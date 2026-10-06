@@ -66,6 +66,31 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void highlightDetailChangesPreserveEditsAndUndo() {
+        FileDiffWidget widget; widget.setEditable(Side::Right,true);
+        widget.setContent({"prefix alpha_name suffix"},{"prefix alpha_game suffix"});
+        auto* area=widget.rightEditor()->edit()->area(); auto* document=area->document();
+        area->setCursorPosition({0,17}); QTest::keyClicks(area,"x");
+        const auto edited=widget.text(Side::Right); const int undo=area->undoStack()->count();
+        widget.setHighlightDetail(IntraLineDiffEngine::Detail::WholeWords);
+        QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(area->document(),document); QCOMPARE(area->undoStack()->count(),undo);
+        QCOMPARE(widget.text(Side::Right),edited); QVERIFY(widget.isModified(Side::Right));
+        QCOMPARE(widget.comparison()->options().highlightDetail,IntraLineDiffEngine::Detail::WholeWords);
+        const auto ranges=widget.comparison()->highlights().rightRanges[0];
+        QCOMPARE(ranges.size(),1); QCOMPARE(ranges[0].start,7); QCOMPARE(ranges[0].length,11);
+        widget.setHighlightDetail(IntraLineDiffEngine::Detail::Characters); QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.text(Side::Right),edited); QCOMPARE(area->undoStack()->count(),undo);
+        area->undo(); QTRY_VERIFY(!widget.isRecomputing()); QVERIFY(!widget.isModified(Side::Right));
+        widget.setHighlightDetail(IntraLineDiffEngine::Detail::WholeWords); QTRY_VERIFY(!widget.isRecomputing());
+        widget.setContent({"alpha_name"},{"alpha_game"});
+        QCOMPARE(widget.highlightDetail(),IntraLineDiffEngine::Detail::WholeWords);
+        QCOMPARE(widget.comparison()->highlights().leftRanges[0][0].length,10);
+        widget.setViewMode(ViewMode::Unified);
+        widget.setHighlightDetail(IntraLineDiffEngine::Detail::Characters); QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.viewMode(),ViewMode::Unified);
+        QCOMPARE(widget.comparison()->highlights().leftRanges[0][0].length,1);
+    }
     void largeFilesCompareBytesWithProgressAndCancellation() {
         QTemporaryDir dir; QVERIFY(dir.isValid());
         const auto left=dir.filePath("left.bin"), right=dir.filePath("right.bin");
@@ -451,6 +476,8 @@ private slots:
             auto* widget=window.findChild<FileDiffWidget*>(); QVERIFY(widget);
             auto* slider=window.findChild<QSlider*>("panelSpacingSlider"); QVERIFY(slider);
             slider->setValue(28); QCOMPARE(widget->panelSpacing(),28);
+            auto* words=window.findChild<QAction*>("highlightWholeWords"); QVERIFY(words); QVERIFY(!words->isChecked());
+            words->trigger(); QCOMPARE(widget->highlightDetail(),IntraLineDiffEngine::Detail::WholeWords);
             QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
             QVERIFY(!side->isChecked());
         }
@@ -458,6 +485,8 @@ private slots:
         const auto* widget=second.findChild<FileDiffWidget*>(); QVERIFY(widget);
         QCOMPARE(widget->viewMode(),ViewMode::Unified); QVERIFY(widget->unchangedLinesSkipped());
         QCOMPARE(widget->panelSpacing(),28);
+        QCOMPARE(widget->highlightDetail(),IntraLineDiffEngine::Detail::WholeWords);
+        QVERIFY(second.findChild<QAction*>("highlightWholeWords")->isChecked());
     }
 #endif
 

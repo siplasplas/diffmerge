@@ -36,6 +36,7 @@ struct PreparationLimits {
 struct ComparisonOptions {
     diffcore::DiffOptions diff = {.alignWhitespaceChanges = true};
     PreparationLimits limits;
+    IntraLineDiffEngine::Detail highlightDetail = IntraLineDiffEngine::Detail::Characters;
 };
 
 enum class PreparationStatus { Ready, Cancelled, ResourceLimit, Error };

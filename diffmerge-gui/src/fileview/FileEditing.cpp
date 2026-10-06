@@ -100,6 +100,11 @@ void FileDiffWidget::setupEditing() {
 bool FileDiffWidget::isEditable(Side side) const { return m_editing->editable[index(side)] && !m_editing->unsafe[index(side)] && !m_editing->encodingUnsafe[index(side)]; }
 bool FileDiffWidget::isModified(Side side) const { return m_editing->modified[index(side)]; }
 bool FileDiffWidget::isRecomputing() const { return m_editing->pending; }
+void FileDiffWidget::setHighlightDetail(IntraLineDiffEngine::Detail detail) {
+    if(m_options.highlightDetail==detail) return;
+    m_options.highlightDetail=detail;
+    setDiffOptions(m_options.diff);
+}
 void FileDiffWidget::setDiffOptions(const diffcore::DiffOptions& options) {
     m_options.diff = options;
     if (!m_comparison || m_binaryInput) return;

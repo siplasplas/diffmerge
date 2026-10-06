@@ -263,7 +263,7 @@ void FileDiffWidget::setupUi() {
 void FileDiffWidget::setContent(const QStringList& leftLines,
                                 const QStringList& rightLines,
                                 const diffcore::DiffOptions& opts) {
-    ComparisonOptions options;
+    auto options = m_options;
     options.diff = opts;
     TextSnapshot left, right;
     left.lines = leftLines;

@@ -15,12 +15,13 @@ class TestIntraLineDiff : public QObject {
 
 private:
     IntraLineDiffEngine::Result build(const QStringList& left,
-                                      const QStringList& right) {
+                                      const QStringList& right,
+                                      IntraLineDiffEngine::Detail detail = IntraLineDiffEngine::Detail::Characters) {
         diffcore::DiffEngine engine;
         diffcore::DiffOptions opts;
         opts.alignWhitespaceChanges = true;
         const auto diff = engine.compute(left, right, opts);
-        return IntraLineDiffEngine::compute(diff, left, right);
+        return IntraLineDiffEngine::compute(diff, left, right, nullptr, detail);
     }
 
     static bool hasRange(const QVector<Range>& ranges, int start, int len) {
@@ -30,6 +31,29 @@ private:
     }
 
 private slots:
+    void wholeWordsKeepCommonLettersHighlighted() {
+        const auto characters=build({"prefix alpha_name suffix"},{"prefix alpha_game suffix"});
+        QVERIFY(hasRange(characters.leftRanges[0],13,1));
+        const auto words=build({"prefix alpha_name suffix"},{"prefix alpha_game suffix"},IntraLineDiffEngine::Detail::WholeWords);
+        QCOMPARE(words.leftRanges[0].size(),1); QCOMPARE(words.rightRanges[0].size(),1);
+        QVERIFY(hasRange(words.leftRanges[0],7,10)); QVERIFY(hasRange(words.rightRanges[0],7,10));
+        const auto split=build({"keep foobar end"},{"keep foo bar end"},IntraLineDiffEngine::Detail::WholeWords);
+        QVERIFY(hasRange(split.leftRanges[0],5,6));
+        for(int column : {5,6,7,9,10,11}) {
+            bool marked=false;
+            for(const auto& range:split.rightRanges[0]) marked |= column>=range.start && column<range.start+range.length;
+            QVERIFY(marked);
+        }
+    }
+    void wholeWordsProjectUnicodeAcrossBlockLines() {
+        const QStringList left{"alpha old_name",QString::fromUtf8("beta café_name")};
+        const QStringList right{"alpha new_name",QString::fromUtf8("beta cafè_name")};
+        diffcore::DiffResult diff; diff.hunks={{diffcore::ChangeType::Replace,{0,2},{0,2}}};
+        const auto words=IntraLineDiffEngine::compute(diff,left,right,nullptr,IntraLineDiffEngine::Detail::WholeWords);
+        QVERIFY(hasRange(words.leftRanges[0],6,8)); QVERIFY(hasRange(words.rightRanges[0],6,8));
+        QVERIFY(hasRange(words.leftRanges[1],5,10)); QVERIFY(hasRange(words.rightRanges[1],5,10));
+        for(int i=0;i<2;++i) { QCOMPARE(words.leftRanges[i].size(),1); QCOMPARE(words.rightRanges[i].size(),1); }
+    }
 
     void insertedAndRemovedWordsDoNotMatchNeighborLetters() {
         const auto removed = QStringLiteral("modyfikacja");

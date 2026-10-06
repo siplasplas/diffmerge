@@ -51,6 +51,8 @@ public:
     // Recompute presentation without replacing documents or their undo history.
     void setDiffOptions(const diffcore::DiffOptions& options);
     diffcore::DiffOptions diffOptions() const { return m_options.diff; }
+    void setHighlightDetail(IntraLineDiffEngine::Detail detail);
+    IntraLineDiffEngine::Detail highlightDetail() const { return m_options.highlightDetail; }
     std::shared_ptr<const PreparedComparison> comparison() const { return m_comparison; }
     std::chrono::nanoseconds lastInstallationTime() const { return m_installationTime; }
 

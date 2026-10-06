@@ -100,7 +100,7 @@ void projectRanges(const QStringList& lines, const diffcore::LineRange& block,
 } // namespace
 
 IntraLineDiffEngine::LinePairResult
-IntraLineDiffEngine::diffText(const QString& left, const QString& right, diffcore::ComputationControl* control) {
+IntraLineDiffEngine::diffText(const QString& left, const QString& right, diffcore::ComputationControl* control, Detail detail) {
     LinePairResult out;
     const auto leftTokens = tokenize(left, control), rightTokens = tokenize(right, control);
     const auto result = diffcore::SequenceDiff::compute(leftTokens, rightTokens, {}, control);
@@ -117,6 +117,11 @@ IntraLineDiffEngine::diffText(const QString& left, const QString& right, diffcor
             r.count += result.hunks[index].rightRange.count;
         }
         const auto lr = tokenRange(leftTokens, l), rr = tokenRange(rightTokens, r);
+        if(detail == Detail::WholeWords) {
+            appendRange(out.leftRanges,lr.start,lr.length);
+            appendRange(out.rightRanges,rr.start,rr.length);
+            continue;
+        }
         const auto leftText = left.mid(lr.start, lr.length);
         const auto rightText = right.mid(rr.start, rr.length);
         // Splitting/joining a word through spacing still highlights only that
@@ -155,7 +160,7 @@ IntraLineDiffEngine::diffText(const QString& left, const QString& right, diffcor
 IntraLineDiffEngine::Result
 IntraLineDiffEngine::compute(const diffcore::DiffResult& diff,
                              const QStringList& leftLines,
-                             const QStringList& rightLines, diffcore::ComputationControl* control) {
+                             const QStringList& rightLines, diffcore::ComputationControl* control, Detail detail) {
     Result out;
     out.leftRanges.resize(leftLines.size());
     out.rightRanges.resize(rightLines.size());
@@ -164,7 +169,7 @@ IntraLineDiffEngine::compute(const diffcore::DiffResult& diff,
         if (hunk.type != diffcore::ChangeType::Replace) continue;
         const auto left = leftLines.mid(hunk.leftRange.start, hunk.leftRange.count).join('\n');
         const auto right = rightLines.mid(hunk.rightRange.start, hunk.rightRange.count).join('\n');
-        const auto ranges = diffText(left, right, control);
+        const auto ranges = diffText(left, right, control, detail);
         projectRanges(leftLines, hunk.leftRange, ranges.leftRanges, out.leftRanges, control);
         projectRanges(rightLines, hunk.rightRange, ranges.rightRanges, out.rightRanges, control);
     }

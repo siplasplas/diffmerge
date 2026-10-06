@@ -284,6 +284,14 @@ void MainWindow::setupMenus() {
     });
 
     viewMenu->addSeparator();
+    auto* wholeWords=viewMenu->addAction(QStringLiteral("Highlight whole changed words"));
+    wholeWords->setObjectName(QStringLiteral("highlightWholeWords")); wholeWords->setCheckable(true);
+    wholeWords->setChecked(settings.value(QStringLiteral("view/highlightWholeWords"),false).toBool());
+    m_diffWidget->setHighlightDetail(wholeWords->isChecked() ? IntraLineDiffEngine::Detail::WholeWords : IntraLineDiffEngine::Detail::Characters);
+    connect(wholeWords,&QAction::toggled,this,[this](bool enabled) {
+        m_diffWidget->setHighlightDetail(enabled ? IntraLineDiffEngine::Detail::WholeWords : IntraLineDiffEngine::Detail::Characters);
+        QSettings().setValue(QStringLiteral("view/highlightWholeWords"),enabled);
+    });
     auto* refreshAction=viewMenu->addAction(QStringLiteral("Refresh (F5 files / Ctrl+R)"));
     connect(refreshAction,&QAction::triggered,this,[this] {
         if(m_stack->currentWidget()==m_diffWidget) refreshFiles(); else m_dirWidget->refresh();

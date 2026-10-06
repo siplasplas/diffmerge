@@ -152,6 +152,10 @@ File comparison provides:
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
 - Three-level comparison: line alignment, word matching within replacement
   blocks, then character comparison within corresponding changed words.
+  **View > Highlight whole changed words** optionally omits character refinement:
+  `alpha_name` versus `alpha_game` highlights both whole words, including their
+  common letters. The desktop remembers the choice. Switching recomputes
+  highlights without discarding edits or Undo history.
   Insertions, deletions and replacements have line backgrounds; changed text
   fragments receive stronger highlighting, with added/removed words marked whole.
 - One-sided changes use green backgrounds in either pane and a green boundary
@@ -434,7 +438,14 @@ The GUI uses this adapter first for words within each replacement block, then
 for characters within corresponding changed words. Added or removed words are
 highlighted in full; punctuation and spacing remain significant. Word matching
 spans the block's lines and results map back to original UTF-16 editor columns.
-Splitting or joining words by changing only spacing highlights that spacing.
+In the default character mode, splitting or joining words by changing only
+spacing highlights that spacing. Whole-word mode highlights the complete
+unmatched tokens and skips character comparison. Embedded hosts set
+`ComparisonOptions::highlightDetail = IntraLineDiffEngine::Detail::WholeWords`
+before `prepareComparison()`, or call
+`FileDiffWidget::setHighlightDetail(IntraLineDiffEngine::Detail::WholeWords)`.
+`Detail::Characters` restores the default three-level highlighting. This changes
+only the stronger text highlights, not line blocks, equality or block-copy actions.
 
 For line comparisons, `DiffEngine` accepts `DiffOptions::alignWhitespaceChanges`
 to enable the GUI's spacing-aware alignment without hiding differences. The

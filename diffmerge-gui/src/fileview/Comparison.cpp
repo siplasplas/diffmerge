@@ -80,7 +80,7 @@ PrepareResult prepareComparison(const TextSnapshot& left, const TextSnapshot& ri
         diffcore::DiffEngine engine;
         prepared->m_diff = engine.compute(left.lines, right.lines, options.diff, &control);
         prepared->m_model.build(prepared->m_diff, left.lines, right.lines, &control);
-        prepared->m_highlights = IntraLineDiffEngine::compute(prepared->m_diff, left.lines, right.lines, &control);
+        prepared->m_highlights = IntraLineDiffEngine::compute(prepared->m_diff, left.lines, right.lines, &control, options.highlightDetail);
         prepared->m_mapping.build(prepared->m_diff, &control);
         control.step(0); // Cancellation after the last expensive phase still discards the result.
         result.comparison = std::move(prepared);
