@@ -66,6 +66,48 @@ class TestDiffEditor : public QObject {
     }
 
 private slots:
+    void swappingPreservesDocumentsUndoAndTargets() {
+        FileDiffWidget widget; widget.setEditable(Side::Right, true);
+        widget.setComparison(prepareComparison(TextSnapshot::fromText("left\n", "Left label", "left.cpp"),
+            TextSnapshot::fromText("right\n", "Right label", "right.py")).comparison);
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto leftPath = directory.filePath("left"), rightPath = directory.filePath("right");
+        widget.setSaveTarget(Side::Left, leftPath); widget.setSaveTarget(Side::Right, rightPath);
+        auto* editor = widget.rightEditor(); auto* area = editor->edit()->area();
+        auto* document = area->document();
+        area->setCursorPosition({0, 5}); QTest::keyClicks(area, " changed");
+        const auto edited = widget.text(Side::Right); const auto undoCount = area->undoStack()->count();
+        QVERIFY(widget.isRecomputing()); QVERIFY(widget.swapSides());
+        QCOMPARE(widget.leftEditor(), editor); QCOMPARE(area->document(), document);
+        QCOMPARE(area->undoStack()->count(), undoCount); QCOMPARE(editor->side(), Side::Left);
+        QCOMPARE(widget.text(Side::Left), edited); QVERIFY(widget.isModified(Side::Left));
+        QVERIFY(!widget.isModified(Side::Right)); QVERIFY(widget.isEditable(Side::Left));
+        QVERIFY(!widget.isEditable(Side::Right)); QCOMPARE(widget.saveTarget(Side::Left), rightPath);
+        QCOMPARE(widget.comparison()->snapshot(Side::Left).label, QString("Right label"));
+        QCOMPARE(editor->syntaxFileName(), QString("right.py"));
+        area->undo(); QTRY_VERIFY(!widget.isRecomputing()); QVERIFY(!widget.isModified(Side::Left));
+        QCOMPARE(widget.text(Side::Left), QString("right\n"));
+        QVERIFY(widget.copyChange(0, Side::Right)); QTRY_VERIFY(!widget.isRecomputing());
+        QCOMPARE(widget.text(Side::Left), QString("left\n"));
+        QVERIFY(widget.save(Side::Left)); QFile saved(rightPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QByteArray("left\n")); QVERIFY(!QFile::exists(leftPath));
+        QVERIFY(widget.swapSides()); QCOMPARE(widget.rightEditor(), editor);
+    }
+    void swappingProjectedAndBinaryViews() {
+        FileDiffWidget widget; widget.setContent({"old"}, {"new"});
+        widget.setViewMode(ViewMode::Unified); QVERIFY(widget.swapSides());
+        QCOMPARE(widget.comparison()->snapshot(Side::Left).lines, QStringList{"new"});
+        widget.setViewMode(ViewMode::SideBySide); widget.setUnchangedLinesSkipped(true);
+        QVERIFY(widget.swapSides()); QCOMPARE(widget.text(Side::Left), QString("old"));
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto left = directory.filePath("left"), right = directory.filePath("right");
+        for (const auto& path : {left, right}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(QByteArray("a\0b", 3)), qint64(3));
+        }
+        QVERIFY(widget.loadFromPaths(left, right)); QVERIFY(widget.swapSides());
+        QCOMPARE(widget.saveTarget(Side::Left), right); QCOMPARE(widget.saveTarget(Side::Right), left);
+        QTRY_COMPARE(widget.byteComparisonStatus(), ByteComparisonStatus::Identical);
+    }
     void highlightDetailChangesPreserveEditsAndUndo() {
         FileDiffWidget widget; widget.setEditable(Side::Right,true);
         widget.setContent({"prefix alpha_name suffix"},{"prefix alpha_game suffix"});

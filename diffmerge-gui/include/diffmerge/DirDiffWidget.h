@@ -35,6 +35,7 @@ public:
     bool isReadOnly(Side side) const { return side == Side::Left ? m_leftReadOnly : m_rightReadOnly; }
 public slots:
     void refresh();
+    void swapSides();
     void cancelScan();
     void navigateUp();
 signals:

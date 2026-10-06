@@ -49,6 +49,7 @@ public:
     DiffLineNumberGutter(const qce::ITextDocument* doc, qce::CodeEditArea* area, Side side)
         : qce::LineNumberGutter(doc), m_area(area), m_side(side) {}
 
+    void setSide(Side side) { m_side = side; }
     void setData(const AlignedLineModel* model, const ColorScheme& scheme) {
         m_model = model;
         m_scheme = scheme;
@@ -141,6 +142,7 @@ public:
                 this, [this] { update(); });
     }
 
+    void setSide(Side side) { m_side = side; update(); }
     void setBoundaries(const QVector<ChangeBlock>& blocks,
                        const ColorScheme& scheme) {
         m_blocks = blocks;
@@ -245,6 +247,18 @@ DiffEditor::~DiffEditor() {
     // Margins are non-owning in qcodeedit; detach before destroying the drawer.
     if (m_side == Side::Left) m_edit->removeRightMargin(m_lineNumbers.get());
     else m_edit->removeLeftMargin(m_lineNumbers.get());
+}
+
+void DiffEditor::setSide(Side side) {
+    if (side == m_side) return;
+    if (m_side == Side::Left) m_edit->removeRightMargin(m_lineNumbers.get());
+    else m_edit->removeLeftMargin(m_lineNumbers.get());
+    m_side = side;
+    m_lineNumbers->setSide(side);
+    m_boundaries->setSide(side);
+    m_edit->setScrollBarSide(side == Side::Left ? qce::CodeEdit::ScrollBarSide::Left : qce::CodeEdit::ScrollBarSide::Right);
+    if (side == Side::Left) m_edit->addRightMargin(m_lineNumbers.get());
+    else m_edit->addLeftMargin(m_lineNumbers.get());
 }
 
 void DiffEditor::changeEvent(QEvent* event) {

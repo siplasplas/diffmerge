@@ -232,6 +232,14 @@ copies left to right. Embedded hosts can call `reloadSide(side)` and explicitly
 authorize discarding that side's edits with `reloadSide(side, true)`. File watching,
 confirmation dialogs, and shortcuts belong to the desktop application.
 
+**View > Swap sides** reverses the current file or directory comparison. Embedded
+hosts can call `FileDiffWidget::swapSides()` or `DirDiffWidget::swapSides()`.
+File editors retain their document identity, unsaved edits, Undo history, syntax
+rules and save targets. Labels and edit permissions follow their files; comparison
+ranges are recalculated and transient search highlights are cleared. A directory
+swap retains the relative directory and selection and rescans the reversed roots.
+Binary comparisons restart with reversed paths and still support cancellation.
+
 Select rows and use **Copy →**, **← Copy**, Alt+Right/Alt+Left, or F5 (left to
 right). These copy files/directories, not text blocks. The desktop asks first,
 listing destination entries and marking files to overwrite. Regular files

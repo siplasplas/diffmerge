@@ -217,47 +217,29 @@ void FileDiffWidget::setupUi() {
         });
     }
 
-    connect(leftEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [this, rightEdit, previous = leftEdit->area()->viewportState()](const qce::ViewportState& vp) mutable {
-        // Horizontal scrolling publishes the same signal. Preserve independently
-        // positioned block endpoints unless the vertical viewport actually changes.
-        const bool verticalChanged = vp.firstVisibleLine != previous.firstVisibleLine
-            || vp.lastVisibleLine != previous.lastVisibleLine
-            || vp.contentOffsetY != previous.contentOffsetY
-            || vp.lineHeight != previous.lineHeight
-            || vp.viewportHeight != previous.viewportHeight;
-        previous = vp; // Track guarded navigation and updates to the other pane too.
-        if (!verticalChanged || m_syncingScroll || isRecomputing() || m_viewMode == ViewMode::Unified) return;
-        m_syncingScroll = true;
-        const int otherCount = rightEdit->area()->document()->lineCount();
-        const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
-        const int original = m_leftEditor->originalLine(sourceAnchor);
-        const int target = m_rightEditor->displayLine(int(m_syncMapper.correspondingLine(Side::Left, original)));
-        const int otherTop = std::clamp(target - int(rightEdit->area()->viewportState().visibleLineCount()*m_syncMapper.threshold()), 0, std::max(0, otherCount-1));
-        rightEdit->area()->verticalScrollBar()->setValue(otherTop);
-        m_syncingScroll = false;
-    });
-
-    connect(rightEdit->area(), &qce::CodeEditArea::viewportChanged,
-            this, [this, leftEdit, previous = rightEdit->area()->viewportState()](const qce::ViewportState& vp) mutable {
-        // Horizontal scrolling publishes the same signal. Preserve independently
-        // positioned block endpoints unless the vertical viewport actually changes.
-        const bool verticalChanged = vp.firstVisibleLine != previous.firstVisibleLine
-            || vp.lastVisibleLine != previous.lastVisibleLine
-            || vp.contentOffsetY != previous.contentOffsetY
-            || vp.lineHeight != previous.lineHeight
-            || vp.viewportHeight != previous.viewportHeight;
-        previous = vp; // Track guarded navigation and updates to the other pane too.
-        if (!verticalChanged || m_syncingScroll || isRecomputing() || m_viewMode == ViewMode::Unified) return;
-        m_syncingScroll = true;
-        const int otherCount = leftEdit->area()->document()->lineCount();
-        const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
-        const int original = m_rightEditor->originalLine(sourceAnchor);
-        const int target = m_leftEditor->displayLine(int(m_syncMapper.correspondingLine(Side::Right, original)));
-        const int otherTop = std::clamp(target - int(leftEdit->area()->viewportState().visibleLineCount()*m_syncMapper.threshold()), 0, std::max(0, otherCount-1));
-        leftEdit->area()->verticalScrollBar()->setValue(otherTop);
-        m_syncingScroll = false;
-    });
+    for (auto* source : {m_leftEditor, m_rightEditor}) {
+        auto* destination = source == m_leftEditor ? m_rightEditor : m_leftEditor;
+        connect(source->edit()->area(), &qce::CodeEditArea::viewportChanged,
+            this, [this, source, destination, previous = source->edit()->area()->viewportState()](const qce::ViewportState& vp) mutable {
+            // Horizontal scrolling publishes the same signal. Preserve independently
+            // positioned block endpoints unless the vertical viewport actually changes.
+            const bool verticalChanged = vp.firstVisibleLine != previous.firstVisibleLine
+                || vp.lastVisibleLine != previous.lastVisibleLine
+                || vp.contentOffsetY != previous.contentOffsetY
+                || vp.lineHeight != previous.lineHeight
+                || vp.viewportHeight != previous.viewportHeight;
+            previous = vp; // Track guarded navigation and updates to the other pane too.
+            if (!verticalChanged || m_syncingScroll || isRecomputing() || m_viewMode == ViewMode::Unified) return;
+            m_syncingScroll = true;
+            const int otherCount = destination->edit()->area()->document()->lineCount();
+            const int sourceAnchor = vp.firstVisibleLine + int(vp.visibleLineCount()*m_syncMapper.threshold());
+            const int original = source->originalLine(sourceAnchor);
+            const int target = destination->displayLine(int(m_syncMapper.correspondingLine(source == m_leftEditor ? Side::Left : Side::Right, original)));
+            const int otherTop = std::clamp(target - int(destination->edit()->area()->viewportState().visibleLineCount()*m_syncMapper.threshold()), 0, std::max(0, otherCount-1));
+            destination->edit()->area()->verticalScrollBar()->setValue(otherTop);
+            m_syncingScroll = false;
+        });
+    }
 }
 
 void FileDiffWidget::setContent(const QStringList& leftLines,

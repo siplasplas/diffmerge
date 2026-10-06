@@ -43,6 +43,8 @@ public:
     bool isModified(Side side) const;
     QString text(Side side) const; // Normalized LF text, including the final newline.
     void discardChanges();
+    // Preserve document identity, edits, undo history and save targets.
+    bool swapSides();
     void setSaveTarget(Side side, const QString& path);
     QString saveTarget(Side side) const;
     bool save(Side side, QString* error = nullptr, bool overwriteChanged = false);

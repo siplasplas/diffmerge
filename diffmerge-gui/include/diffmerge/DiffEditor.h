@@ -53,6 +53,7 @@ public:
     int originalLine(int displayLine) const;
     const QVector<ViewRow>& displayRows() const { return m_rows; }
 
+    void setSide(Side side);
     Side side() const { return m_side; }
     qce::CodeEdit* edit() const { return m_edit; }
     const ColorScheme& colorScheme() const { return m_scheme; }

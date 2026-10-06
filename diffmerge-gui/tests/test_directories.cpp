@@ -29,6 +29,23 @@ class TestDirectories : public QObject {
         return nullptr;
     }
 private slots:
+    void swappingKeepsDirectoryAndPermissions() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left = temporary.filePath("left"), right = temporary.filePath("right");
+        QVERIFY(write(left + "/nested/only", "left")); QVERIFY(QDir().mkpath(right + "/nested"));
+        DirDiffWidget widget; widget.setReadOnly(Side::Right, false);
+        widget.setDirectories(left, right); QTRY_VERIFY(!widget.isScanning());
+        QVERIFY(widget.navigateInto("nested"));
+        auto* view = widget.findChild<QTableView*>("directoryTable"); QVERIFY(view);
+        view->setCurrentIndex(view->model()->index(1, 0));
+        widget.swapSides(); QTRY_VERIFY(!widget.isScanning());
+        QCOMPARE(widget.leftPath(), right); QCOMPARE(widget.rightPath(), left);
+        QCOMPARE(widget.currentRelativeDirectory(), QString("nested"));
+        QVERIFY(!widget.isReadOnly(Side::Left)); QVERIFY(widget.isReadOnly(Side::Right));
+        QCOMPARE(view->currentIndex().data().toString(), QString("only"));
+        QCOMPARE(view->model()->index(1, 3).data().toString(), QString("only right"));
+        widget.swapSides(); QTRY_VERIFY(!widget.isScanning()); QCOMPARE(widget.leftPath(), left);
+    }
     void byteProgressAndCancellation() {
         QTemporaryDir temporary; QVERIFY(temporary.isValid());
         const auto left=temporary.filePath("left"),right=temporary.filePath("right");

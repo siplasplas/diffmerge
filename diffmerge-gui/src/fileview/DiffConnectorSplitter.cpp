@@ -29,6 +29,7 @@ public:
         }
     }
 
+    void setEditors(DiffEditor* left, DiffEditor* right) { m_left = left; m_right = right; m_hits.clear(); update(); }
     void setModel(const AlignedLineModel* model) { m_model = model; update(); }
     void setCopyActions(bool left, bool right, std::function<void(int, Side)> copy) {
         m_leftEditable = left; m_rightEditable = right; m_copy = std::move(copy); update();
@@ -166,6 +167,15 @@ QSplitterHandle* DiffConnectorSplitter::createHandle() {
 void DiffConnectorSplitter::setCopyActions(bool left, bool right, std::function<void(int, Side)> copy) {
     m_leftEditable = left; m_rightEditable = right; m_copy = std::move(copy);
     for (int i=1; i<count(); ++i) static_cast<DiffConnectorHandle*>(handle(i))->setCopyActions(left, right, m_copy);
+}
+
+void DiffConnectorSplitter::swapEditors() {
+    const auto widths = sizes();
+    std::swap(m_left, m_right);
+    insertWidget(0, m_left);
+    for (int i = 1; i < count(); ++i)
+        static_cast<DiffConnectorHandle*>(handle(i))->setEditors(m_left, m_right);
+    if (widths.size() == 2) setSizes({widths[1], widths[0]});
 }
 
 void DiffConnectorSplitter::setModel(const AlignedLineModel* model) {

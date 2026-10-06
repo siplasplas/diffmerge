@@ -101,6 +101,16 @@ void DirDiffWidget::reload() {
     emit currentDirectoryChanged(m_relative); refresh();
 }
 QString DirDiffWidget::currentPath(Side side) const { return QDir(side == Side::Left ? m_leftPath : m_rightPath).filePath(m_relative); }
+void DirDiffWidget::swapSides() {
+    std::swap(m_leftPath, m_rightPath);
+    std::swap(m_leftReadOnly, m_rightReadOnly);
+    const auto path = m_leftPathEdit->text();
+    m_leftPathEdit->setText(m_rightPathEdit->text()); m_rightPathEdit->setText(path);
+    updateActions();
+    emit directoriesChanged(currentPath(Side::Left), currentPath(Side::Right));
+    refresh();
+}
+
 void DirDiffWidget::refresh() {
     if(m_leftPath.isEmpty() || m_rightPath.isEmpty()) return;
     if(m_selectName.isEmpty() && m_view->currentIndex().isValid()) m_selectName=m_view->currentIndex().siblingAtColumn(0).data().toString();

@@ -175,6 +175,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_diffWidget, &FileDiffWidget::pathsChanged,
             this, [this](const QString& l, const QString& r) {
         setWindowTitle(QStringLiteral("DiffMerge — %1 vs %2").arg(l, r));
+        updateModifiedTitle();
     });
     connect(m_diffWidget, &FileDiffWidget::backRequested,
             this, [this] {
@@ -214,6 +215,17 @@ void MainWindow::setupMenus() {
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
 
     auto* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+    auto* swapSides = viewMenu->addAction(QStringLiteral("Swap sides"));
+    swapSides->setObjectName(QStringLiteral("swapSides"));
+    connect(swapSides, &QAction::triggered, this, [this] {
+        if (m_stack->currentWidget() == m_dirWidget) {
+            m_dirWidget->swapSides();
+            setEditMode(!m_dirWidget->isReadOnly(Side::Left), !m_dirWidget->isReadOnly(Side::Right));
+        } else if (m_diffWidget->swapSides()) {
+            m_dirWidget->setReadOnly(Side::Left, !m_diffWidget->isEditable(Side::Left));
+            m_dirWidget->setReadOnly(Side::Right, !m_diffWidget->isEditable(Side::Right));
+        }
+    });
     for (Side side : {Side::Left, Side::Right}) {
         auto* editable = viewMenu->addAction(side == Side::Left ? QStringLiteral("Edit left side") : QStringLiteral("Edit right side"));
         editable->setObjectName(side == Side::Left ? QStringLiteral("editLeft") : QStringLiteral("editRight"));

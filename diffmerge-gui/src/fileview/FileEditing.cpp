@@ -89,8 +89,9 @@ void FileDiffWidget::setupEditing() {
     m_editing->timer->setSingleShot(true); m_editing->timer->setInterval(300);
     connect(m_editing->timer, &QTimer::timeout, this, &FileDiffWidget::recomputeEditedComparison);
     for (Side side : {Side::Left, Side::Right}) {
-        auto* doc = (side == Side::Left ? m_leftEditor : m_rightEditor)->edit()->area()->document();
-        const auto edited = [this, side] { documentEdited(side); };
+        auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+        auto* doc = editor->edit()->area()->document();
+        const auto edited = [this, editor] { documentEdited(editor == m_leftEditor ? Side::Left : Side::Right); };
         connect(doc, &qce::ITextDocument::linesChanged, this, edited);
         connect(doc, &qce::ITextDocument::linesInserted, this, edited);
         connect(doc, &qce::ITextDocument::linesRemoved, this, edited);
@@ -222,6 +223,48 @@ void FileDiffWidget::installEditedComparison(std::shared_ptr<const PreparedCompa
     if(m_viewMode != ViewMode::SideBySide || m_skipUnchanged) rebuildProjection();
     emit comparisonChanged(changeCount());
 }
+bool FileDiffWidget::swapSides() {
+    if (m_binaryInput) {
+        const auto left = saveTarget(Side::Right), right = saveTarget(Side::Left);
+        std::swap(m_editing->editable[0], m_editing->editable[1]);
+        return loadByteComparison(left, right);
+    }
+    if (!m_comparison) return false;
+    const auto snapshot = [&](Side side) {
+        const auto& old = m_comparison->snapshot(side);
+        return m_editing->raw[index(side)] ? TextSnapshot::fromText(text(side), old.label, old.fileName) : old;
+    };
+    const auto result = prepareComparison(snapshot(Side::Right), snapshot(Side::Left), m_options);
+    if (result.status != PreparationStatus::Ready) { emit operationFailed(result.message); return false; }
+    QScopedValueRollback<bool> installing(m_editing->installing, true);
+    QScopedValueRollback<bool> syncing(m_syncingScroll, true);
+    QScopedValueRollback<bool> horizontal(m_syncingHorizontal, true);
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    ++m_editing->generation; m_editing->cancellation.requestCancellation();
+    m_editing->timer->stop(); m_editing->pending = false;
+    clearSearchHighlights(); m_openedFolds.clear();
+    const auto swap = [](auto& values) { std::swap(values[0], values[1]); };
+    swap(m_editing->editable); swap(m_editing->modified); swap(m_editing->raw);
+    swap(m_editing->bom); swap(m_editing->unsafe); swap(m_editing->encodingUnsafe);
+    swap(m_editing->cleanText); swap(m_editing->targets); swap(m_editing->canonicalTargets);
+    swap(m_editing->diskHash); swap(m_editing->diskExists); swap(m_editing->cleanSnapshots);
+    std::swap(m_leftEditor, m_rightEditor);
+    std::swap(m_leftColumns, m_rightColumns);
+    m_splitter->swapEditors();
+    m_leftEditor->setSide(Side::Left); m_rightEditor->setSide(Side::Right);
+    const auto path = m_leftPathEdit->text();
+    m_leftPathEdit->setText(m_rightPathEdit->text()); m_rightPathEdit->setText(path);
+    m_navigationSide = m_navigationSide == Side::Left ? Side::Right : Side::Left;
+    installEditedComparison(result.comparison);
+    updateEditability(); updateHorizontalScrollRange();
+    for (Side side : {Side::Left, Side::Right}) {
+        emit modifiedChanged(side, isModified(side)); emit editableChanged(side, isEditable(side));
+    }
+    if (!m_leftPathEdit->text().isEmpty() || !m_rightPathEdit->text().isEmpty())
+        emit pathsChanged(m_leftPathEdit->text(), m_rightPathEdit->text());
+    return true;
+}
+
 void FileDiffWidget::discardChanges() {
     if (!isModified(Side::Left) && !isModified(Side::Right)) return;
     auto prepared = prepareComparison(m_editing->cleanSnapshots[0], m_editing->cleanSnapshots[1], m_options);

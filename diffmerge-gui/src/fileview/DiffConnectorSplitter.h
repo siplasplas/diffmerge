@@ -19,6 +19,7 @@ public:
 
     void setModel(const AlignedLineModel* model);
     void updateConnections();
+    void swapEditors();
     void setCopyActions(bool leftEditable, bool rightEditable,
                         std::function<void(int, Side)> callback);
 
