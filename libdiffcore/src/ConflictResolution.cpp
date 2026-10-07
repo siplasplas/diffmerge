@@ -289,6 +289,8 @@ MaterializedResolution materializeResolution(const ResolutionPlan& plan,bool rev
     ComputationControl control(cancellation,limits.maxWork,limits.maxTraceEntries);
     try {
         if(plan.decisions.size()!=plan.input.conflicts.size()) throw std::invalid_argument("Incomplete resolution plan");
+        if(QCryptographicHash::hash(plan.input.bytes,QCryptographicHash::Sha256)!=plan.input.sha256)
+            throw std::invalid_argument("The input changed; recompute the resolution plan");
         bool clean=true; qint64 cursor=0;
         const auto append=[&](const QByteArray& text,std::optional<ByteRange> source,const QString& id) {
             control.step(text.size());
@@ -302,6 +304,7 @@ MaterializedResolution materializeResolution(const ResolutionPlan& plan,bool rev
             const qint64 start=output.bytes.size();
             const bool pending=d.state==DecisionState::NeedsReview || d.state==DecisionState::Deferred;
             if(pending) clean=false;
+            else if(!d.replacement) throw std::invalid_argument("An accepted decision has no replacement");
             if(reviewDraft && pending) {
                 const auto r=d.replacement ? std::optional<ByteRange>{} : std::optional<ByteRange>{plan.options.target==ResolutionTarget::Right ? block.right:block.left};
                 append(d.replacement ? *d.replacement : slice(plan.input,*r),r,d.id); output.deferredIds.append(d.id);

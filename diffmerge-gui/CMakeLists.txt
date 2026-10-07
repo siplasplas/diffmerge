@@ -49,6 +49,8 @@ else()
 endif()
 
 set(DIFFMERGE_WIDGET_SOURCES
+    src/merge/ConflictResolverWidget.cpp
+    include/diffmerge/ConflictResolverWidget.h
     src/common/ColorScheme.cpp
     src/editor/DiffEditor.cpp
     src/editor/DiffHighlighter.h
@@ -113,7 +115,12 @@ if(DIFFMERGE_BUILD_GUI)
         GIT_TAG v2.3.0
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(qt_extra)
-    add_executable(diffmerge-gui src/main.cpp src/LaunchOptions.cpp src/LaunchOptions.h src/MainWindow.cpp src/MainWindow.h src/MergeResultSave.cpp src/MergeResultSave.h src/MergeDialog.cpp src/MergeDialog.h)
+    add_executable(diffmerge-gui
+        src/main.cpp src/LaunchOptions.cpp src/LaunchOptions.h
+        src/MainWindow.cpp src/MainWindow.h
+        src/MergeResultSave.cpp src/MergeResultSave.h
+        src/MergeDialog.cpp src/MergeDialog.h
+        src/ResolveDialog.cpp src/ResolveDialog.h)
     target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra qcodeedit::katedata)
     install(TARGETS diffmerge-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

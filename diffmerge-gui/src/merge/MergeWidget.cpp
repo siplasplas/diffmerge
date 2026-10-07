@@ -295,6 +295,7 @@ bool MergeWidget::chooseSource(const QString& id, MergeSource source) {
             return chooseConflict(i,source == MergeSource::Ours ? MergeChoice::Ours : source == MergeSource::Theirs ? MergeChoice::Theirs : MergeChoice::Base);
     return false;
 }
+void MergeWidget::setDecisionActionsVisible(bool visible) { m_actions->setVisible(visible); }
 void MergeWidget::setEditable(bool editable) {
     if (editable && m_conflicts.size() > 4096) {
         emit operationFailed(QStringLiteral("Too many conflicts for editable Undo history (limit 4096)")); editable = false;
@@ -496,6 +497,25 @@ bool MergeWidget::chooseConflict(int index, MergeChoice choice) {
         case MergeChoice::Delete: break;
         default: return false;
     }
+    return replaceConflictFragment(index, bytes, choice, true);
+}
+bool MergeWidget::replaceConflictText(int index, const QByteArray& bytes, bool resolved) {
+    return replaceConflictFragment(index, bytes, MergeChoice::Manual, resolved);
+}
+bool MergeWidget::replaceConflictFragment(int index, const QByteArray& bytes, MergeChoice choice, bool resolved) {
+    if (!canChooseConflict(index, MergeChoice::Delete)) return false;
+    const auto& conflict = m_editing->current.conflicts[index];
+    if (!validRange(m_editing->text, conflict.range) || !resultBytes()) return false;
+    for (int i = 0; i < m_editing->current.conflicts.size(); ++i) if (i != index) {
+        const auto& other = m_editing->current.conflicts[i];
+        if (other.mapped && std::max(other.range.start,conflict.range.start) <
+            std::min(other.range.start+other.range.length,conflict.range.start+conflict.range.length)) return false;
+    }
+    QStringDecoder decoder(QStringDecoder::Utf8, QStringDecoder::Flag::Stateless);
+    const QString decoded = decoder(bytes);
+    if (decoder.hasError() || decoded.contains(QChar::Null)) {
+        emit operationFailed(QStringLiteral("Conflict replacement must be valid UTF-8 text")); return false;
+    }
     const auto replacement = fragment(bytes); const auto afterText = normalized(replacement);
     const auto before = m_editing->current; auto after = before;
     const auto range = conflict.range; const int delta = afterText.size() - range.length;
@@ -504,7 +524,7 @@ bool MergeWidget::chooseConflict(int index, MergeChoice choice) {
     for (int i = 0; i < inserted.size(); ++i) after.endings.insert(leading+i,inserted[i]);
     for (int i = 0; i < after.conflicts.size(); ++i) {
         auto& state = after.conflicts[i];
-        if (i == index) { state.range.length = afterText.size(); state.state = MergeResolutionState::Resolved; state.choice = choice; }
+        if (i == index) { state.range.length = afterText.size(); state.state = resolved ? MergeResolutionState::Resolved : MergeResolutionState::NeedsReview; state.choice = choice; }
         else if (state.mapped && state.range.start >= range.start+range.length) state.range.start += delta;
     }
     const auto projected = m_editing->text.left(range.start) + afterText + m_editing->text.mid(range.start+range.length);

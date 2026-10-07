@@ -1143,3 +1143,26 @@ an automatic decision or accept/defer reviewed bytes with
 `reviewConflictDecision(plan, plan.input.sha256, id, bytes, deferred)` and then
 materialize again. An empty replacement is deletion; an absent replacement is
 undecided. The Core API performs no filesystem or repository writes.
+
+The GUI offers **File > Auto-resolve conflicts...**, or:
+
+```sh
+./build/diffmerge-gui/diffmerge-gui --resolve-conflicts conflicts.cpp
+```
+
+It embeds the reusable `<diffmerge/ConflictResolverWidget.h>` component. Analysis
+runs on a worker with progress/cancellation. The decision list focuses on pending
+items; **Show automatic decisions** exposes accepted decisions for overrides.
+Select a candidate, inspect its text/assumptions, and use **Apply candidate** or
+**Keep for review**. **Accept current fragment** accepts a marker-free manual
+edit. **Use selected RESULT range** repairs a range after manual edits make its
+boundaries ambiguous. The original fragments stay available after replacement. Text and decisions
+share Undo/Redo. **Discard decisions and analyze** restarts from the original
+input using the chosen policy/target. The desktop's F7/Shift+F7 navigate pending
+items; the component exposes navigation methods without application shortcuts.
+
+The desktop saves to a separate selected output together with a
+`.resolution.json` report. A draft with pending items is visibly distinguished
+from a completed text resolution. No Git index, branch or rebase is changed.
+Other hosts, including a repository browser, supply their own saving and Git
+workflow around the same component.

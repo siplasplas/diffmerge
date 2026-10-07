@@ -56,6 +56,14 @@ private slots:
         CancellationToken token; token.requestCancellation();
         QCOMPARE(planConflictResolution(block("a\n","b\n","c\n"),{},{},{},token).status,ConflictStatus::Cancelled);
     }
+    void rejectsStaleOrIncompletePlans() {
+        auto plan=planConflictResolution(block("same\n","old\n","same\n"));
+        plan.decisions[0].replacement.reset();
+        QCOMPARE(materializeResolution(plan).status,ConflictStatus::Error);
+        plan=planConflictResolution(block("same\n","old\n","same\n"));
+        plan.input.bytes.append("changed");
+        QCOMPARE(materializeResolution(plan).status,ConflictStatus::Error);
+    }
     void parserPreservesRanges() {
         const QByteArray input=QByteArray::fromHex("efbbbf")+"context\r\n<<<<<<< left\r\nold\r\n||||||| ancestor\n=======\rnew\n>>>>>>> right";
         const auto parsed=parseConflictFile(input);

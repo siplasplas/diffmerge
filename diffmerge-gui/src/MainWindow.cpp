@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "MergeDialog.h"
+#include "ResolveDialog.h"
 
 #include <qxfiledialog.h>
 #include <QShortcut>
@@ -199,6 +200,11 @@ void MainWindow::setupMenus() {
     openDirsAction->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_O);
     connect(openDirsAction, &QAction::triggered, this, &MainWindow::onOpenDirectories);
 
+    auto* resolve = fileMenu->addAction(QStringLiteral("Auto-resolve conflicts..."));
+    connect(resolve,&QAction::triggered,this,[this] {
+        const auto path=QxFileDialog::getOpenFileName(this,QStringLiteral("Open a marker-based conflict file"),{});
+        if(!path.isEmpty()) desktop::runResolveDialog(path,7,this);
+    });
     auto* inspect = fileMenu->addAction(QStringLiteral("Open conflict editor..."));
     inspect->setObjectName(QStringLiteral("inspectConflictMarkers"));
     connect(inspect, &QAction::triggered, this, &MainWindow::onInspectConflictMarkers);

@@ -18,6 +18,7 @@ public:
     bool canChooseSource(const QString& id, MergeSource source) const override;
     bool chooseSource(const QString& id, MergeSource source) override;
     void setEditable(bool editable);
+    void setDecisionActionsVisible(bool visible);
     bool isEditable() const;
     // Writable decisions remain available when RESULT is absent (modify/delete).
     bool isWritable() const;
@@ -45,6 +46,8 @@ public:
     void navigateToPreviousUnresolvedConflict();
     bool canChooseConflict(int index, MergeChoice choice) const;
     bool chooseConflict(int index, MergeChoice choice);
+    // Insert reviewed/automatically composed UTF-8 bytes in one native Undo step.
+    bool replaceConflictText(int index, const QByteArray& bytes, bool resolved = true);
     bool markConflictResolved(int index);
     bool markConflictUnresolved(int index);
     // Explicit host/user review for a range that became ambiguous after editing.
@@ -65,6 +68,7 @@ private:
     void documentEdited();
     void undoIndexChanged(int index);
     void notifyState();
+    bool replaceConflictFragment(int index, const QByteArray& bytes, MergeChoice choice, bool resolved);
     bool changeState(int index, MergeResolutionState state, MergeChoice choice);
     std::unique_ptr<MergeEditingState> m_editing;
     QWidget* m_actions = nullptr;
