@@ -132,7 +132,14 @@ void adaptedCandidate(ConflictDecision& d, const ParsedConflictFile& file, const
     const auto base = lines(slice(file,*block.base)), side = lines(slice(file,sideRange));
     auto target = lines(slice(file,targetRange));
     auto script = edits(base,side,sideRange,control);
-    if (side.size() == 1 && base.size() >= 2) script = {{0,int(base.size()),lineRanges(sideRange,side),slice(file,sideRange)}};
+    int prefix = 0, suffix = 0;
+    while (prefix < int(base.size()) && prefix < int(side.size()) && base[prefix] == side[prefix]) ++prefix;
+    while (suffix < int(base.size())-prefix && suffix < int(side.size())-prefix &&
+           base[base.size()-1-suffix] == side[side.size()-1-suffix]) ++suffix;
+    if (int(side.size())-prefix-suffix == 1 && int(base.size())-prefix-suffix >= 2) {
+        const auto mapping = lineRanges(sideRange,side);
+        script = {{prefix,int(base.size())-prefix-suffix,{mapping[prefix]},side[prefix]}};
+    }
     if (script.size() != 1) return;
     const auto& change = script[0];
     if (change.count < 2 || change.pieces.size() != 1) return;

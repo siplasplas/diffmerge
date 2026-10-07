@@ -41,7 +41,7 @@ private slots:
         const QByteArray base="int oldIndex = addTab(newEditor);\nint removed = enforceLimit();\nint finalIndex = oldIndex - removed;\n";
         const QByteArray left="int finalIndex = addTab(newEditor);\n";
         const QByteArray right="extract();\n}\nvoid helper(Editor* editor) {\nint oldIndex = addTab(editor);\nint removed = enforceLimit();\nint finalIndex = oldIndex - removed;\n";
-        const auto plan=planConflictResolution(block(left,base,right));
+        const auto plan=planConflictResolution(block("context();\n"+left,"context();\n"+base,right));
         QCOMPARE(plan.decisions[0].state,DecisionState::NeedsReview); QVERIFY(!plan.decisions[0].candidates.isEmpty());
         const auto c=plan.decisions[0].candidates[0]; QCOMPARE(c.id,QString("adapted"));
         QCOMPARE(c.replacement,QByteArray("extract();\n}\nvoid helper(Editor* editor) {\nint finalIndex = addTab(editor);\n"));

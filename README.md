@@ -1072,3 +1072,74 @@ empty host conflict list produces no conflict decoration; unknown status is stil
 reported separately. `SourceDifferences` retains the previous comparison view.
 Navigation visits tracked conflicts, including resolved ones, with no-op boundaries.
 The component installs no keyboard shortcuts; applications own F7/Shift+F7 bindings.
+
+### Automatic conflict resolution
+
+`DiffMerge::Core` provides a headless marker-file resolver, and the separate
+`diffmerge-resolve` executable uses it without Widgets, qcodeedit or a Git
+checkout. It accepts UTF-8 files with two-way or DIFF3/zdiff3 markers, preserves
+original bytes outside resolved blocks, and retains source line endings, spaces
+and tabs. Missing BASE and an explicitly empty ancestor are different inputs.
+
+```sh
+./build/diffmerge-cli/diffmerge-resolve conflicts.cpp -o resolved.cpp --report resolution.json
+./build/diffmerge-cli/diffmerge-resolve conflicts.cpp --policy conservative --require-clean -o resolved.cpp
+./build/diffmerge-cli/diffmerge-resolve conflicts.cpp --check --report resolution.json
+./build/diffmerge-cli/diffmerge-resolve conflicts.cpp -o partial.cpp --review-draft compile-draft.cpp --report resolution.json
+```
+
+The default **replay** policy uses RIGHT as the target. It first composes exact
+compatible changes, including an added prefix before a replaced ancestor body.
+It can then accept target deletions or substantial rewrites that supersede
+localized edits to removed material. These decisions are identified as
+`automatic-policy` in stderr and the report, with superseded text and measured
+evidence. They express the selected policy, not a proof of program correctness.
+`--policy conservative` enables only exact rules. `--target left` reverses the
+directional rules; labels do not select a winner.
+
+Overlapping edits, incompatible insertions and ambiguous correspondence remain
+for review. Candidates include either side, both orders, and a bounded suggestion
+for a moved assignment group with an adapted identifier. Suggestions that infer
+symbol identity are never accepted automatically. Reports retain original labels,
+input/output ranges, byte provenance, alternatives, assumptions and SHA-256 digests.
+
+Without `--require-clean`, the output can be partial: unresolved marker blocks
+remain intact. With that option, content is withheld until all decisions are
+accepted. `--check` publishes no content. Default content output is stdout;
+diagnostics go to stderr. Exit codes are 0 for a clean result/no markers, 1 for
+review-required completion, 2 for invalid input/usage/I/O, 3 for exhausted budgets,
+and 130 for cancellation. No-markers status does not resolve a Git index conflict.
+
+`--review-draft PATH` additionally produces a marker-free draft that retains the
+selected target for unresolved blocks. It requires a report and remains exit 1
+while decisions are pending. Deferred decisions live in the report; the resolver
+adds no language-specific TODO comments. A user may add them in an editor and
+compile the draft, but compilation does not accept the pending decisions.
+Rescanning the draft alone cannot restore its review state: retain the report.
+
+`--marker-size N` configures marker length; repeatable `--literal-marker-line N`
+treats a one-based input line as literal source. Input is never overwritten.
+Existing destinations require `--overwrite`; output/report aliases and symbolic
+links are refused. Output files use atomic replacement, but multiple artifacts
+cannot be committed atomically together; publication failures identify artifacts
+that may already have been written. Default budgets bound input to 32 MiB,
+output to 64 MiB, lines to 100,000 and conflicts to 4,096. CLI overrides include
+`--max-input-bytes`, `--max-output-bytes`, `--max-work` and `--max-trace-entries`.
+Ctrl+C cancels analysis.
+
+For an embedded caller:
+
+```cpp
+#include <diffcore/ConflictResolution.h>
+
+auto plan = diffcore::planConflictResolution(markerBytes);
+auto result = diffcore::materializeResolution(plan);
+// Check result.status and result.clean before using result.bytes.
+auto report = diffcore::resolutionReport(plan, result);
+```
+
+The plan owns the original input and stable decision IDs. A host can override
+an automatic decision or accept/defer reviewed bytes with
+`reviewConflictDecision(plan, plan.input.sha256, id, bytes, deferred)` and then
+materialize again. An empty replacement is deletion; an absent replacement is
+undecided. The Core API performs no filesystem or repository writes.

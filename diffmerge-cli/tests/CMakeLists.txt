@@ -15,3 +15,9 @@ add_test(NAME test_cli COMMAND test_cli)
 
 # Make sure the CLI is built before the test runs.
 add_dependencies(test_cli diffmerge)
+
+add_executable(test_resolve_cli test_resolve_cli.cpp)
+target_link_libraries(test_resolve_cli PRIVATE Qt6::Test Qt6::Core)
+target_compile_definitions(test_resolve_cli PRIVATE RESOLVE_BINARY="$<TARGET_FILE:diffmerge-resolve>")
+add_dependencies(test_resolve_cli diffmerge-resolve)
+add_test(NAME test_resolve_cli COMMAND test_resolve_cli)
