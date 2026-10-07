@@ -1,9 +1,61 @@
 #include <QTest>
-#include <diffcore/ConflictMarkers.h>
+#include <diffcore/ConflictResolution.h>
 using namespace diffcore;
 class TestConflictResolution : public QObject {
     Q_OBJECT
+    static QByteArray block(const QByteArray& left,const QByteArray& base,const QByteArray& right) {
+        return "<<<<<<< left\n"+left+"||||||| base\n"+base+"=======\n"+right+">>>>>>> right\n";
+    }
 private slots:
+    void compositionAndBytes() {
+        const auto input=QByteArray::fromHex("efbbbf")+"head\r\n"+block("guard();\n\nold();\r\n","old();\r\n","new();\n")+"tail";
+        const auto plan=planConflictResolution(input);
+        QCOMPARE(plan.status,ConflictStatus::Complete); QCOMPARE(plan.decisions[0].rule,QString("prefix-plus-replacement"));
+        const auto out=materializeResolution(plan); QVERIFY(out.clean);
+        QCOMPARE(out.bytes,QByteArray::fromHex("efbbbf")+"head\r\nguard();\n\nnew();\ntail");
+        QCOMPARE(materializeResolution(planConflictResolution(out.bytes)).bytes,out.bytes);
+        const auto independent=planConflictResolution(block("A\nb\nc\n","a\nb\nc\n","a\nb\nC\n"));
+        QVERIFY(materializeResolution(independent).clean); QCOMPARE(materializeResolution(independent).bytes,QByteArray("A\nb\nC\n"));
+    }
+    void policyDeletionAndReview() {
+        const auto input=block("updated();\n","old();\n","");
+        auto plan=planConflictResolution(input); QCOMPARE(plan.decisions[0].state,DecisionState::AutomaticPolicy);
+        QCOMPARE(materializeResolution(plan).bytes,QByteArray());
+        ResolutionOptions conservative; conservative.policy=ResolutionPolicy::Conservative;
+        plan=planConflictResolution(input,{},conservative); QCOMPARE(plan.decisions[0].state,DecisionState::NeedsReview);
+        QCOMPARE(materializeResolution(plan).bytes,input);
+        const auto draft=materializeResolution(plan,true); QVERIFY(!draft.clean); QCOMPARE(draft.bytes,QByteArray()); QCOMPARE(draft.deferredIds.size(),1);
+        QVERIFY(!reviewConflictDecision(plan,"stale",plan.decisions[0].id,""));
+        QVERIFY(reviewConflictDecision(plan,plan.input.sha256,plan.decisions[0].id,"")); QVERIFY(materializeResolution(plan).clean);
+    }
+    void policyRewriteAndIndependentAddition() {
+        const QByteArray base="Library alpha needs release 2.0 and must be installed before building the application. Run the installer and configure the application afterwards. This requirement applies to all supported systems.\n";
+        auto left=base; left.replace("2.0","2.5 or later");
+        const QByteArray right="FetchContent obtains pinned dependencies automatically.\n";
+        auto plan=planConflictResolution(block(left,base,right));
+        QCOMPARE(plan.decisions[0].rule,QString("target-rewrite-supersedes-edits")); QCOMPARE(materializeResolution(plan).bytes,right);
+        plan=planConflictResolution(block("independent();\n"+left,base,right));
+        QCOMPARE(plan.decisions[0].state,DecisionState::NeedsReview);
+    }
+    void movedStatementCandidate() {
+        const QByteArray base="int oldIndex = addTab(newEditor);\nint removed = enforceLimit();\nint finalIndex = oldIndex - removed;\n";
+        const QByteArray left="int finalIndex = addTab(newEditor);\n";
+        const QByteArray right="extract();\n}\nvoid helper(Editor* editor) {\nint oldIndex = addTab(editor);\nint removed = enforceLimit();\nint finalIndex = oldIndex - removed;\n";
+        const auto plan=planConflictResolution(block(left,base,right));
+        QCOMPARE(plan.decisions[0].state,DecisionState::NeedsReview); QVERIFY(!plan.decisions[0].candidates.isEmpty());
+        const auto c=plan.decisions[0].candidates[0]; QCOMPARE(c.id,QString("adapted"));
+        QCOMPARE(c.replacement,QByteArray("extract();\n}\nvoid helper(Editor* editor) {\nint finalIndex = addTab(editor);\n"));
+        QVERIFY(!c.replacement.contains("addTab(newEditor)"));
+    }
+    void ambiguousAndSameGap() {
+        auto plan=planConflictResolution(block("x\na\n","a\n","y\na\n")); QVERIFY(!materializeResolution(plan).clean);
+        plan=planConflictResolution("<<<<<<<\nleft\n=======\nright\n>>>>>>>\n");
+        QVERIFY(!materializeResolution(plan).clean); QCOMPARE(plan.decisions[0].reasons[0],QString("missing-base"));
+        ConflictLimits limits; limits.maxOutputBytes=1;
+        QCOMPARE(materializeResolution(plan,false,limits).status,ConflictStatus::ResourceLimit);
+        CancellationToken token; token.requestCancellation();
+        QCOMPARE(planConflictResolution(block("a\n","b\n","c\n"),{},{},{},token).status,ConflictStatus::Cancelled);
+    }
     void parserPreservesRanges() {
         const QByteArray input=QByteArray::fromHex("efbbbf")+"context\r\n<<<<<<< left\r\nold\r\n||||||| ancestor\n=======\rnew\n>>>>>>> right";
         const auto parsed=parseConflictFile(input);
