@@ -1,6 +1,7 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core)
 
 set(DIFFCORE_PUBLIC_HEADERS
+    include/diffcore/ConflictMarkers.h
     include/diffcore/ComputationControl.h
     include/diffcore/DiffTypes.h
     include/diffcore/LineInterner.h
@@ -10,6 +11,7 @@ set(DIFFCORE_PUBLIC_HEADERS
 )
 
 set(DIFFCORE_SOURCES
+    src/ConflictMarkers.cpp
     src/LineInterner.cpp
     src/DiffEngine.cpp
     src/SequenceDiff.cpp

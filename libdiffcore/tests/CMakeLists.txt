@@ -13,3 +13,5 @@ endfunction()
 
 diffcore_add_test(test_engine)
 diffcore_add_test(test_interner)
+
+diffcore_add_test(test_conflict_resolution)
