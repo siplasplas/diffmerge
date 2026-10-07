@@ -1184,3 +1184,22 @@ The desktop saves to a separate selected output together with a
 from a completed text resolution. No Git index, branch or rebase is changed.
 Other hosts, including a repository browser, supply their own saving and Git
 workflow around the same component.
+
+For a recognized moved statement group, review starts with the shared target
+context and short alternatives: apply the replayed edit with the target
+identifier, apply it with its original identifier, or keep the target statements.
+Fragment previews use compact heights based on their line counts. Each variant
+is enclosed in a card with its selection button in the header.
+Identifier correspondence is highlighted and remains a user decision. Every
+choice retains the target context; the unadapted variant is visibly flagged as
+potentially out of scope. **Show conflict source and edit RESULT** reveals the
+original marker block and the full editable merge view. Marker labels describe
+sides; the library does not infer branch names. Core candidates expose byte
+`focusRange` values and `reviewPresentation` context for other Qt hosts and JSON
+reports expose the corresponding `focusByteRange` and `reviewPresentation`.
+
+Hosts can provide branch/revision display names with
+`ResolutionOptions::sourceLabels` (`left`, `base`, `right`), or update a loaded
+widget using `setSourceLabels(...)`. For example, a host may label LEFT as `main`
+and RIGHT as `codeedit`; these are display names only and do not change replay
+direction. Reports keep host `sourceLabels` separate from original marker labels.

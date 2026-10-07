@@ -123,7 +123,7 @@ bool boundaryComposition(ConflictDecision& decision, const ParsedConflictFile& f
 void addCandidate(ConflictDecision& d, const QString& id, const QString& title,
     const QByteArray& bytes, const QVector<ByteRange>& pieces, const QStringList& assumptions = {}) {
     for (const auto& c : d.candidates) if (c.replacement == bytes) return;
-    d.candidates.append({id,title,bytes,assumptions,pieces});
+    d.candidates.append({id,title,bytes,assumptions,pieces,std::nullopt});
 }
 // A bounded statement adaptation is a suggestion only. It never establishes symbol identity.
 void adaptedCandidate(ConflictDecision& d, const ParsedConflictFile& file, const ConflictBlock& block,
@@ -177,14 +177,28 @@ void adaptedCandidate(ConflictDecision& d, const ParsedConflictFile& file, const
     const auto original = target[found]; int leading=0;
     while (leading<original.size() && (original[leading]==' ' || original[leading]=='\t')) ++leading;
     const QByteArray eol = original.endsWith("\r\n") ? QByteArray("\r\n") : original.endsWith('\n') ? QByteArray("\n") : original.endsWith('\r') ? QByteArray("\r") : QByteArray{};
-    QByteArray candidate;
-    for(int i=0;i<int(target.size());++i) {
-        if(i==found) { candidate += original.left(leading)+adapted.toUtf8()+eol; i+=change.count-1; }
-        else candidate += target[i];
-    }
+    QByteArray prefixBytes, suffixBytes, targetGroup;
+    for(int i=0;i<found;++i) prefixBytes+=target[i];
+    for(int i=found;i<found+change.count;++i) targetGroup+=target[i];
+    for(int i=found+change.count;i<int(target.size());++i) suffixBytes+=target[i];
+    const auto adaptedLine=original.left(leading)+adapted.toUtf8()+eol;
+    const auto replayedLine=original.left(leading)+newLine.toUtf8()+eol;
     d.candidates.clear();
-    addCandidate(d,"adapted","Adapt the edited statement in its moved target context",candidate,{},
+    addCandidate(d,"adapted","Apply replayed edit with target identifier",prefixBytes+adaptedLine+suffixBytes,{},
         {"Moved context and identifier correspondence require review.","Deletion of the target-side legacy statements requires review."});
+    d.candidates.last().focusRange=ByteRange{prefixBytes.size(),adaptedLine.size()};
+    // Keep the unadapted edit in the same target context so only the decision differs.
+    if(adaptedLine!=replayedLine) {
+        addCandidate(d,"replayed","Apply replayed edit with original identifier",prefixBytes+replayedLine+suffixBytes,{},
+            {"The original identifier may no longer be in scope in the moved context."});
+        d.candidates.last().focusRange=ByteRange{prefixBytes.size(),replayedLine.size()};
+    }
+    const auto targetId=targetRange.start==block.right.start ? QString("right"):QString("left");
+    addCandidate(d,targetId,"Keep target statements",prefixBytes+targetGroup+suffixBytes,{targetRange},
+        {"The replayed simplification is not applied."});
+    d.candidates.last().focusRange=ByteRange{prefixBytes.size(),targetGroup.size()};
+    QStringList ids{"adapted"}; if(adaptedLine!=replayedLine) ids.append("replayed"); ids.append(targetId);
+    d.reviewPresentation=ConflictReviewPresentation{prefixBytes,suffixBytes,from,to,ids};
     d.reasons={"moved-context","delete-modified-line","identifier-adaptation"};
 }
 ConflictDecision resolveBlock(const ParsedConflictFile& file, const ConflictBlock& block,
@@ -351,6 +365,7 @@ QJsonObject resolutionReport(const ResolutionPlan& plan,const MaterializedResolu
     report["status"]=output.status!=ConflictStatus::Complete ? conflictStatusName(output.status)
         : plan.decisions.isEmpty() ? QString("no-markers") : output.clean ? QString("clean"):QString("needs-review");
     report["message"]=output.message;
+    report["sourceLabels"]=QJsonObject{{"left",plan.options.sourceLabels.left},{"base",plan.options.sourceLabels.base},{"right",plan.options.sourceLabels.right}};
     report["publication"]=QJsonObject{{"contentPublished",false},{"partial",!output.clean},{"outputSha256",QString::fromLatin1(QCryptographicHash::hash(output.bytes,QCryptographicHash::Sha256).toHex())},{"outputByteLength",output.bytes.size()}};
     QJsonArray decisions; QJsonObject counts{{"total",plan.decisions.size()},{"automaticExact",0},{"automaticPolicy",0},{"reviewed",0},{"needsReview",0},{"deferred",0}};
     for(int i=0;i<plan.decisions.size();++i) {
@@ -363,7 +378,16 @@ QJsonObject resolutionReport(const ResolutionPlan& plan,const MaterializedResolu
             {"requiresUserDecision",d.state==DecisionState::NeedsReview || d.state==DecisionState::Deferred}};
         if(i<output.conflictRanges.size()) item["outputByteRange"]=jsonRange(output.conflictRanges[i]);
         QJsonArray candidates;
-        for(const auto& c:d.candidates) candidates.append(QJsonObject{{"id",c.id},{"title",c.title},{"replacementUtf8",QString::fromUtf8(c.replacement)},{"assumptions",QJsonArray::fromStringList(c.assumptions)}});
+        for(const auto& c:d.candidates) {
+            QJsonObject candidate{{"id",c.id},{"title",c.title},{"replacementUtf8",QString::fromUtf8(c.replacement)},{"assumptions",QJsonArray::fromStringList(c.assumptions)}};
+            if(c.focusRange) candidate["focusByteRange"]=jsonRange(*c.focusRange);
+            candidates.append(candidate);
+        }
+        if(d.reviewPresentation) {
+            const auto& r=*d.reviewPresentation;
+            item["reviewPresentation"]=QJsonObject{{"prefixUtf8",QString::fromUtf8(r.prefix)},{"suffixUtf8",QString::fromUtf8(r.suffix)},
+                {"sourceIdentifier",r.sourceIdentifier},{"targetIdentifier",r.targetIdentifier},{"candidateIds",QJsonArray::fromStringList(r.candidateIds)}};
+        }
         item["candidates"]=candidates;
         if(d.state==DecisionState::AutomaticPolicy && block.base) {
             const auto side=plan.options.target==ResolutionTarget::Right ? block.left:block.right;

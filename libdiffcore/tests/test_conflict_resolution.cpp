@@ -1,4 +1,6 @@
 #include <QTest>
+#include <QJsonArray>
+#include <algorithm>
 #include <diffcore/ConflictResolution.h>
 using namespace diffcore;
 class TestConflictResolution : public QObject {
@@ -46,6 +48,21 @@ private slots:
         const auto c=plan.decisions[0].candidates[0]; QCOMPARE(c.id,QString("adapted"));
         QCOMPARE(c.replacement,QByteArray("extract();\n}\nvoid helper(Editor* editor) {\nint finalIndex = addTab(editor);\n"));
         QVERIFY(!c.replacement.contains("addTab(newEditor)"));
+        const auto& d=plan.decisions[0]; QVERIFY(d.reviewPresentation); QCOMPARE(d.reviewPresentation->candidateIds.size(),3);
+        QCOMPARE(d.reviewPresentation->sourceIdentifier,QString("newEditor")); QCOMPARE(d.reviewPresentation->targetIdentifier,QString("editor"));
+        for(const auto& candidate:d.candidates) if(d.reviewPresentation->candidateIds.contains(candidate.id)) {
+            QVERIFY(candidate.focusRange);
+            const auto r=*candidate.focusRange;
+            QCOMPARE(candidate.replacement.left(r.start),d.reviewPresentation->prefix);
+            QCOMPARE(candidate.replacement.mid(r.end()),d.reviewPresentation->suffix);
+        }
+        const auto replayed=std::find_if(d.candidates.cbegin(),d.candidates.cend(),[](const auto& item) { return item.id=="replayed"; });
+        QVERIFY(replayed!=d.candidates.cend()); QVERIFY(replayed->replacement.contains("int finalIndex = addTab(newEditor);"));
+        ResolutionOptions labels; labels.sourceLabels={"main","ancestor","codeedit"};
+        const auto named=planConflictResolution(block(left,base,right),{},labels);
+        const auto report=resolutionReport(named,materializeResolution(named));
+        QCOMPARE(report["sourceLabels"].toObject()["left"].toString(),QString("main"));
+        QCOMPARE(report["conflicts"].toArray()[0].toObject()["labels"].toObject()["left"].toString(),QString("left"));
     }
     void ambiguousAndSameGap() {
         auto plan=planConflictResolution(block("x\na\n","a\n","y\na\n")); QVERIFY(!materializeResolution(plan).clean);

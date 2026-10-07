@@ -14,6 +14,8 @@ public:
     ~ConflictResolverWidget() override;
     bool setInput(const QByteArray& bytes, const QString& fileName = {},
         const diffcore::MarkerOptions& markers = {}, const diffcore::ResolutionOptions& options = {});
+    // Display metadata supplied by a host, independent of marker labels and target selection.
+    void setSourceLabels(const diffcore::ResolutionSourceLabels& labels);
     void cancelAnalysis();
     bool isAnalyzing() const;
     bool isModified() const;
@@ -34,6 +36,7 @@ signals:
 private:
     void refresh();
     void selectDecision(int index);
+    void updateReviewPresentation(int index);
     std::unique_ptr<ConflictResolverState> m_state;
 };
 } // namespace diffmerge::gui

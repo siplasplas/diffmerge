@@ -1,6 +1,10 @@
 #include <QTest>
 #include <QSignalSpy>
 #include <QUndoStack>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QCheckBox>
+#include <QLabel>
 #include <diffmerge/ConflictResolverWidget.h>
 #include <diffmerge/MergeWidget.h>
 #include <diffmerge/DiffEditor.h>
@@ -48,6 +52,36 @@ private slots:
         QCOMPARE(widget.plan().input.bytes,input);
         QCOMPARE(widget.report()["status"].toString(),QString("needs-review"));
         widget.undoStack()->undo(); QCOMPARE(widget.pendingDecisionCount(),2);
+    }
+    void focusedMovedGroupAndHostLabels() {
+        ConflictResolverWidget widget; QSignalSpy finished(&widget,&ConflictResolverWidget::analysisFinished);
+        const QByteArray base="context();\nint oldIndex = append(oldItem);\nint removed = limit();\nint finalIndex = oldIndex - removed;\n";
+        const QByteArray left="context();\nint finalIndex = append(oldItem);\n";
+        const QByteArray right="moveItem(oldItem);\n}\nvoid helper(Item* item) {\nint oldIndex = append(item);\nint removed = limit();\nint finalIndex = oldIndex - removed;\ncontinuation();\n";
+        const QByteArray input="<<<<<<< original-left\n"+left+"||||||| ancestor\n"+base+"=======\n"+right+">>>>>>> original-right\n";
+        QVERIFY(widget.setInput(input)); widget.setSourceLabels({"main","base revision","codeedit"});
+        QTRY_COMPARE(finished.size(),1); QVERIFY(finished[0][0].toBool()); QCOMPARE(widget.pendingDecisionCount(),1);
+        QVERIFY(widget.mergeEditor()->isHidden());
+        auto* raw=widget.findChild<QPlainTextEdit*>("resolverRawSource"); QVERIFY(raw); QVERIFY(raw->isHidden());
+        auto* context=widget.findChild<QPlainTextEdit*>("resolverSharedPrefix"); QVERIFY(context);
+        QVERIFY(context->toPlainText().contains("moveItem(oldItem)")); QVERIFY(!context->toPlainText().contains("<<<<<<<"));
+        QCOMPARE(context->extraSelections().size(),1);
+        const auto adapted=widget.findChild<QPlainTextEdit*>("resolverVariant_adapted"); QVERIFY(adapted);
+        QCOMPARE(adapted->toPlainText(),QString("int finalIndex = append(item);\n"));
+        const auto replayed=widget.findChild<QPlainTextEdit*>("resolverVariant_replayed"); QVERIFY(replayed);
+        QCOMPARE(replayed->toPlainText(),QString("int finalIndex = append(oldItem);\n"));
+        const auto original=widget.findChild<QPlainTextEdit*>("resolverVariant_right"); QVERIFY(original);
+        QCOMPARE(original->toPlainText(),QString("int oldIndex = append(item);\nint removed = limit();\nint finalIndex = oldIndex - removed;\n"));
+        bool sawMain=false,sawTarget=false;
+        for(auto* label:widget.findChildren<QLabel*>()) { sawMain|=label->text().contains("main"); sawTarget|=label->text().contains("codeedit"); }
+        QVERIFY(sawMain); QVERIFY(sawTarget);
+        auto* choose=widget.findChild<QPushButton*>("resolverChoose_adapted"); QVERIFY(choose); choose->click();
+        QCOMPARE(widget.pendingDecisionCount(),0); QVERIFY(widget.resultBytes()->contains("int finalIndex = append(item);"));
+        QVERIFY(widget.resultBytes()->endsWith("continuation();\n"));
+        widget.undoStack()->undo(); QCOMPARE(widget.resultBytes().value(),input); QCOMPARE(widget.pendingDecisionCount(),1);
+        QCOMPARE(widget.report()["sourceLabels"].toObject()["right"].toString(),QString("codeedit"));
+        for(auto* check:widget.findChildren<QCheckBox*>()) if(check->text()=="Show conflict source and edit RESULT") check->setChecked(true);
+        QVERIFY(!raw->isHidden()); QCOMPARE(raw->toPlainText(),QString::fromUtf8(input)); QVERIFY(!widget.mergeEditor()->isHidden());
     }
     void cancellationAndInvalidText() {
         ConflictResolverWidget widget; QSignalSpy finished(&widget,&ConflictResolverWidget::analysisFinished);

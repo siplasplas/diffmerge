@@ -7,17 +7,27 @@ namespace diffcore {
 enum class ResolutionPolicy { Replay, Conservative };
 enum class ResolutionTarget { Right, Left };
 enum class DecisionState { AutomaticExact, AutomaticPolicy, NeedsReview, Reviewed, Deferred };
+struct ResolutionSourceLabels {
+    QString left, base, right; // Optional host display names; marker evidence remains unchanged.
+};
 struct ResolutionOptions {
     ResolutionPolicy policy = ResolutionPolicy::Replay;
     ResolutionTarget target = ResolutionTarget::Right;
     double minimumSideOverlap = 0.80, maximumTargetOverlap = 0.35;
     int minimumRewriteTokens = 24;
+    ResolutionSourceLabels sourceLabels;
 };
 struct ResolutionCandidate {
     QString id, title;
     QByteArray replacement;
     QStringList assumptions;
     QVector<ByteRange> sourceSlices;
+    std::optional<ByteRange> focusRange; // Byte range within replacement, excluding shared review context.
+};
+struct ConflictReviewPresentation {
+    QByteArray prefix, suffix;
+    QString sourceIdentifier, targetIdentifier;
+    QStringList candidateIds;
 };
 struct ConflictDecision {
     QString id, rule, explanation;
@@ -27,6 +37,7 @@ struct ConflictDecision {
     QVector<ByteRange> sourceSlices;
     QVector<ResolutionCandidate> candidates;
     QJsonObject metrics;
+    std::optional<ConflictReviewPresentation> reviewPresentation;
 };
 struct ResolutionPlan {
     ConflictStatus status = ConflictStatus::Error;

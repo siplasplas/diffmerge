@@ -15,6 +15,13 @@
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTimer>
+#include <QScrollArea>
+#include <QRegularExpression>
+#include <QTextCursor>
+#include <QFontDatabase>
+#include <QFrame>
+#include <QTextDocument>
+#include <QStyle>
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QVBoxLayout>
@@ -24,6 +31,21 @@
 namespace diffmerge::gui {
 using namespace diffcore;
 namespace {
+void highlightIdentifier(QPlainTextEdit* editor,const QString& identifier) {
+    QList<QTextEdit::ExtraSelection> highlights;
+    if(!identifier.isEmpty()) {
+        const QRegularExpression expression("\\b"+QRegularExpression::escape(identifier)+"\\b");
+        auto matches=expression.globalMatch(editor->toPlainText());
+        while(matches.hasNext()) {
+            const auto match=matches.next(); QTextEdit::ExtraSelection selection;
+            selection.cursor=QTextCursor(editor->document()); selection.cursor.setPosition(match.capturedStart());
+            selection.cursor.setPosition(match.capturedEnd(),QTextCursor::KeepAnchor);
+            auto color=editor->palette().color(QPalette::Highlight); color.setAlpha(100);
+            selection.format.setBackground(color); highlights.append(selection);
+        }
+    }
+    editor->setExtraSelections(highlights);
+}
 struct Analysis { ResolutionPlan plan; std::shared_ptr<const PreparedMergeSession> session; QString error; };
 class PlanCommand : public QUndoCommand {
 public:
@@ -56,7 +78,10 @@ struct ConflictResolverState {
     QCheckBox* showAutomatic;
     QComboBox *policy,*target,*candidates;
     QLabel *summary,*reason;
-    QPlainTextEdit* preview;
+    QPlainTextEdit *preview,*rawSource;
+    QCheckBox* showSource;
+    QScrollArea* focusedReview;
+    QWidget* reviewBody;
     QProgressBar* progress;
     QPushButton *cancel,*analyze,*apply,*defer,*accept;
     QFutureWatcher<Analysis>* watcher;
@@ -65,6 +90,7 @@ struct ConflictResolverState {
     QByteArray original;
     QString fileName;
     MarkerOptions markers;
+    ResolutionSourceLabels sourceLabels;
     quint64 revision=0;
     bool running=false,refreshing=false,installing=false,selecting=false;
 };
@@ -80,6 +106,14 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
     auto* progressRow=new QHBoxLayout; progressRow->addWidget(s.progress); progressRow->addWidget(s.cancel); layout->addLayout(progressRow);
     auto* split=new QSplitter(this); s.list=new QListWidget(split); s.list->setMaximumWidth(320);
     s.merge=new MergeWidget(split); s.merge->setDecisionActionsVisible(false); s.merge->setViewMode(MergeViewMode::Conflicts); split->setStretchFactor(1,1); layout->addWidget(split,1);
+    s.focusedReview=new QScrollArea(split); s.focusedReview->setWidgetResizable(true);
+    s.reviewBody=new QWidget; new QVBoxLayout(s.reviewBody); s.focusedReview->setWidget(s.reviewBody); s.focusedReview->hide();
+    s.showSource=new QCheckBox("Show conflict source and edit RESULT",this); s.showSource->hide(); layout->addWidget(s.showSource);
+    s.rawSource=new QPlainTextEdit(this); s.rawSource->setObjectName("resolverRawSource"); s.rawSource->setReadOnly(true);
+    s.rawSource->setMaximumHeight(180); s.rawSource->hide(); layout->addWidget(s.rawSource);
+    connect(s.showSource,&QCheckBox::toggled,this,[this](bool visible) {
+        auto& state=*m_state; state.rawSource->setVisible(visible); state.merge->setVisible(visible);
+    });
     s.reason=new QLabel(this); s.reason->setWordWrap(true); s.reason->setTextFormat(Qt::PlainText); layout->addWidget(s.reason);
     auto* actions=new QHBoxLayout; s.candidates=new QComboBox(this); actions->addWidget(s.candidates,1);
     s.apply=new QPushButton("Apply candidate",this); s.defer=new QPushButton("Keep for review",this); s.accept=new QPushButton("Accept current fragment",this);
@@ -112,10 +146,11 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
     });
     connect(s.candidates,&QComboBox::currentIndexChanged,this,[this](int index) {
         auto& state=*m_state; const int conflict=state.merge->currentConflictIndex();
-        if(conflict>=0 && conflict<state.plan.decisions.size() && index>=0 && index<state.plan.decisions[conflict].candidates.size()) {
-            const auto& c=state.plan.decisions[conflict].candidates[index];
-            state.preview->setPlainText(QString::fromUtf8(c.replacement));
+        if(conflict<0 || conflict>=state.plan.decisions.size() || index<0) return;
+        for(const auto& c:state.plan.decisions[conflict].candidates) if(c.id==state.candidates->itemData(index).toString()) {
+            state.preview->setPlainText(QString::fromUtf8(c.focusRange ? c.replacement.mid(c.focusRange->start,c.focusRange->length):c.replacement));
             state.reason->setText(state.plan.decisions[conflict].explanation+"\n"+state.plan.decisions[conflict].reasons.join(", ")+"\n"+c.assumptions.join("\n"));
+            break;
         }
     });
     connect(s.apply,&QPushButton::clicked,this,[this] { applyCandidate(m_state->merge->currentConflictIndex(),m_state->candidates->currentData().toString()); });
@@ -125,6 +160,7 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
         auto& state=*m_state; state.merge->discardChanges();
         ResolutionOptions options; options.policy=state.policy->currentIndex() ? ResolutionPolicy::Conservative:ResolutionPolicy::Replay;
         options.target=state.target->currentIndex() ? ResolutionTarget::Left:ResolutionTarget::Right;
+        options.sourceLabels=state.sourceLabels;
         setInput(state.original,state.fileName,state.markers,options);
     });
     connect(s.merge,&MergePreviewWidget::currentConflictChanged,this,[this](int index) { if(!m_state->selecting) selectDecision(index); });
@@ -143,14 +179,15 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
         state.installing=true;
         if(!state.merge->setSession(analysis.session,{state.markers.markerSize,true,state.markers.literalMarkerLines})) { state.installing=false; emit analysisFinished(false); return; }
         state.merge->setEditable(true);
-        auto before=analysis.plan;
+        auto analyzedPlan=analysis.plan; analyzedPlan.options.sourceLabels=state.sourceLabels;
+        auto before=analyzedPlan;
         for(auto& d:before.decisions) { d.state=DecisionState::NeedsReview; d.replacement.reset(); d.sourceSlices.clear(); }
         state.plan=before;
         auto* stack=undoStack(); stack->beginMacro("Automatically resolve compatible conflicts");
         bool success=true;
         for(int i=0;i<analysis.plan.decisions.size();++i) if(analysis.plan.decisions[i].replacement)
             if(!state.merge->replaceConflictText(i,*analysis.plan.decisions[i].replacement)) { success=false; break; }
-        stack->push(new PlanCommand(before,analysis.plan,[this](const ResolutionPlan& plan) { m_state->plan=plan; QTimer::singleShot(0,this,[this] { refresh(); }); }));
+        stack->push(new PlanCommand(before,analyzedPlan,[this](const ResolutionPlan& plan) { m_state->plan=plan; m_state->plan.options.sourceLabels=m_state->sourceLabels; QTimer::singleShot(0,this,[this] { refresh(); }); }));
         stack->endMacro();
         if(!success) { stack->undo(); emit operationFailed("An automatic replacement could not be applied"); }
         state.installing=false; refresh();
@@ -164,7 +201,8 @@ ConflictResolverWidget::~ConflictResolverWidget() { m_state->cancellation.reques
 bool ConflictResolverWidget::setInput(const QByteArray& bytes,const QString& fileName,const MarkerOptions& markers,const ResolutionOptions& options) {
     auto& s=*m_state;
     if(s.running || s.merge->isModified()) { emit operationFailed("Discard current edits before replacing the input"); return false; }
-    s.original=bytes; s.fileName=fileName; s.markers=markers; ++s.revision;
+    s.original=bytes; s.fileName=fileName; s.markers=markers; s.sourceLabels=options.sourceLabels; ++s.revision;
+    s.focusedReview->hide(); s.showSource->hide(); s.rawSource->hide(); s.merge->show(); s.preview->show();
     s.policy->setCurrentIndex(options.policy==ResolutionPolicy::Conservative ? 1:0); s.target->setCurrentIndex(options.target==ResolutionTarget::Left ? 1:0);
     s.running=true; s.cancellation=CancellationToken{}; s.progress->setRange(0,0); s.progress->show(); s.cancel->show(); s.analyze->setEnabled(false);
     s.watcher->setFuture(QtConcurrent::run([bytes,fileName,markers,options,token=s.cancellation](QPromise<Analysis>& promise) {
@@ -180,6 +218,12 @@ bool ConflictResolverWidget::setInput(const QByteArray& bytes,const QString& fil
     }));
     return true;
 }
+void ConflictResolverWidget::setSourceLabels(const ResolutionSourceLabels& labels) {
+    auto& s=*m_state; s.sourceLabels=labels; s.plan.options.sourceLabels=labels;
+    const int index=s.merge->currentConflictIndex();
+    if(index>=0 && index<s.plan.decisions.size()) updateReviewPresentation(index);
+    emit stateChanged();
+}
 void ConflictResolverWidget::cancelAnalysis() { m_state->cancellation.requestCancellation(); }
 bool ConflictResolverWidget::isAnalyzing() const { return m_state->running; }
 bool ConflictResolverWidget::isModified() const { return m_state->merge->isModified(); }
@@ -191,9 +235,57 @@ int ConflictResolverWidget::pendingDecisionCount() const { return m_state->merge
 void ConflictResolverWidget::selectDecision(int index) {
     auto& s=*m_state; if(s.selecting || index<0 || index>=s.plan.decisions.size()) return;
     s.selecting=true; s.merge->navigateToConflict(index); s.candidates->clear();
-    for(const auto& c:s.plan.decisions[index].candidates) s.candidates->addItem(c.title,c.id);
+    const auto& decision=s.plan.decisions[index];
+    for(const auto& c:decision.candidates) if(!decision.reviewPresentation || decision.reviewPresentation->candidateIds.contains(c.id))
+        s.candidates->addItem(c.title,c.id);
+    updateReviewPresentation(index);
     if(s.candidates->count()>0) s.candidates->setCurrentIndex(0);
     s.apply->setEnabled(s.candidates->count()>0); s.defer->setEnabled(s.candidates->count()>0); s.accept->setEnabled(true); s.selecting=false;
+}
+void ConflictResolverWidget::updateReviewPresentation(int index) {
+    auto& s=*m_state; const auto& d=s.plan.decisions[index]; const bool focused=bool(d.reviewPresentation);
+    s.focusedReview->setVisible(focused); s.showSource->setVisible(focused);
+    s.merge->setVisible(!focused || s.showSource->isChecked()); s.rawSource->setVisible(focused && s.showSource->isChecked());
+    s.preview->setVisible(!focused);
+    auto* layout=static_cast<QVBoxLayout*>(s.reviewBody->layout());
+    while(auto* item=layout->takeAt(0)) { delete item->widget(); delete item; }
+    if(!focused) return;
+    const auto& r=*d.reviewPresentation; const auto& block=s.plan.input.conflicts[index];
+    s.rawSource->setPlainText(QString::fromUtf8(s.plan.input.bytes.mid(block.envelope.start,block.envelope.length)));
+    const auto label=[&](const QString& text) { auto* widget=new QLabel(text,s.reviewBody); widget->setWordWrap(true); widget->setTextFormat(Qt::PlainText); layout->addWidget(widget); };
+    const auto text=[&](const QByteArray& bytes,const QString& identifier,const QString& name,QVBoxLayout* destination=nullptr) {
+        if(!destination) destination=layout;
+        auto* editor=new QPlainTextEdit(destination->parentWidget()); editor->setObjectName(name); editor->setReadOnly(true);
+        editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont)); editor->setPlainText(QString::fromUtf8(bytes));
+        editor->setLineWrapMode(QPlainTextEdit::NoWrap);
+        const int lines=std::max(1,editor->document()->blockCount()-(bytes.endsWith('\n') || bytes.endsWith('\r') ? 1:0));
+        const int padding=int(2*editor->document()->documentMargin())+2*editor->frameWidth()+
+            editor->style()->pixelMetric(QStyle::PM_ScrollBarExtent)+4;
+        editor->setFixedHeight(std::clamp(lines*editor->fontMetrics().lineSpacing()+padding,36,240));
+        destination->addWidget(editor); highlightIdentifier(editor,identifier);
+    };
+    const auto& labels=s.sourceLabels;
+    const auto sourceLabel=s.plan.options.target==ResolutionTarget::Right ? (labels.left.isEmpty() ? block.leftLabel:labels.left):(labels.right.isEmpty() ? block.rightLabel:labels.right);
+    const auto targetLabel=s.plan.options.target==ResolutionTarget::Right ? (labels.right.isEmpty() ? block.rightLabel:labels.right):(labels.left.isEmpty() ? block.leftLabel:labels.left);
+    label("Shared target context"+(targetLabel.isEmpty() ? QString{}:QString(" — ")+targetLabel)+". Choose how to apply the replayed simplification below.");
+    text(r.prefix,r.sourceIdentifier,"resolverSharedPrefix");
+    for(const auto& id:r.candidateIds) for(const auto& c:d.candidates) if(c.id==id && c.focusRange) {
+        QString title=c.title;
+        if(id=="adapted") title+=" ("+r.sourceIdentifier+" → "+r.targetIdentifier+")";
+        else if(id=="replayed") title+=" ("+r.sourceIdentifier+")";
+        else if(!targetLabel.isEmpty()) title+=" — "+targetLabel;
+        if((id=="adapted" || id=="replayed") && !sourceLabel.isEmpty()) title+=" — change from "+sourceLabel;
+        auto* card=new QFrame(s.reviewBody); card->setFrameShape(QFrame::StyledPanel); layout->addWidget(card);
+        auto* cardLayout=new QVBoxLayout(card); auto* header=new QHBoxLayout; cardLayout->addLayout(header);
+        auto* heading=new QLabel(title,card); heading->setWordWrap(true); heading->setTextFormat(Qt::PlainText); header->addWidget(heading,1);
+        auto* choose=new QPushButton("Use this variant",card); choose->setObjectName("resolverChoose_"+id); header->addWidget(choose);
+        text(c.replacement.mid(c.focusRange->start,c.focusRange->length),id=="replayed" ? r.sourceIdentifier:r.targetIdentifier,"resolverVariant_"+id,cardLayout);
+        auto* assumptions=new QLabel(c.assumptions.join("\n"),card); assumptions->setWordWrap(true);
+        assumptions->setTextFormat(Qt::PlainText); cardLayout->addWidget(assumptions);
+        connect(choose,&QPushButton::clicked,this,[this,index,id] { applyCandidate(index,id); });
+    }
+    if(!r.suffix.isEmpty()) { label("Shared continuation"); text(r.suffix,{},"resolverSharedSuffix"); }
+    layout->addStretch();
 }
 void ConflictResolverWidget::refresh() {
     auto& s=*m_state; if(s.refreshing || s.installing) return;
@@ -217,7 +309,7 @@ bool ConflictResolverWidget::applyCandidate(int index,const QString& candidateId
         if(!reviewConflictDecision(after,s.plan.input.sha256,s.plan.decisions[index].id,c.replacement,deferred,&error)) { emit operationFailed(error); return false; }
         auto* stack=undoStack(); stack->beginMacro(deferred ? "Keep conflict for review":"Accept conflict candidate");
         const bool ok=s.merge->replaceConflictText(index,c.replacement,!deferred);
-        if(ok) stack->push(new PlanCommand(s.plan,after,[this](const ResolutionPlan& plan) { m_state->plan=plan; QTimer::singleShot(0,this,[this] { refresh(); }); }));
+        if(ok) stack->push(new PlanCommand(s.plan,after,[this](const ResolutionPlan& plan) { m_state->plan=plan; m_state->plan.options.sourceLabels=m_state->sourceLabels; QTimer::singleShot(0,this,[this] { refresh(); }); }));
         stack->endMacro(); refresh(); return ok;
     }
     return false;
@@ -233,7 +325,7 @@ bool ConflictResolverWidget::acceptCurrentText(int index) {
     auto after=s.plan; if(!reviewConflictDecision(after,s.plan.input.sha256,after.decisions[index].id,fragment)) return false;
     auto* stack=undoStack(); stack->beginMacro("Accept edited conflict fragment");
     const bool ok=s.merge->markConflictResolved(index);
-    if(ok) stack->push(new PlanCommand(s.plan,after,[this](const ResolutionPlan& plan) { m_state->plan=plan; QTimer::singleShot(0,this,[this] { refresh(); }); }));
+    if(ok) stack->push(new PlanCommand(s.plan,after,[this](const ResolutionPlan& plan) { m_state->plan=plan; m_state->plan.options.sourceLabels=m_state->sourceLabels; QTimer::singleShot(0,this,[this] { refresh(); }); }));
     stack->endMacro(); refresh(); return ok;
 }
 void ConflictResolverWidget::navigateToNextPending() {
@@ -245,7 +337,7 @@ void ConflictResolverWidget::navigateToPreviousPending() {
     for(int step=1;step<=conflicts.size();++step) { const int i=(std::max(current,0)+conflicts.size()-step)%conflicts.size(); if(conflicts[i].state!=MergeResolutionState::Resolved) { selectDecision(i); return; } }
 }
 QJsonObject ConflictResolverWidget::report() const {
-    auto plan=m_state->plan; MaterializedResolution output; const auto bytes=resultBytes();
+    auto plan=m_state->plan; plan.options.sourceLabels=m_state->sourceLabels; MaterializedResolution output; const auto bytes=resultBytes();
     if(!bytes) { output.status=ConflictStatus::Error; output.message="RESULT cannot be serialized"; return resolutionReport(plan,output); }
     output.status=ConflictStatus::Complete; output.bytes=*bytes; output.clean=pendingDecisionCount()==0;
     const auto conflicts=m_state->merge->conflicts();
