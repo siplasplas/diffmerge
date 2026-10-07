@@ -79,6 +79,20 @@ PrepareResult prepareComparison(const TextSnapshot& left, const TextSnapshot& ri
         prepared->m_options = options;
         diffcore::DiffEngine engine;
         prepared->m_diff = engine.compute(left.lines, right.lines, options.diff, &control);
+        if (options.splitReplacementsRightFirst) {
+            if (!options.diff.mergeReplaceHunks)
+                throw std::invalid_argument("Right-first replacement layout requires merged replacement hunks");
+            std::vector<diffcore::Hunk> ordered;
+            ordered.reserve(prepared->m_diff.hunks.size());
+            for (const auto& h:prepared->m_diff.hunks) {
+                control.step();
+                if (h.type!=diffcore::ChangeType::Replace) { ordered.push_back(h); continue; }
+                ordered.push_back({diffcore::ChangeType::Insert,{h.leftRange.start,0},h.rightRange});
+                ordered.push_back({diffcore::ChangeType::Delete,h.leftRange,{h.rightRange.end(),0}});
+                --prepared->m_diff.stats.modifications;
+            }
+            prepared->m_diff.hunks=std::move(ordered);
+        }
         prepared->m_model.build(prepared->m_diff, left.lines, right.lines, &control);
         prepared->m_highlights = IntraLineDiffEngine::compute(prepared->m_diff, left.lines, right.lines, &control, options.highlightDetail);
         prepared->m_mapping.build(prepared->m_diff, &control);

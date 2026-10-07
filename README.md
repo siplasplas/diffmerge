@@ -920,6 +920,24 @@ buffer-only hosts require neither a disk path nor `qt-extra`.
 
 ### Standalone merge and Git mergetool
 
+To inspect both versions inside a file with conflict markers in two read-only
+panes, run:
+
+```sh
+./build/diffmerge-gui/diffmerge-gui --conflict-sides /path/to/conflicts.cpp
+```
+
+Common text appears in both panes; the left pane is a RESULT candidate initially
+using HEAD's fragment, and the fragment after `=======` appears on the right.
+Marker lines are omitted. A replacement with no matching lines is shown as a
+right-only block followed by a left-only block, each facing a boundary on the
+other side. The experiment uses
+the file extension for syntax highlighting and accepts `--marker-size N` for
+nonstandard markers. It does not edit or save the input file, and the comparison
+has no copy arrows. F7 and Shift+F7 navigate the blocks. Diff3 and zdiff3 files
+can reveal the `|||||||` ancestor fragments in a separate collapsible section;
+these fragments are not presented as a complete BASE file.
+
 ```sh
 diffmerge-gui --merge BASE LOCAL REMOTE -o MERGED
 ```

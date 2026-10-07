@@ -6,6 +6,7 @@
 #include "MainWindow.h"
 #include "LaunchOptions.h"
 #include "MergeDialog.h"
+#include "ConflictSidesDialog.h"
 #include "ResolveDialog.h"
 int main(int argc,char* argv[]) {
     QApplication app(argc,argv);
@@ -14,12 +15,13 @@ int main(int argc,char* argv[]) {
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Compare files/directories or resolve an existing merge RESULT"));
     parser.addHelpOption();
-    parser.addPositionalArgument(QStringLiteral("paths"),QStringLiteral("Comparison: zero, one, or two paths. Merge: BASE LOCAL REMOTE with -o MERGED"),QStringLiteral("[PATHS...]"));
+    parser.addPositionalArgument(QStringLiteral("paths"),QStringLiteral("Comparison: zero, one, or two paths. Merge: BASE LOCAL REMOTE with -o MERGED. Conflict sides: one marker file"),QStringLiteral("[PATHS...]"));
     parser.addOption({QStringLiteral("merge"),QStringLiteral("Open BASE LOCAL REMOTE as immutable sources and preserve the existing -o MERGED result")});
     parser.addOption({QStringLiteral("resolve-conflicts"),QStringLiteral("Automatically resolve and review one marker-based conflict file")});
+    parser.addOption({QStringLiteral("conflict-sides"),QStringLiteral("Compare both sides of one marker-based conflict file in read-only panes")});
     parser.addOption({{QStringLiteral("o"),QStringLiteral("output")},QStringLiteral("Existing merge RESULT file (required with --merge)"),QStringLiteral("MERGED")});
     parser.addOption({QStringLiteral("base-absent"),QStringLiteral("Explicitly absent BASE; supply '-' as the BASE argument")});
-    parser.addOption({QStringLiteral("marker-size"),QStringLiteral("Conflict marker run length for --merge or --resolve-conflicts"),QStringLiteral("N"),QStringLiteral("7")});
+    parser.addOption({QStringLiteral("marker-size"),QStringLiteral("Conflict marker run length for --merge, --conflict-sides or --resolve-conflicts"),QStringLiteral("N"),QStringLiteral("7")});
     parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display labels: LEFT/RIGHT for compare, BASE/LOCAL/REMOTE/RESULT for merge (repeat)"),QStringLiteral("LABEL")});
     parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right (default), left, both, none"), QStringLiteral("SIDE"), QStringLiteral("right")});
     parser.addOption({QStringLiteral("readonly"), QStringLiteral("Read-only comparison or merge inspection (merge exits nonzero)")});
@@ -32,13 +34,27 @@ int main(int argc,char* argv[]) {
     if(parser.isSet(QStringLiteral("help"))) parser.showHelp();
     if (parser.isSet(QStringLiteral("resolve-conflicts"))) {
         const auto paths=parser.positionalArguments();
-        if(paths.size()!=1 || parser.isSet("merge") || parser.isSet("output") ||
+        if(paths.size()!=1 || parser.isSet("merge") || parser.isSet("conflict-sides") || parser.isSet("output") ||
            parser.isSet("base-absent") || parser.isSet("label") || parser.isSet("edit") || parser.isSet("readonly") || parser.isSet("w") || parser.isSet("b") || parser.isSet("i")) {
             QTextStream(stderr)<<"--resolve-conflicts requires one marker file and cannot be combined with comparison/merge options\n"; return 2;
         }
         bool valid=false; const int size=parser.value("marker-size").toInt(&valid);
         if(!valid || size<1 || size>200000) { QTextStream(stderr)<<"Invalid marker size\n"; return 2; }
         return diffmerge::gui::desktop::runResolveDialog(paths.first(),size);
+    }
+    if (parser.isSet(QStringLiteral("conflict-sides"))) {
+        const auto paths=parser.positionalArguments();
+        if (paths.size()!=1 || parser.isSet(QStringLiteral("merge")) || parser.isSet(QStringLiteral("output")) ||
+            parser.isSet(QStringLiteral("base-absent")) || parser.isSet(QStringLiteral("edit")) ||
+            parser.isSet(QStringLiteral("label")) || parser.isSet("w") || parser.isSet("b") || parser.isSet("i")) {
+            QTextStream(stderr)<<"--conflict-sides requires one conflict file and cannot be combined with merge or comparison options\n"; return 2;
+        }
+        bool markerValid=false;
+        const int markerSize=parser.value(QStringLiteral("marker-size")).toInt(&markerValid);
+        if (!markerValid || markerSize<1 || markerSize>200000) {
+            QTextStream(stderr)<<"--marker-size must be between 1 and 200000\n"; return 2;
+        }
+        return diffmerge::gui::desktop::runConflictSidesDialog(paths.first(),markerSize);
     }
     if (parser.isSet(QStringLiteral("merge"))) {
         using namespace diffmerge::gui;

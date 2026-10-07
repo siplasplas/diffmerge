@@ -120,7 +120,8 @@ if(DIFFMERGE_BUILD_GUI)
         src/MainWindow.cpp src/MainWindow.h
         src/MergeResultSave.cpp src/MergeResultSave.h
         src/MergeDialog.cpp src/MergeDialog.h
-        src/ResolveDialog.cpp src/ResolveDialog.h)
+        src/ResolveDialog.cpp src/ResolveDialog.h
+        src/ConflictSidesDialog.cpp src/ConflictSidesDialog.h)
     target_link_libraries(diffmerge-gui PRIVATE DiffMerge::Widgets qt-extra qcodeedit::katedata)
     install(TARGETS diffmerge-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

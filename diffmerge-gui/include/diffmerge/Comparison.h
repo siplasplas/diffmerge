@@ -37,6 +37,7 @@ struct ComparisonOptions {
     diffcore::DiffOptions diff = {.alignWhitespaceChanges = true};
     PreparationLimits limits;
     IntraLineDiffEngine::Detail highlightDetail = IntraLineDiffEngine::Detail::Characters;
+    bool splitReplacementsRightFirst = false; // Show right-only lines before left-only lines.
 };
 
 enum class PreparationStatus { Ready, Cancelled, ResourceLimit, Error };
