@@ -1203,3 +1203,10 @@ Hosts can provide branch/revision display names with
 widget using `setSourceLabels(...)`. For example, a host may label LEFT as `main`
 and RIGHT as `codeedit`; these are display names only and do not change replay
 direction. Reports keep host `sourceLabels` separate from original marker labels.
+
+Repository hosts can use `ConflictResolverWidget::setSession(...)` with an owned
+`PreparedMergeSession`. Exports retain that exact session, fingerprint, paths and
+file modes for host validation. `captureDraft()`/`restoreDraft()` retain the editor
+buffer and review plan when switching files; they do not write files or resolve
+Git index entries. Sessions without marker-based RESULT use the existing manual
+merge controls. The host alone accepts a completed export into its merge/rebase.

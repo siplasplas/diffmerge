@@ -22,6 +22,7 @@
 #include <QFrame>
 #include <QTextDocument>
 #include <QStyle>
+#include <QCryptographicHash>
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QVBoxLayout>
@@ -91,6 +92,7 @@ struct ConflictResolverState {
     QString fileName;
     MarkerOptions markers;
     ResolutionSourceLabels sourceLabels;
+    std::shared_ptr<const PreparedMergeSession> hostSession;
     quint64 revision=0;
     bool running=false,refreshing=false,installing=false,selecting=false;
 };
@@ -161,7 +163,8 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
         ResolutionOptions options; options.policy=state.policy->currentIndex() ? ResolutionPolicy::Conservative:ResolutionPolicy::Replay;
         options.target=state.target->currentIndex() ? ResolutionTarget::Left:ResolutionTarget::Right;
         options.sourceLabels=state.sourceLabels;
-        setInput(state.original,state.fileName,state.markers,options);
+        if(state.hostSession) setSession(state.hostSession,state.markers,options);
+        else setInput(state.original,state.fileName,state.markers,options);
     });
     connect(s.merge,&MergePreviewWidget::currentConflictChanged,this,[this](int index) { if(!m_state->selecting) selectDecision(index); });
     connect(s.merge,&MergeWidget::conflictStatesChanged,this,[this] { QTimer::singleShot(0,this,[this] { refresh(); }); });
@@ -179,6 +182,7 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
         state.installing=true;
         if(!state.merge->setSession(analysis.session,{state.markers.markerSize,true,state.markers.literalMarkerLines})) { state.installing=false; emit analysisFinished(false); return; }
         state.merge->setEditable(true);
+        state.merge->setDecisionActionsVisible(analysis.plan.decisions.isEmpty());
         auto analyzedPlan=analysis.plan; analyzedPlan.options.sourceLabels=state.sourceLabels;
         auto before=analyzedPlan;
         for(auto& d:before.decisions) { d.state=DecisionState::NeedsReview; d.replacement.reset(); d.sourceSlices.clear(); }
@@ -199,16 +203,53 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
 }
 ConflictResolverWidget::~ConflictResolverWidget() { m_state->cancellation.requestCancellation(); undoStack()->clear(); }
 bool ConflictResolverWidget::setInput(const QByteArray& bytes,const QString& fileName,const MarkerOptions& markers,const ResolutionOptions& options) {
+    return startAnalysis(bytes,fileName,markers,options,{});
+}
+bool ConflictResolverWidget::setSession(std::shared_ptr<const PreparedMergeSession> session,const MarkerOptions& markers,const ResolutionOptions& options) {
+    if(!session || m_state->running || isModified()) return false;
+    const auto& seed=session->inputs().resultSeed;
+    if(seed && seed->file.availability==MergeAvailability::Present)
+        return startAnalysis(seed->file.bytes,seed->file.fileName,markers,options,std::move(session));
+    auto& s=*m_state;
+    if(!s.merge->setSession(session,{markers.markerSize,true,markers.literalMarkerLines})) return false;
+    s.hostSession=std::move(session); s.plan={}; s.plan.options=options; s.markers=markers; s.sourceLabels=options.sourceLabels;
+    s.original={}; s.fileName={}; s.focusedReview->hide(); s.showSource->hide(); s.rawSource->hide(); s.preview->hide();
+    s.merge->show(); s.merge->setDecisionActionsVisible(true); refresh(); emit analysisFinished(true); return true;
+}
+std::optional<ConflictResolverDraft> ConflictResolverWidget::captureDraft() const {
+    if(isAnalyzing()) return std::nullopt;
+    const auto merge=m_state->merge->captureExportInput(); if(!merge) return std::nullopt;
+    auto plan=m_state->plan; plan.options.sourceLabels=m_state->sourceLabels;
+    return ConflictResolverDraft{std::move(plan),*merge};
+}
+bool ConflictResolverWidget::restoreDraft(const ConflictResolverDraft& draft) {
+    auto& s=*m_state; if(s.running || !draft.merge.session) return false;
+    const auto& seed=draft.merge.session->inputs().resultSeed;
+    if(!draft.plan.decisions.isEmpty() && (!seed || seed->file.bytes!=draft.plan.input.bytes ||
+        QCryptographicHash::hash(draft.plan.input.bytes,QCryptographicHash::Sha256)!=draft.plan.input.sha256)) return false;
+    if(!s.merge->restoreDraft(draft.merge)) return false;
+    s.merge->setEditable(draft.merge.writable);
+    s.hostSession=draft.merge.session; s.plan=draft.plan; s.sourceLabels=s.plan.options.sourceLabels;
+    s.markers=s.plan.input.options; s.original=seed ? seed->file.bytes:QByteArray{}; s.fileName=seed ? seed->file.fileName:QString{};
+    s.policy->setCurrentIndex(s.plan.options.policy==ResolutionPolicy::Conservative ? 1:0);
+    s.target->setCurrentIndex(s.plan.options.target==ResolutionTarget::Left ? 1:0);
+    s.focusedReview->hide(); s.showSource->hide(); s.rawSource->hide(); s.merge->show();
+    s.merge->setDecisionActionsVisible(s.plan.decisions.isEmpty()); s.preview->setVisible(!s.plan.decisions.isEmpty());
+    refresh(); if(!s.plan.decisions.isEmpty()) selectDecision(0); emit analysisFinished(true); return true;
+}
+bool ConflictResolverWidget::startAnalysis(const QByteArray& bytes,const QString& fileName,const MarkerOptions& markers,const ResolutionOptions& options,std::shared_ptr<const PreparedMergeSession> session) {
     auto& s=*m_state;
     if(s.running || s.merge->isModified()) { emit operationFailed("Discard current edits before replacing the input"); return false; }
+    s.hostSession=session;
     s.original=bytes; s.fileName=fileName; s.markers=markers; s.sourceLabels=options.sourceLabels; ++s.revision;
     s.focusedReview->hide(); s.showSource->hide(); s.rawSource->hide(); s.merge->show(); s.preview->show();
     s.policy->setCurrentIndex(options.policy==ResolutionPolicy::Conservative ? 1:0); s.target->setCurrentIndex(options.target==ResolutionTarget::Left ? 1:0);
     s.running=true; s.cancellation=CancellationToken{}; s.progress->setRange(0,0); s.progress->show(); s.cancel->show(); s.analyze->setEnabled(false);
-    s.watcher->setFuture(QtConcurrent::run([bytes,fileName,markers,options,token=s.cancellation](QPromise<Analysis>& promise) {
+    s.watcher->setFuture(QtConcurrent::run([bytes,fileName,markers,options,session,token=s.cancellation](QPromise<Analysis>& promise) {
         Analysis result;
         result.plan=planConflictResolution(bytes,markers,options,{},token,[&promise](int value,int total) { promise.setProgressRange(0,total); promise.setProgressValue(value); });
-        if(result.plan.status==ConflictStatus::Complete) {
+        if(result.plan.status==ConflictStatus::Complete && session) result.session=session;
+        else if(result.plan.status==ConflictStatus::Complete) {
             MergeSessionInputs inputs; MergeResultSeed seed; seed.file.availability=MergeAvailability::Present;
             seed.file.bytes=bytes; seed.file.fileName=fileName; inputs.resultSeed=seed;
             inputs.base.fileName=inputs.ours.fileName=inputs.theirs.fileName=fileName;
@@ -329,10 +370,12 @@ bool ConflictResolverWidget::acceptCurrentText(int index) {
     stack->endMacro(); refresh(); return ok;
 }
 void ConflictResolverWidget::navigateToNextPending() {
+    if(m_state->plan.decisions.isEmpty()) { m_state->merge->navigateToNextUnresolvedConflict(); return; }
     const auto conflicts=m_state->merge->conflicts(); const int current=m_state->merge->currentConflictIndex();
     for(int step=1;step<=conflicts.size();++step) { const int i=(std::max(current,0)+step)%conflicts.size(); if(conflicts[i].state!=MergeResolutionState::Resolved) { selectDecision(i); return; } }
 }
 void ConflictResolverWidget::navigateToPreviousPending() {
+    if(m_state->plan.decisions.isEmpty()) { m_state->merge->navigateToPreviousUnresolvedConflict(); return; }
     const auto conflicts=m_state->merge->conflicts(); const int current=m_state->merge->currentConflictIndex();
     for(int step=1;step<=conflicts.size();++step) { const int i=(std::max(current,0)+conflicts.size()-step)%conflicts.size(); if(conflicts[i].state!=MergeResolutionState::Resolved) { selectDecision(i); return; } }
 }

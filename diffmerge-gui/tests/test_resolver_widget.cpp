@@ -83,6 +83,25 @@ private slots:
         for(auto* check:widget.findChildren<QCheckBox*>()) if(check->text()=="Show conflict source and edit RESULT") check->setChecked(true);
         QVERIFY(!raw->isHidden()); QCOMPARE(raw->toPlainText(),QString::fromUtf8(input)); QVERIFY(!widget.mergeEditor()->isHidden());
     }
+    void hostSessionAndDraftIdentity() {
+        MergeSessionInputs inputs; MergeResultSeed seed;
+        seed.file.availability=MergeAvailability::Present;
+        seed.file.bytes="<<<<<<<\nleft();\n=======\nright();\n>>>>>>>\n";
+        seed.file.rawPath="sample.cpp"; seed.file.mode=0100644; seed.fingerprint="host-conflict-identity";
+        inputs.resultSeed=seed; const auto prepared=prepareMergeSession(inputs); QVERIFY(prepared.session);
+        ConflictResolverWidget widget; QSignalSpy finished(&widget,&ConflictResolverWidget::analysisFinished);
+        QVERIFY(widget.setSession(prepared.session)); QTRY_COMPARE(finished.size(),1);
+        QCOMPARE(widget.mergeEditor()->session(),prepared.session);
+        QVERIFY(widget.applyCandidate(0,"right",true));
+        const auto draft=widget.captureDraft(); QVERIFY(draft); QCOMPARE(draft->merge.session,prepared.session);
+        ConflictResolverWidget restored; QVERIFY(restored.restoreDraft(*draft));
+        QCOMPARE(restored.pendingDecisionCount(),1); QCOMPARE(restored.plan().decisions[0].state,diffcore::DecisionState::Deferred);
+        QCOMPARE(restored.resultBytes().value(),QByteArray("right();\n"));
+        QVERIFY(restored.acceptCurrentText(0)); const auto capture=restored.mergeEditor()->captureExportInput(); QVERIFY(capture);
+        QCOMPARE(capture->session,prepared.session);
+        QCOMPARE(capture->session->inputs().resultSeed->fingerprint,seed.fingerprint);
+        QCOMPARE(capture->session->inputs().resultSeed->file.rawPath,seed.file.rawPath);
+    }
     void cancellationAndInvalidText() {
         ConflictResolverWidget widget; QSignalSpy finished(&widget,&ConflictResolverWidget::analysisFinished);
         QVERIFY(widget.setInput("<<<<<<<\na\n=======\nb\n>>>>>>>\n")); widget.cancelAnalysis();
