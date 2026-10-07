@@ -201,7 +201,11 @@ ConflictResolverWidget::ConflictResolverWidget(QWidget* parent) : QWidget(parent
     });
     refresh();
 }
-ConflictResolverWidget::~ConflictResolverWidget() { m_state->cancellation.requestCancellation(); undoStack()->clear(); }
+ConflictResolverWidget::~ConflictResolverWidget() {
+    m_state->cancellation.requestCancellation();
+    const QSignalBlocker blockMerge(m_state->merge),blockUndo(undoStack());
+    undoStack()->clear();
+}
 bool ConflictResolverWidget::setInput(const QByteArray& bytes,const QString& fileName,const MarkerOptions& markers,const ResolutionOptions& options) {
     return startAnalysis(bytes,fileName,markers,options,{});
 }
