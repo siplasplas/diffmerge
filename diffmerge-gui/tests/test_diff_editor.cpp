@@ -1398,7 +1398,12 @@ private slots:
         const int blockHeight = block.edit()->area()->viewportState().lineHeight;
         QCOMPARE(pixelAt(block, boundary * blockHeight + blockHeight / 2), scheme.insertBg);
         QCOMPARE(pixelAt(block, (boundary + 1) * blockHeight + blockHeight / 2), scheme.insertBg);
-        QCOMPARE(missing.edit()->document()->lineCount(), unchanged.size());
+        // An empty side is one empty line in qcodeedit (lineCount() 1).
+        const auto* missingDocument = missing.edit()->document();
+        QStringList missingLines;
+        for (int i = 0; i < missingDocument->lineCount(); ++i)
+            missingLines << missingDocument->lineAt(i);
+        QCOMPARE(missingLines.join(QLatin1Char('\n')), unchanged.join(QLatin1Char('\n')));
     }
 
     void replacementsAndReload() {
