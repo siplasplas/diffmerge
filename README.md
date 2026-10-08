@@ -31,9 +31,11 @@ Third-party code and dependencies retain their respective licenses.
   Network for the corpus downloader; Test when building tests.
 - qt-extra v2.3.0 for the desktop application, fetched from
   https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
-- qcodeedit and qcodeedit-kate 1.6.0 or newer for the widgets and GUI; the desktop
-  application also uses qcodeedit-katedata (Qt6 Network). CMake first looks for installed packages.
-  If none is compatible, FetchContent downloads tag `v1.6.0` from
+- qcodeedit, qcodeedit-kate and qcodeedit-encoding 1.9.0 or newer for the widgets and
+  GUI; the desktop application also uses qcodeedit-katedata (Qt6 Network).
+  qcodeedit-encoding needs [cpg](https://github.com/siplasplas/cpg) 1.1 with ICU and
+  zlib (fetched by qcodeedit when cpg is not installed). CMake first looks for
+  installed packages. If none is compatible, FetchContent downloads tag `v1.9.0` from
   https://github.com/siplasplas/qcodeedit.git. This requires Git and network access
   on the first configuration.
 
@@ -333,14 +335,20 @@ Opening another comparison, returning to directories or closing asks
 its statuses. A missing side receives the corresponding destination path; Save
 can create it (and its parents).
 
-UTF-8 BOMs, unchanged lines' mixed CR/LF/CRLF endings, final newline and file
-permissions (including executable bits) are preserved. New lines use the first
-known delimiter, defaulting to LF. Writes use `QSaveFile` at the canonical target,
-preserving symbolic links. Changed on-disk bytes require explicit overwrite
-confirmation. A changed symlink target refuses saving until explicitly reselected.
-Non-UTF-8 text is shown with a read-only note; it cannot be saved or used as a
-text-block copy source with replacement UTF-8 characters. Binary inputs show a
-byte-equality/size summary with both sides read-only.
+Each side is read in its own encoding: UTF-8/16/32 or a legacy code page such as
+cp1250, ISO 8859-2 or cp852, detected by qcodeedit-encoding (the side's lock
+button tooltip and path tooltip show it). The comparison works on the decoded
+text, so the same content in different encodings compares equal. Saving writes
+the side back in its encoding; typed or pasted characters the code page cannot
+store (and, on save, ones copied from the other side) ask whether to write `?`
+or switch that file to UTF-8. BOMs, unchanged lines' mixed CR/LF/CRLF endings,
+final newline and file permissions (including executable bits) are preserved.
+New lines use the first known delimiter, defaulting to LF. Writes use
+`QSaveFile` at the canonical target, preserving symbolic links. Changed on-disk
+bytes require explicit overwrite confirmation. A changed symlink target refuses
+saving until explicitly reselected. Text that cannot be decoded at all is shown
+with a read-only note. Binary inputs show a byte-equality/size summary with both
+sides read-only.
 Files exceeding the 8 MiB text preview limit or text preparation limits use byte comparison instead of
 failing. A NUL byte in the first 8000 bytes triggers binary mode before decoding,
 as in Git's content heuristic; NUL found later also prevents text editing.

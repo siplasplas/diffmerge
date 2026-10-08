@@ -9,6 +9,7 @@
 #include <QStringConverter>
 #include <QUndoStack>
 #include <qce/CodeEditArea.h>
+#include <qce/encoding/Encoding.h>
 
 namespace diffmerge::gui {
 bool FileDiffWidget::reloadSide(Side side, bool discardModified) {
@@ -45,11 +46,15 @@ bool FileDiffWidget::reloadSide(Side side, bool discardModified) {
         return fail(QStringLiteral("File changed during reload; try refreshing again"));
     if (bytes.contains('\0')) return byteFallback();
     const auto hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
-    const bool bom = bytes.startsWith("\xef\xbb\xbf");
-    if (bom) bytes.remove(0, 3);
-    QStringDecoder decoder(QStringDecoder::Utf8);
-    const QString decoded = decoder(bytes);
-    const bool encodingUnsafe = decoder.hasError();
+    // Keep the side's encoding; detect again if the file no longer fits it.
+    auto content = qce::encoding::decodeExact(bytes, m_editing->encoding[i]);
+    if (!content.ok) content = qce::encoding::decodeExact(bytes);
+    QString decoded = content.text;
+    const bool encodingUnsafe = !content.ok;
+    if (encodingUnsafe) {
+        QStringDecoder decoder(QStringDecoder::Utf8);
+        decoded = decoder(bytes);
+    }
     const auto& old = m_comparison->snapshot(side);
     auto replacement = TextSnapshot::fromText(decoded, old.label, old.fileName);
     const Side other = side == Side::Left ? Side::Right : Side::Left;
@@ -75,7 +80,9 @@ bool FileDiffWidget::reloadSide(Side side, bool discardModified) {
     if (!m_skipUnchanged) (i == 0 ? m_leftEditor : m_rightEditor)->setAlignedModel(m_model);
     m_editing->cleanSnapshots[i] = replacement;
     m_editing->cleanText[i] = replacement.lines.join('\n') + (replacement.finalNewline.value_or(false) ? QStringLiteral("\n") : QString{});
-    m_editing->bom[i] = bom; m_editing->encodingUnsafe[i] = encodingUnsafe;
+    m_editing->bom[i] = content.ok && content.format.bom; m_editing->encodingUnsafe[i] = encodingUnsafe;
+    if (content.ok) m_editing->encoding[i] = content.format.encoding;
+    m_editing->syncGuard(i);
     setSaveTarget(side, path);
     m_editing->canonicalTargets[i] = after.canonicalFilePath();
     m_editing->diskHash[i] = hash; m_editing->diskExists[i] = true;

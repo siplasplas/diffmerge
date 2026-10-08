@@ -27,6 +27,8 @@
 #include <future>
 #include <limits>
 #include <qce/ExtraSelection.h>
+#include <qce/encoding/EncodingGuard.h>
+#include <QClipboard>
 
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
@@ -261,10 +263,11 @@ private slots:
         area->undo(); QVERIFY(widget.isModified(Side::Right)); area->redo(); QVERIFY(!widget.isModified(Side::Right));
         QVERIFY(write(right,"external")); QTest::keyClicks(area,"more"); QVERIFY(!widget.save(Side::Right,&error));
         QCOMPARE(read(right),QByteArray("external")); widget.discardChanges();
-        QVERIFY(write(right,QByteArray("bad\xff",4))); QVERIFY(widget.loadFromPaths(left,right)); QVERIFY(!widget.isEditable(Side::Right));
-        QVERIFY(!widget.save(Side::Right,&error)); QCOMPARE(read(right),QByteArray("bad\xff",4));
+        // Not UTF-8: read in its detected code page, editable, saved back in it.
+        QVERIFY(write(right,QByteArray("bad\xff",4))); QVERIFY(widget.loadFromPaths(left,right)); QVERIFY(widget.isEditable(Side::Right));
+        area->setCursorPosition({0,0}); QTest::keyClicks(area,"!");
+        QVERIFY2(widget.save(Side::Right,&error),qPrintable(error)); QCOMPARE(read(right),QByteArray("!bad\xff",5));
         widget.setEditable(Side::Left,true);
-        QVERIFY(!widget.copyChange(0,Side::Right)); QCOMPARE(widget.text(Side::Left),QString("old\n"));
         QVERIFY(write(right,QByteArray("bin\0ary",7))); QVERIFY(widget.loadFromPaths(left,right));
         QVERIFY(!widget.isEditable(Side::Left) && !widget.isEditable(Side::Right));
         QTRY_VERIFY(widget.findChild<QLabel*>("binaryComparison")->text().contains("differ"));
@@ -277,6 +280,62 @@ private slots:
         QVERIFY(widget.loadFromPaths(left,right)); QVERIFY(!widget.isEditable(Side::Right));
         QVERIFY(!widget.save(Side::Right,&error));
         QVERIFY(QFile::setPermissions(right,QFile::ReadOwner|QFile::WriteOwner));
+    }
+    // Polish text in cp1250 and UTF-8, long enough for reliable detection.
+    static QByteArray polishCp1250(const QByteArray& lineEnd) {
+        return "Za\xBF\xF3\xB3\xE6 g\xEA\x9Cl\xB9 ja\x9F\xF1, \xBF\xF3\xB3w na \x9Cwie\xBFym kwiatku"+lineEnd
+             + "pszcz\xF3\xB3ka siedzia\xB3" "a i zbiera\xB3" "a mi\xF3" "d\n"
+             + "\xBF\xF3\xB3ta ksi\xB9\xBF" "ka le\xBFy na p\xF3\xB3" "ce"+lineEnd;
+    }
+    static QByteArray polishUtf8(const QByteArray& lineEnd) {
+        return QStringLiteral("Zażółć gęślą jaźń, żółw na świeżym kwiatku").toUtf8()+lineEnd
+             + QStringLiteral("pszczółka siedziała i zbierała miód\n").toUtf8()
+             + QStringLiteral("żółta książka leży na półce").toUtf8()+lineEnd;
+    }
+    void codePageSideKeepsBytesAndMixedLineEndings() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto left=directory.filePath("left"), right=directory.filePath("right");
+        const auto write=[](const QString& path,const QByteArray& bytes) { QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes)==bytes.size(); };
+        const auto read=[](const QString& path) { QFile f(path); if(!f.open(QIODevice::ReadOnly)) return QByteArray{}; return f.readAll(); };
+        const auto original=polishCp1250("\r\n");
+        QVERIFY(write(left,"x\n")); QVERIFY(write(right,original));
+        FileDiffWidget widget; widget.setEditable(Side::Right,true); QVERIFY(widget.loadFromPaths(left,right));
+        QVERIFY(widget.isEditable(Side::Right));
+        QVERIFY(widget.text(Side::Right).startsWith(QStringLiteral("Zażółć gęślą jaźń")));
+        auto* area=widget.rightEditor()->edit()->area(); area->setCursorPosition({0,0}); QTest::keyClicks(area,"!");
+        QString error; QVERIFY2(widget.save(Side::Right,&error),qPrintable(error));
+        QCOMPARE(read(right),"!"+original);
+    }
+    void sameTextInDifferentEncodingsHasNoChanges() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto left=directory.filePath("left"), right=directory.filePath("right");
+        const auto write=[](const QString& path,const QByteArray& bytes) { QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes)==bytes.size(); };
+        QVERIFY(write(left,polishUtf8("\n"))); QVERIFY(write(right,polishCp1250("\n")));
+        FileDiffWidget widget; QVERIFY(widget.loadFromPaths(left,right));
+        QTRY_VERIFY(!widget.isRecomputing()); QCOMPARE(widget.changeCount(),0);
+        QCOMPARE(widget.text(Side::Left),widget.text(Side::Right));
+    }
+    void pastingOutsideCodePageAsksForChoice() {
+        QTemporaryDir directory; QVERIFY(directory.isValid());
+        const auto left=directory.filePath("left"), right=directory.filePath("right");
+        const auto write=[](const QString& path,const QByteArray& bytes) { QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes)==bytes.size(); };
+        const auto read=[](const QString& path) { QFile f(path); if(!f.open(QIODevice::ReadOnly)) return QByteArray{}; return f.readAll(); };
+        QVERIFY(write(left,"x\n")); QVERIFY(write(right,polishCp1250("\n")));
+        FileDiffWidget widget; widget.setEditable(Side::Right,true); QVERIFY(widget.loadFromPaths(left,right));
+        auto choice=qce::encoding::EncodingGuard::Choice::Replace; int asked=0;
+        for (auto* guard : widget.findChildren<qce::encoding::EncodingGuard*>())
+            guard->setChoiceHandler([&](const QList<char32_t>&, const QString&) { ++asked; return choice; });
+        auto* area=widget.rightEditor()->edit()->area(); area->setFocus(); area->setCursorPosition({0,0});
+        QGuiApplication::clipboard()->setText(QStringLiteral("☺"));
+        QTest::keyClick(area,Qt::Key_V,Qt::ControlModifier);
+        QCOMPARE(asked,1); QVERIFY(widget.text(Side::Right).startsWith(QStringLiteral("?Zażółć")));
+        QString error; QVERIFY2(widget.save(Side::Right,&error),qPrintable(error));
+        QCOMPARE(read(right),"?"+polishCp1250("\n"));
+        // Switching to UTF-8 keeps the character and saves the side as UTF-8.
+        choice=qce::encoding::EncodingGuard::Choice::SwitchToUtf8;
+        QTest::keyClick(area,Qt::Key_V,Qt::ControlModifier);
+        QCOMPARE(asked,2); QVERIFY2(widget.save(Side::Right,&error),qPrintable(error));
+        QCOMPARE(read(right),QStringLiteral("?☺").toUtf8()+polishUtf8("\n"));
     }
     void connectorArrowsOnlyCopyTowardsEditableSides() {
         FileDiffWidget widget;

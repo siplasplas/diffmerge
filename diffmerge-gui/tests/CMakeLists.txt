@@ -7,7 +7,7 @@ foreach(test IN ITEMS test_merge_editing test_merge_session test_merge_preview t
 endforeach()
 # Connector geometry is an internal implementation detail tested here.
 target_link_libraries(test_syntax_highlighting PRIVATE qcodeedit::kate)
-target_link_libraries(test_diff_editor PRIVATE qcodeedit::kate)
+target_link_libraries(test_diff_editor PRIVATE qcodeedit::kate qcodeedit::encoding)
 if(DIFFMERGE_BUILD_GUI)
     target_sources(test_directories PRIVATE ../src/LaunchOptions.cpp)
     target_compile_definitions(test_directories PRIVATE DIFFMERGE_TEST_LAUNCH)

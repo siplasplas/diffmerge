@@ -14,9 +14,16 @@
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QSignalBlocker>
 #include <qce/CodeEditArea.h>
+#include <qce/encoding/EncodingGuard.h>
 
 namespace diffmerge::gui {
+void FileEditingState::syncGuard(int i) {
+    if (!guards[i]) return;
+    const QSignalBlocker block(guards[i]);
+    guards[i]->setFormat({encoding[i], bom[i], false, false});
+}
 namespace {
 int index(Side side) { return side == Side::Left ? 0 : 1; }
 QString normalized(const TextSnapshot& snapshot) {
@@ -90,6 +97,15 @@ void FileDiffWidget::setupEditing() {
     connect(m_editing->timer, &QTimer::timeout, this, &FileDiffWidget::recomputeEditedComparison);
     for (Side side : {Side::Left, Side::Right}) {
         auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+        // Text the side's code page cannot store asks: '?', switch to UTF-8, or cancel.
+        auto* guard = new qce::encoding::EncodingGuard(editor->edit()->area(), this);
+        m_editing->guards[index(side)] = guard;
+        m_editing->syncGuard(index(side));
+        connect(guard, &qce::encoding::EncodingGuard::encodingChanged, this, [this, guard](const QString& encoding) {
+            const int i = guard == m_editing->guards[0] ? 0 : 1;
+            m_editing->encoding[i] = encoding; m_editing->bom[i] = guard->format().bom;
+            updateEditability();
+        });
         auto* doc = editor->edit()->area()->document();
         const auto edited = [this, editor] { documentEdited(editor == m_leftEditor ? Side::Left : Side::Right); };
         connect(doc, &qce::ITextDocument::linesChanged, this, edited);
@@ -135,7 +151,8 @@ void FileDiffWidget::resetEditing() {
         const int i = index(side);
         if (m_editing->modified[i]) { m_editing->modified[i] = false; emit modifiedChanged(side, false); }
         m_editing->raw[i] = false; m_editing->unsafe[i] = false; m_editing->bom[i] = false;
-        m_editing->encodingUnsafe[i] = false;
+        m_editing->encodingUnsafe[i] = false; m_editing->encoding[i] = QStringLiteral("utf8");
+        m_editing->syncGuard(i);
         m_editing->targets[i].clear(); m_editing->canonicalTargets[i].clear(); m_editing->diskHash[i].clear();
         m_editing->cleanSnapshots[i] = m_comparison ? m_comparison->snapshot(side) : TextSnapshot{};
         m_editing->cleanText[i] = normalized(m_editing->cleanSnapshots[i]);
@@ -162,8 +179,9 @@ void FileDiffWidget::updateEditability() {
         saveButton->setEnabled(isEditable(side) && m_editing->modified[i]);
         lock->setText(enabled ? QStringLiteral("✎") : QStringLiteral("🔒"));
         if (m_editing->modified[i]) lock->setText(lock->text()+'*');
-        lock->setToolTip(m_editing->encodingUnsafe[i] ? QStringLiteral("Not UTF-8: read-only") :
-            (enabled ? QStringLiteral("Editable side") : QStringLiteral("Read-only side")));
+        lock->setToolTip(m_editing->encodingUnsafe[i] ? QStringLiteral("Cannot be decoded: read-only") :
+            (enabled ? QStringLiteral("Editable side (%1)") : QStringLiteral("Read-only side (%1)"))
+                .arg(m_editing->encoding[i]));
     }
     m_unifiedEditor->edit()->area()->setReadOnly(true);
     m_editHint->setVisible(projected && (isEditable(Side::Left) || isEditable(Side::Right)));
@@ -246,6 +264,7 @@ bool FileDiffWidget::swapSides() {
     const auto swap = [](auto& values) { std::swap(values[0], values[1]); };
     swap(m_editing->editable); swap(m_editing->modified); swap(m_editing->raw);
     swap(m_editing->bom); swap(m_editing->unsafe); swap(m_editing->encodingUnsafe);
+    swap(m_editing->encoding); swap(m_editing->guards);
     swap(m_editing->cleanText); swap(m_editing->targets); swap(m_editing->canonicalTargets);
     swap(m_editing->diskHash); swap(m_editing->diskExists); swap(m_editing->cleanSnapshots);
     std::swap(m_leftEditor, m_rightEditor);
@@ -274,12 +293,14 @@ void FileDiffWidget::discardChanges() {
     }
     const auto targets = m_editing->targets;
     const auto bom = m_editing->bom;
+    const auto encoding = m_editing->encoding;
     const auto unsafe = m_editing->unsafe, encodingUnsafe = m_editing->encodingUnsafe, exists = m_editing->diskExists;
     const auto canonical = m_editing->canonicalTargets;
     const auto hashes = m_editing->diskHash;
     setComparison(prepared.comparison);
     setSaveTarget(Side::Left, targets[0]); setSaveTarget(Side::Right, targets[1]);
-    m_editing->bom = bom;
+    m_editing->bom = bom; m_editing->encoding = encoding;
+    m_editing->syncGuard(0); m_editing->syncGuard(1);
     m_editing->unsafe = unsafe; m_editing->encodingUnsafe = encodingUnsafe;
     m_editing->canonicalTargets = canonical; m_editing->diskHash = hashes; m_editing->diskExists = exists;
     updateEditability();
@@ -357,8 +378,12 @@ bool FileDiffWidget::save(Side side, QString* error, bool overwriteChanged) {
             default: output += '\n'; break;
         }
     }
-    QByteArray bytes = output.toUtf8();
-    if (m_editing->bom[i]) bytes.prepend("\xef\xbb\xbf");
+    // In the side's encoding with its BOM; characters it cannot store ask
+    // whether to write '?' or switch the file to UTF-8.
+    QByteArray bytes;
+    m_editing->syncGuard(i);
+    if (!m_editing->guards[i]->encodeForSave(output, &bytes, true))
+        return fail(QStringLiteral("Save cancelled: %1 cannot store some characters").arg(m_editing->encoding[i]));
     // Write the canonical target so a symlink itself is never replaced.
     if (!QDir().mkpath(QFileInfo(canonical).absolutePath())) return fail(QStringLiteral("Cannot create save target directory"));
     QSaveFile saved(canonical);

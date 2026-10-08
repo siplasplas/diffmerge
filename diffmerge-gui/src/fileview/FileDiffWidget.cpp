@@ -22,6 +22,7 @@
 #include <diffcore/DiffEngine.h>
 #include <qce/CodeEditArea.h>
 #include <qce/ViewportState.h>
+#include <qce/encoding/Encoding.h>
 
 #include <diffmerge/DiffEditor.h>
 #include <diffmerge/IntraLineDiffEngine.h>
@@ -573,6 +574,7 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
             return loadByteComparison(leftPath,rightPath);
     }
     std::array<bool, 2> bom{}, unsafe{};
+    std::array<QString, 2> encodings{QStringLiteral("utf8"), QStringLiteral("utf8")};
     std::array<QByteArray, 2> hashes;
     bool binary = false;
     auto readFile = [&](const QString& path, TextSnapshot& out, int i) -> bool {
@@ -588,11 +590,16 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
         hashes[i] = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
         if (f.error() != QFileDevice::NoError) { emit loadFailed(f.errorString()); return false; }
         if (bytes.contains('\0')) { binary = true; out = {}; return true; }
-        bom[i] = bytes.startsWith("\xef\xbb\xbf");
-        if (bom[i]) bytes.remove(0, 3);
-        QStringDecoder decoder(QStringDecoder::Utf8);
-        const QString decoded = decoder(bytes);
-        unsafe[i] = decoder.hasError();
+        // UTF or a legacy code page, detected; line breaks are kept exactly.
+        const auto file = qce::encoding::decodeExact(bytes);
+        QString decoded = file.text;
+        if (file.ok) {
+            encodings[i] = file.format.encoding; bom[i] = file.format.bom;
+        } else {
+            QStringDecoder decoder(QStringDecoder::Utf8);
+            decoded = decoder(bytes);
+            unsafe[i] = true;
+        }
         try {
             out = TextSnapshot::fromText(decoded, path, path);
             return true;
@@ -615,12 +622,18 @@ bool FileDiffWidget::loadFromPaths(const QString& leftPath,
     setComparison(std::move(result.comparison));
     setSaveTarget(Side::Left, leftPath); setSaveTarget(Side::Right, rightPath);
     m_editing->bom = bom;
+    m_editing->encoding = encodings;
+    m_editing->syncGuard(0); m_editing->syncGuard(1);
     m_editing->encodingUnsafe = unsafe;
     m_editing->diskHash = hashes;
     updateEditability();
     emit editableChanged(Side::Left, isEditable(Side::Left)); emit editableChanged(Side::Right, isEditable(Side::Right));
-    m_leftPathEdit->setToolTip(unsafe[0] ? QStringLiteral("Not UTF-8: read-only") : QString{});
-    m_rightPathEdit->setToolTip(unsafe[1] ? QStringLiteral("Not UTF-8: read-only") : QString{});
+    const auto encodingTip = [&](int i) {
+        return unsafe[i] ? QStringLiteral("Cannot be decoded: read-only")
+                         : QStringLiteral("Encoding: %1").arg(encodings[i]);
+    };
+    m_leftPathEdit->setToolTip(leftPath.isEmpty() ? QString{} : encodingTip(0));
+    m_rightPathEdit->setToolTip(rightPath.isEmpty() ? QString{} : encodingTip(1));
     emit pathsChanged(leftPath, rightPath);
     return true;
 }

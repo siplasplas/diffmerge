@@ -1,19 +1,23 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg Concurrent)
-find_package(qcodeedit 1.6.0 CONFIG QUIET)
+# qcodeedit 1.9.0: editor widget, Kate support, and qcodeedit-encoding (code
+# pages and UTF with detection, exact conversion keeping mixed line endings).
+find_package(qcodeedit 1.9.0 CONFIG QUIET)
 if(qcodeedit_FOUND)
-    find_package(qcodeedit-kate 1.6.0 CONFIG QUIET)
+    find_package(qcodeedit-kate 1.9.0 CONFIG QUIET)
+    find_package(qcodeedit-encoding 1.9.0 CONFIG QUIET)
     if(DIFFMERGE_BUILD_GUI AND TARGET qcodeedit::kate)
-        find_package(qcodeedit-katedata 1.6.0 CONFIG QUIET)
+        find_package(qcodeedit-katedata 1.9.0 CONFIG QUIET)
     endif()
 endif()
 
-if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR
+if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR NOT TARGET qcodeedit::encoding OR
    (DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata))
     include(FetchContent)
     set(QCE_BUILD_DEMO OFF)
     set(QCE_BUILD_TESTS OFF)
     set(QCE_BUILD_KATE ON)
     set(QCE_BUILD_KATE_DOWNLOADER ${DIFFMERGE_BUILD_GUI})
+    set(QCE_BUILD_ENCODING ON)
 
     # An installed core can coexist with companions built from the same release.
     if(TARGET qcodeedit::qcodeedit)
@@ -23,16 +27,17 @@ if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR
     endif()
     FetchContent_Declare(qcodeedit
         GIT_REPOSITORY https://github.com/siplasplas/qcodeedit.git
-        GIT_TAG v1.6.0
+        GIT_TAG v1.9.0
         GIT_SHALLOW TRUE
         ${_qce_source_subdir}
     )
     FetchContent_MakeAvailable(qcodeedit)
-    if(NOT TARGET qcodeedit::kate OR (DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata))
+    if(NOT TARGET qcodeedit::kate OR NOT TARGET qcodeedit::encoding OR
+       (DIFFMERGE_BUILD_GUI AND NOT TARGET qcodeedit::katedata))
         # The companion install templates are relative to the upstream project.
         function(diffmerge_add_qce_companions)
             set(PROJECT_SOURCE_DIR "${qcodeedit_SOURCE_DIR}")
-            set(PROJECT_VERSION 1.6.0)
+            set(PROJECT_VERSION 1.9.0)
             if(NOT TARGET qcodeedit::kate)
                 add_subdirectory("${qcodeedit_SOURCE_DIR}/kate" "${qcodeedit_BINARY_DIR}/kate")
             endif()
@@ -40,10 +45,13 @@ if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR
                 find_package(Qt6 6.2 REQUIRED COMPONENTS Network)
                 add_subdirectory("${qcodeedit_SOURCE_DIR}/katedata" "${qcodeedit_BINARY_DIR}/katedata")
             endif()
+            if(NOT TARGET qcodeedit::encoding)
+                add_subdirectory("${qcodeedit_SOURCE_DIR}/encoding" "${qcodeedit_BINARY_DIR}/encoding")
+            endif()
         endfunction()
         diffmerge_add_qce_companions()
     endif()
-    message(STATUS "DiffMerge: using fetched qcodeedit components v1.6.0")
+    message(STATUS "DiffMerge: using fetched qcodeedit components v1.9.0")
 else()
     message(STATUS "DiffMerge: using installed qcodeedit ${qcodeedit_VERSION} with Kate support")
 endif()
@@ -104,7 +112,8 @@ target_include_directories(diffmerge-widgets PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(diffmerge-widgets PUBLIC
-    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit PRIVATE Qt6::Svg Qt6::Concurrent qcodeedit::kate)
+    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit
+    PRIVATE Qt6::Svg Qt6::Concurrent qcodeedit::kate qcodeedit::encoding)
 
 if(DIFFMERGE_BUILD_GUI)
     include(FetchContent)
