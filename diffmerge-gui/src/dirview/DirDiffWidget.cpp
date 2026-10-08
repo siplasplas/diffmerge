@@ -233,6 +233,10 @@ void DirDiffWidget::setIgnoreLineEndings(bool enabled) {
     if(m_options.ignoreLineEndings==enabled) return;
     m_options.ignoreLineEndings=enabled; refresh();
 }
+void DirDiffWidget::setIgnoreEncoding(bool enabled) {
+    if(m_options.ignoreEncoding==enabled) return;
+    m_options.ignoreEncoding=enabled; refresh();
+}
 void DirDiffWidget::setExclusions(const QStringList& patterns) { m_options.exclusions=patterns; refresh(); }
 void DirDiffWidget::setDiffOptions(const diffcore::DiffOptions& options) { m_options.diff=options; refresh(); }
 }

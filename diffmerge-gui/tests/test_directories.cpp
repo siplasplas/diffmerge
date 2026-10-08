@@ -103,6 +103,29 @@ private slots:
         QCOMPARE(scanDirectories(left,right,{},token).status,DirectoryScanStatus::Cancelled);
         QCOMPARE(scanDirectories(left,temporary.filePath("missing")).status,DirectoryScanStatus::Error);
     }
+    // The same Polish text in cp1250 and UTF-8 (with BOM): byte-different;
+    // with normalization each file is decoded in its own encoding, and the
+    // encoding is a difference unless ignoreEncoding is set.
+    void encodingsInDirectoryComparison() {
+        QTemporaryDir temporary; QVERIFY(temporary.isValid());
+        const auto left=temporary.filePath("left"), right=temporary.filePath("right");
+        const QByteArray cp1250("Za\xBF\xF3\xB3\xE6 g\xEA\x9Cl\xB9 ja\x9F\xF1, \xBF\xF3\xB3w na \x9Cwie\xBFym kwiatku\r\n"
+                                "pszcz\xF3\xB3ka siedzia\xB3" "a i zbiera\xB3" "a mi\xF3" "d\r\n");
+        const QByteArray utf8=QByteArray("\xEF\xBB\xBF")+QStringLiteral("Zażółć gęślą jaźń, żółw na świeżym kwiatku\n"
+                                                                        "pszczółka siedziała i zbierała miód\n").toUtf8();
+        QVERIFY(write(left+"/text",cp1250)); QVERIFY(write(right+"/text",utf8));
+        // The same cp1250 file on both sides, one with LF: equal ignoring line endings.
+        QVERIFY(write(left+"/legacy",cp1250)); QVERIFY(write(right+"/legacy",QByteArray(cp1250).replace("\r\n","\n")));
+        QCOMPARE(find(scanDirectories(left,right),"text")->status,DirEntryStatus::Different);
+        DirectoryScanOptions lineEndings; lineEndings.ignoreLineEndings=true;
+        const auto normalized=scanDirectories(left,right,lineEndings);
+        QCOMPARE(find(normalized,"text")->status,DirEntryStatus::Different);
+        QCOMPARE(find(normalized,"legacy")->status,DirEntryStatus::Same);
+        DirectoryScanOptions encoding; encoding.ignoreEncoding=true;
+        QCOMPARE(find(scanDirectories(left,right,encoding),"text")->status,DirEntryStatus::Different); // CRLF vs LF
+        encoding.ignoreLineEndings=true;
+        QCOMPARE(find(scanDirectories(left,right,encoding),"text")->status,DirEntryStatus::Same);
+    }
     void tableNavigationFiltersAndReadOnlyRequests() {
         QTemporaryDir temporary; QVERIFY(temporary.isValid());
         const auto left=temporary.filePath("left"), right=temporary.filePath("right");

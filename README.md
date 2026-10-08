@@ -199,8 +199,10 @@ hides directories whose scanned subtree contains no files, including one-sided
 empty directories. **Ignore line endings (directories)** treats CRLF, LF and CR
 as equivalent within the comparison size limit. Interior spaces and a missing
 final newline still count as differences; data containing NUL stays byte-exact.
-The equality filter also uses this optional equivalence. These options do not
-change files on disk. **Directory exclusions...** edits wildcard name patterns, defaulting
+The equality filter also uses this optional equivalence. **Ignore encoding
+(directories)** treats the same text in different encodings (e.g. cp1250 and
+UTF-8) or with and without a BOM as equal; without it a different encoding is a
+difference. These options do not change files on disk. **Directory exclusions...** edits wildcard name patterns, defaulting
 to `.git`, `build`, `build-*`, `cmake-build-*`, `node_modules`, `__pycache__`.
 Excluded names are neither scanned nor included in directory status. The
 desktop app remembers these choices; widgets do not persist preferences.
@@ -212,8 +214,10 @@ it does not remove every internal space. The desktop accepts the matching CLI
 flags `-w`, `-b`, `-i` (and their long forms). File comparisons are recomputed
 asynchronously when these options change, preserving edits, their modified state,
 and Undo/Redo. Ignored differences produce no change blocks. Directory comparison
-uses the same normalization on valid UTF-8 files within the size limit; binary
-and invalid UTF-8 inputs remain byte-exact. Directory line-ending equivalence
+uses the same normalization on text files within the size limit, each decoded
+in its own detected encoding (UTF or a legacy code page); binary and undecodable
+inputs remain byte-exact. Without any of these options directories are compared
+byte for byte. Directory line-ending equivalence
 remains a separate option. The file view already compares lines without their
 terminators. Embedded hosts choose options with `FileDiffWidget::setDiffOptions()`
 and `DirDiffWidget::setDiffOptions()`; labels and save targets are preserved.

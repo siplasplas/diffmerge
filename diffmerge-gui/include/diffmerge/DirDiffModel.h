@@ -26,6 +26,8 @@ struct DirectoryScanOptions {
     qint64 maxComparedFileBytes = 64 * 1024 * 1024;
     int maxEntries = 100000;
     bool ignoreLineEndings = false;
+    // Same text in different encodings (or with/without BOM) counts as the same.
+    bool ignoreEncoding = false;
     diffcore::DiffOptions diff{};
 };
 enum class DirectoryScanStatus { Ready, Cancelled, ResourceLimit, Error };

@@ -354,6 +354,13 @@ void MainWindow::setupMenus() {
     connect(lineEndings,&QAction::toggled,this,[this](bool enabled) {
         m_dirWidget->setIgnoreLineEndings(enabled); QSettings().setValue(QStringLiteral("directories/ignoreLineEndings"),enabled);
     });
+    auto* encoding=viewMenu->addAction(QStringLiteral("Ignore encoding (directories)"));
+    encoding->setCheckable(true);
+    encoding->setChecked(settings.value(QStringLiteral("directories/ignoreEncoding"),false).toBool());
+    m_dirWidget->setIgnoreEncoding(encoding->isChecked());
+    connect(encoding,&QAction::toggled,this,[this](bool enabled) {
+        m_dirWidget->setIgnoreEncoding(enabled); QSettings().setValue(QStringLiteral("directories/ignoreEncoding"),enabled);
+    });
     m_dirWidget->setExclusions(settings.value(QStringLiteral("directories/exclusions"),m_dirWidget->exclusions()).toStringList());
     auto* exclusions=viewMenu->addAction(QStringLiteral("Directory exclusions..."));
     connect(exclusions,&QAction::triggered,this,[this] {

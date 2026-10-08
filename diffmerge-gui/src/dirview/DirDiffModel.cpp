@@ -4,8 +4,8 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
-#include <QStringConverter>
 #include <diffcore/LineInterner.h>
+#include <qce/encoding/Encoding.h>
 #include <diffmerge/Comparison.h>
 #include <algorithm>
 #include <stdexcept>
@@ -37,7 +37,8 @@ public:
     void compare(DirDiffEntry& entry, const QFileInfo& left, const QFileInfo& right) {
         checkpoint();
         const bool normalized = left.size() <= options.maxComparedFileBytes && right.size() <= options.maxComparedFileBytes &&
-            (options.ignoreLineEndings || options.diff.ignoreWhitespace || options.diff.ignoreTrailingWhitespace || options.diff.ignoreCase);
+            (options.ignoreLineEndings || options.ignoreEncoding || options.diff.ignoreWhitespace ||
+             options.diff.ignoreTrailingWhitespace || options.diff.ignoreCase);
         if (left.isSymLink() || right.isSymLink()) {
             entry.contentVerified = true;
             entry.status = left.isSymLink() && right.isSymLink() && left.symLinkTarget() == right.symLinkTarget()
@@ -72,12 +73,17 @@ public:
             catch (const std::runtime_error& error) {
                 entry.status = DirEntryStatus::Error; entry.diagnostic = QString::fromUtf8(error.what()); return;
             }
-            // Binary and invalid UTF-8 data remain byte-exact.
+            // Text is decoded in each file's own (detected) encoding; binary and
+            // undecodable data remain byte-exact. A different encoding or BOM is
+            // a difference unless ignoreEncoding is set.
             if (!x.contains('\0') && !y.contains('\0')) {
-                QStringDecoder leftDecoder(QStringDecoder::Utf8), rightDecoder(QStringDecoder::Utf8);
-                const QString leftText = leftDecoder(x), rightText = rightDecoder(y);
-                if (!leftDecoder.hasError() && !rightDecoder.hasError()) {
-                    const auto leftSnapshot = TextSnapshot::fromText(leftText), rightSnapshot = TextSnapshot::fromText(rightText);
+                const auto leftFile = qce::encoding::decodeExact(x), rightFile = qce::encoding::decodeExact(y);
+                const bool sameEncoding = options.ignoreEncoding ||
+                    (leftFile.format.encoding == rightFile.format.encoding && leftFile.format.bom == rightFile.format.bom);
+                if (leftFile.ok && rightFile.ok && !sameEncoding) {
+                    entry.status = DirEntryStatus::Different;
+                } else if (leftFile.ok && rightFile.ok) {
+                    const auto leftSnapshot = TextSnapshot::fromText(leftFile.text), rightSnapshot = TextSnapshot::fromText(rightFile.text);
                     diffcore::ComputationControl control(token);
                     const auto ids = diffcore::LineInterner{}.intern(leftSnapshot.lines, rightSnapshot.lines, options.diff, &control);
                     entry.status = ids.leftIds == ids.rightIds && leftSnapshot.finalNewline == rightSnapshot.finalNewline &&
