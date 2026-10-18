@@ -29,13 +29,13 @@ Third-party code and dependencies retain their respective licenses.
 - A C++20 compiler.
 - Qt 6.2 or newer: Core for the library and CLI; Gui, Widgets, Svg and Concurrent for the widgets;
   Network for the corpus downloader; Test when building tests.
-- qt-extra v2.3.0 for the desktop application, fetched from
+- qt-extra v2.7.0 for the desktop application, fetched from
   https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
-- qcodeedit, qcodeedit-kate and qcodeedit-encoding 1.12.0 or newer for the widgets and
+- qcodeedit, qcodeedit-kate and qcodeedit-encoding 1.13.0 or newer for the widgets and
   GUI; the desktop application also uses qcodeedit-katedata (Qt6 Network).
   qcodeedit-encoding needs [cpg](https://github.com/siplasplas/cpg) 1.1 with ICU and
   zlib (fetched by qcodeedit when cpg is not installed). CMake first looks for
-  installed packages. If none is compatible, FetchContent downloads tag `v1.12.0` from
+  installed packages. If none is compatible, FetchContent downloads tag `v1.13.0` from
   https://github.com/siplasplas/qcodeedit.git. This requires Git and network access
   on the first configuration.
 
@@ -282,11 +282,20 @@ Syntax Definitions...** retries the download even after a previous refusal.
 Without definitions or when offline, comparison and diff highlighting still work.
 
 The data directory is supplied by qcodeedit (`qce::kate::dataDir()`), normally
-`~/.local/share/qcodeedit/kate-<major>.<minor>/` on Linux, with XML files in `syntax/`.
-`QCE_KATE_DATA_DIR` selects an alternate directory. The widgets only read local
-syntax data: they do not download, write the index, ask questions or add Qt Network
-to an embedding application. Hosts manage updates and call
-`FileDiffWidget::reloadSyntaxDefinitions()` when local definitions change.
+`~/.local/share/kate-data/<major>.<minor>/` on Linux (shared Kate data), with XML
+files in `syntax/`. `QCE_KATE_DATA_DIR` selects an alternate directory. The widgets
+only read local syntax data: they do not download, write the index, move data, ask
+questions or add Qt Network to an embedding application. Hosts manage updates and
+call `FileDiffWidget::reloadSyntaxDefinitions()` when local definitions change; a
+host calls `qce::kate::migrateDataRoot()` once at start-up to move data kept by
+qcodeedit 1.12 and older in `~/.local/share/qcodeedit/kate-<version>/`.
+
+The desktop application keeps its settings (view, comparison and directory
+options, a declined syntax download) in `~/.config/siplasplas/diffmerge.conf`.
+At start-up it moves an older version's `~/.config/DiffMerge/DiffMerge.conf`
+there (recognized by its keys, qt-extra's `qxMigrateToSiplasplas()`) and
+removes the emptied `~/.config/DiffMerge`, and moves the Kate data as above;
+what was moved is written to stderr.
 
 For in-memory comparisons, `TextSnapshot::fileName` is an optional syntax hint,
 separate from the arbitrary display label:

@@ -1,12 +1,13 @@
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Svg Concurrent)
-# qcodeedit 1.12.0: editor widget, Kate support, and qcodeedit-encoding (code
+# qcodeedit 1.13.0: editor widget, Kate support (data in the shared
+# ~/.local/share/kate-data, migrateDataRoot()), and qcodeedit-encoding (code
 # pages and UTF with detection, exact conversion keeping mixed line endings).
-find_package(qcodeedit 1.12.0 CONFIG QUIET)
+find_package(qcodeedit 1.13.0 CONFIG QUIET)
 if(qcodeedit_FOUND)
-    find_package(qcodeedit-kate 1.12.0 CONFIG QUIET)
-    find_package(qcodeedit-encoding 1.12.0 CONFIG QUIET)
+    find_package(qcodeedit-kate 1.13.0 CONFIG QUIET)
+    find_package(qcodeedit-encoding 1.13.0 CONFIG QUIET)
     if(DIFFMERGE_BUILD_GUI AND TARGET qcodeedit::kate)
-        find_package(qcodeedit-katedata 1.12.0 CONFIG QUIET)
+        find_package(qcodeedit-katedata 1.13.0 CONFIG QUIET)
     endif()
 endif()
 
@@ -27,7 +28,7 @@ if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR NOT TARGET q
     endif()
     FetchContent_Declare(qcodeedit
         GIT_REPOSITORY https://github.com/siplasplas/qcodeedit.git
-        GIT_TAG v1.12.0
+        GIT_TAG v1.13.0
         GIT_SHALLOW TRUE
         ${_qce_source_subdir}
     )
@@ -37,7 +38,7 @@ if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR NOT TARGET q
         # The companion install templates are relative to the upstream project.
         function(diffmerge_add_qce_companions)
             set(PROJECT_SOURCE_DIR "${qcodeedit_SOURCE_DIR}")
-            set(PROJECT_VERSION 1.12.0)
+            set(PROJECT_VERSION 1.13.0)
             if(NOT TARGET qcodeedit::kate)
                 add_subdirectory("${qcodeedit_SOURCE_DIR}/kate" "${qcodeedit_BINARY_DIR}/kate")
             endif()
@@ -51,7 +52,7 @@ if(NOT TARGET qcodeedit::qcodeedit OR NOT TARGET qcodeedit::kate OR NOT TARGET q
         endfunction()
         diffmerge_add_qce_companions()
     endif()
-    message(STATUS "DiffMerge: using fetched qcodeedit components v1.12.0")
+    message(STATUS "DiffMerge: using fetched qcodeedit components v1.13.0")
 else()
     message(STATUS "DiffMerge: using installed qcodeedit ${qcodeedit_VERSION} with Kate support")
 endif()
@@ -121,7 +122,8 @@ if(DIFFMERGE_BUILD_GUI)
     set(QT_VERSION_MAJOR 6)
     FetchContent_Declare(qt_extra
         GIT_REPOSITORY https://github.com/siplasplas/qt-extra.git
-        GIT_TAG v2.3.0
+        # 2.7: qxMigrateToSiplasplas() moves older versions' settings at start-up
+        GIT_TAG v2.7.0
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(qt_extra)
     add_executable(diffmerge-gui

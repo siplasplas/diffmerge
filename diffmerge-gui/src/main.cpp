@@ -1,17 +1,58 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QMessageBox>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QTimer>
+#include <qce/kate/KatePaths.h>
+#include <qxmigration.h>
 #include "MainWindow.h"
 #include "LaunchOptions.h"
 #include "MergeDialog.h"
 #include "ConflictSidesDialog.h"
 #include "ResolveDialog.h"
+namespace {
+// Settings of older versions, in ~/.config/DiffMerge/DiffMerge.conf: only the keys below.
+bool isDiffMergeSettings(const QString& path) {
+    const QSettings settings(path, QSettings::IniFormat);
+    for (const QString& key : settings.allKeys()) {
+        if (!key.startsWith(QLatin1String("view/")) && !key.startsWith(QLatin1String("comparison/")) &&
+            !key.startsWith(QLatin1String("directories/")) && key != QLatin1String("syntaxDownloadDeclined"))
+            return false;
+    }
+    return true;
+}
+
+// Settings to ~/.config/siplasplas/diffmerge.conf and the Kate syntax data to the shared
+// ~/.local/share/kate-data, once; what was moved goes to stderr.
+void migrateFiles() {
+    const QString oldDir =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/DiffMerge");
+    QxMigrationSpec spec;
+    spec.oldSettingsFiles = {oldDir + QStringLiteral("/DiffMerge.conf")};
+    spec.oldDirectories = {oldDir};
+    spec.recognize = isDiffMergeSettings;
+    const QxMigrationResult moved = qxMigrateToSiplasplas(spec);
+    for (const QString& line : moved.log) QTextStream(stderr) << "Moving DiffMerge's files: " << line << '\n';
+    if (moved.status == QxMigrationResult::Failed) {
+        // The old settings file for this run; the next start tries again.
+        QApplication::setOrganizationName(QStringLiteral("DiffMerge"));
+        QApplication::setApplicationName(QStringLiteral("DiffMerge"));
+    }
+    const qce::kate::DataRootMigration kate = qce::kate::migrateDataRoot();
+    for (const QString& line : kate.log) QTextStream(stderr) << "Moving Kate data: " << line << '\n';
+    for (const QString& line : kate.warnings) QTextStream(stderr) << "Moving Kate data: " << line << '\n';
+}
+} // namespace
+
 int main(int argc,char* argv[]) {
     QApplication app(argc,argv);
-    QApplication::setApplicationName(QStringLiteral("DiffMerge"));
-    QApplication::setOrganizationName(QStringLiteral("DiffMerge"));
+    // Settings in ~/.config/siplasplas/diffmerge.conf, data in ~/.local/share/siplasplas/diffmerge.
+    QApplication::setOrganizationName(QStringLiteral("siplasplas"));
+    QApplication::setApplicationName(QStringLiteral("diffmerge"));
+    QApplication::setApplicationDisplayName(QStringLiteral("DiffMerge"));
+    migrateFiles();
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Compare files/directories or resolve an existing merge RESULT"));
     parser.addHelpOption();
