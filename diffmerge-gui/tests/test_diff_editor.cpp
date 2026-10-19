@@ -1124,7 +1124,7 @@ private slots:
     void navigationVisitsChangesSharingALeftBoundary() {
         FileDiffWidget widget;
         widget.resize(800, 300);
-        widget.setContent({"old"}, {"new", "extra"});
+        widget.setContent({"same"}, {"new", "same", "extra"});
         widget.show();
         QApplication::processEvents();
         auto* label = widget.findChild<QLabel*>("diffChangePosition");

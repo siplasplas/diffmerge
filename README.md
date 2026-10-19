@@ -154,6 +154,9 @@ File comparison provides:
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
 - Three-level comparison: line alignment, word matching within replacement
   blocks, then character comparison within corresponding changed words.
+  Every run of changed lines between two unchanged lines forms one replacement
+  block, so a section where all lines were edited is compared word by word as
+  a whole rather than split into insertions and deletions.
   **View > Highlight whole changed words** optionally omits character refinement:
   `alpha_name` versus `alpha_game` highlights both whole words, including their
   common letters. The desktop remembers the choice. Switching recomputes

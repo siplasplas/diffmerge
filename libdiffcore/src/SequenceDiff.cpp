@@ -53,35 +53,31 @@ std::vector<Hunk> rawHunksFromBlocks(const std::vector<Block>& blocks, Computati
     return hunks;
 }
 
-// Adjacent Delete+Insert (or Insert+Delete) pairs represent replaced
-// regions. Merge them into a single Replace hunk covering both ranges.
+// A run of Delete and Insert hunks with no Equal hunk between them is one
+// replaced region, even when the backtracker interleaves them (for example
+// Insert, Delete, Insert). Merge the whole run into a single Replace hunk
+// covering both ranges; runs of one type only are left as they are.
 std::vector<Hunk> mergeReplaceHunks(const std::vector<Hunk>& input, ComputationControl* control) {
     std::vector<Hunk> out;
     out.reserve(input.size());
-    for (size_t i = 0; i < input.size(); ++i) {
+    for (size_t i = 0; i < input.size();) {
         checkpoint(control);
-        const Hunk& current = input[i];
-        const bool isIns = current.type == ChangeType::Insert;
-        const bool isDel = current.type == ChangeType::Delete;
-        if ((isIns || isDel) && i + 1 < input.size()) {
-            const Hunk& next = input[i + 1];
-            const bool pair = (isIns && next.type == ChangeType::Delete) ||
-                              (isDel && next.type == ChangeType::Insert);
-            if (pair) {
-                Hunk merged;
-                merged.type = ChangeType::Replace;
-                // Take left range from whichever hunk is a Delete
-                // (covers lines in left file), right range from Insert.
-                const Hunk& del = isDel ? current : next;
-                const Hunk& ins = isIns ? current : next;
-                merged.leftRange = del.leftRange;
-                merged.rightRange = ins.rightRange;
-                out.push_back(merged);
-                ++i;  // Skip the consumed next hunk.
-                continue;
-            }
+        if (input[i].type == ChangeType::Equal) {
+            out.push_back(input[i++]);
+            continue;
         }
-        out.push_back(current);
+        Hunk merged = input[i];
+        bool hasInsert = false, hasDelete = false;
+        for (; i < input.size() && input[i].type != ChangeType::Equal; ++i) {
+            checkpoint(control);
+            const Hunk& h = input[i];
+            hasInsert = hasInsert || h.type != ChangeType::Delete;
+            hasDelete = hasDelete || h.type != ChangeType::Insert;
+            merged.leftRange.count = h.leftRange.end() - merged.leftRange.start;
+            merged.rightRange.count = h.rightRange.end() - merged.rightRange.start;
+        }
+        if (hasInsert && hasDelete) merged.type = ChangeType::Replace;
+        out.push_back(merged);
     }
     return out;
 }
