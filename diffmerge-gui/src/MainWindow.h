@@ -62,6 +62,7 @@ private:
     std::array<QString, 2> m_watchedPaths;
     std::array<QByteArray, 2> m_observedFiles;
     bool m_checkingFiles = false;
+    QString m_findText;
 };
 
 }  // namespace diffmerge::gui

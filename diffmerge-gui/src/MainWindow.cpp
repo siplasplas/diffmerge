@@ -110,6 +110,33 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* previous = new QShortcut(Qt::SHIFT | Qt::Key_F7, m_diffWidget);
     previous->setContext(Qt::WidgetWithChildrenShortcut);
     connect(previous, &QShortcut::activated, m_diffWidget, &FileDiffWidget::navigateToPrev);
+    const auto askFindText = [this] {
+        // Prefill with a single-line selection of the focused pane, else the last text.
+        QString initial = m_findText;
+        for (auto* editor : {m_diffWidget->leftEditor(), m_diffWidget->rightEditor(), m_diffWidget->unifiedEditor()}) {
+            auto* area = editor->edit()->area();
+            if (area->hasFocus() && area->hasSelection() && !area->selectedText().contains('\n'))
+                initial = area->selectedText();
+        }
+        bool accepted = false;
+        const auto text = QInputDialog::getText(this, QStringLiteral("Find"), QStringLiteral("Text:"),
+            QLineEdit::Normal, initial, &accepted);
+        if (!accepted || text.isEmpty()) return false;
+        m_findText = text;
+        return true;
+    };
+    auto* find = new QShortcut(QKeySequence::Find, m_diffWidget);
+    find->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(find, &QShortcut::activated, this, [this, askFindText] {
+        if (askFindText()) m_diffWidget->find(m_findText);
+    });
+    for (bool forward : {true, false}) {
+        auto* findAgain = new QShortcut(forward ? Qt::Key_F3 : Qt::SHIFT | Qt::Key_F3, m_diffWidget);
+        findAgain->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(findAgain, &QShortcut::activated, this, [this, askFindText, forward] {
+            if (!m_findText.isEmpty() || askFindText()) m_diffWidget->find(m_findText, forward);
+        });
+    }
     auto* refresh=new QShortcut(Qt::Key_F5,m_diffWidget);
     refresh->setContext(Qt::WidgetWithChildrenShortcut);
     connect(refresh,&QShortcut::activated,this,&MainWindow::refreshFiles);

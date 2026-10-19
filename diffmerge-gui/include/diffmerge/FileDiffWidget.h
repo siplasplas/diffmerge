@@ -80,6 +80,10 @@ public:
     void setSyntaxFileName(Side side, const QString& fileName);
     void reloadSyntaxDefinitions();
     bool navigateToChange(int index);
+    // Case-insensitive search in the focused pane (or the last navigated one),
+    // starting at its caret and wrapping around. Selects the match and keeps
+    // the other pane synchronized. Returns false when the text is not found.
+    bool find(const QString& text, bool forward = true);
     int changeCount() const;
     int currentChangeIndex() const { return m_currentHunk; } // -1 = no selection.
     const QVector<ChangeBlock>& changes() const;

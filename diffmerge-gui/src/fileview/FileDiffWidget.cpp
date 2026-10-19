@@ -1,5 +1,6 @@
 #include <diffmerge/FileDiffWidget.h>
 
+#include <QApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QProgressBar>
@@ -30,6 +31,37 @@
 #include "FileEditingState.h"
 
 namespace diffmerge::gui {
+
+namespace {
+// Case-insensitive search from `from`, wrapping around. Forward matches start
+// at or after `from`; backward matches end at or before it.
+std::optional<TextRange> findInLines(const QStringList& lines, const QString& text,
+                                     qce::TextCursor from, bool forward) {
+    const int count = lines.size();
+    if (!count || text.isEmpty()) return std::nullopt;
+    const int length = text.size();
+    from.line = std::clamp(from.line, 0, count - 1);
+    from.column = std::clamp(from.column, 0, int(lines[from.line].size()));
+    // The last step revisits the starting line for the part before (forward)
+    // or after (backward) the caret.
+    for (int step = 0; step <= count; ++step) {
+        const int line = forward ? (from.line + step) % count : ((from.line - step) % count + count) % count;
+        const QString& s = lines[line];
+        int column = -1;
+        if (forward) {
+            column = s.indexOf(text, step == 0 ? from.column : 0, Qt::CaseInsensitive);
+            if (step == count && column >= from.column) column = -1;
+        } else if (step == 0) {
+            if (from.column >= length) column = s.lastIndexOf(text, from.column - length, Qt::CaseInsensitive);
+        } else {
+            column = s.lastIndexOf(text, -1, Qt::CaseInsensitive);
+            if (step == count && column + length <= from.column) column = -1;
+        }
+        if (column >= 0) return TextRange{line, column, length};
+    }
+    return std::nullopt;
+}
+} // namespace
 
 FileDiffWidget::FileDiffWidget(QWidget* parent)
     : QWidget(parent) {
@@ -359,6 +391,59 @@ void FileDiffWidget::navigateToPrev() {
             return;
         }
     }
+}
+
+bool FileDiffWidget::find(const QString& text, bool forward) {
+    if (text.isEmpty() || !m_comparison || isRecomputing()) return false;
+    const auto notFound = [this, &text] {
+        m_navLabel->setText(QStringLiteral("Not found: %1").arg(text));
+        QApplication::beep();
+        return false;
+    };
+    const auto isVisible = [](qce::CodeEditArea* area, int row) {
+        const auto vp = area->viewportState();
+        return row >= vp.firstVisibleLine && row <= vp.lastVisibleLine;
+    };
+    if (m_viewMode == ViewMode::Unified) {
+        // A single pane: search the displayed rows of both files directly.
+        auto* area = m_unifiedEditor->edit()->area();
+        QStringList lines;
+        for (int i = 0; i < area->document()->lineCount(); ++i) lines.append(area->document()->lineAt(i));
+        const auto match = findInLines(lines, text, forward ? area->selectionEnd() : area->selectionStart(), forward);
+        if (!match) return notFound();
+        QScopedValueRollback<bool> navigating(m_navigating, true);
+        if (!isVisible(area, match->line))
+            area->verticalScrollBar()->setValue(std::max(0, match->line - int(area->viewportState().visibleLineCount()*0.4)));
+        area->setSelection({match->line, match->column}, {match->line, match->column + match->length});
+        area->setFocus();
+        m_currentHunk = -1; updateNavLabel();
+        return true;
+    }
+    const Side side = m_rightEditor->edit()->area()->hasFocus() ? Side::Right
+                    : m_leftEditor->edit()->area()->hasFocus() ? Side::Left : m_navigationSide;
+    auto* editor = side == Side::Left ? m_leftEditor : m_rightEditor;
+    auto* area = editor->edit()->area();
+    qce::TextCursor from = forward ? area->selectionEnd() : area->selectionStart();
+    const int row = from.line;
+    from.line = editor->originalLine(row);
+    // Filler and fold rows belong to no line of this file; start at a line boundary.
+    if (editor->displayLine(from.line) != row) from.column = 0;
+    const auto match = findInLines(m_comparison->snapshot(side).lines, text, from, forward);
+    if (!match) return notFound();
+    const int matchRow = editor->displayLine(match->line);
+    if (editor->originalLine(matchRow) != match->line || !isVisible(area, matchRow)) {
+        // Unfolds when needed and scrolls both panes to corresponding lines.
+        revealText(side, *match);
+    } else {
+        m_navigationSide = side;
+        m_currentHunk = -1;
+        updateNavLabel();
+    }
+    QScopedValueRollback<bool> navigating(m_navigating, true);
+    const int shown = editor->displayLine(match->line);
+    area->setSelection({shown, match->column}, {shown, match->column + match->length});
+    area->setFocus();
+    return true;
 }
 
 void FileDiffWidget::navigateToHunk(int idx) {

@@ -152,6 +152,12 @@ File comparison provides:
   both panes' vertical positions and the connector geometry, including partially
   visible blocks opposite an insertion/deletion boundary.
 - Previous/next change navigation with **Shift+F7** and **F7**, or toolbar buttons.
+- Text search: **Ctrl+F** asks for the text (prefilled with a one-line selection)
+  and selects the next match after the caret of the focused pane; **F3** and
+  **Shift+F3** find the next and previous match without the dialog. Search is
+  case-insensitive and wraps around; the other pane follows to the
+  corresponding lines. Folded unchanged lines are opened to show a match; in
+  the unified view the displayed rows are searched.
 - Three-level comparison: line alignment, word matching within replacement
   blocks, then character comparison within corresponding changed words.
   Every run of changed lines between two unchanged lines forms one replacement
