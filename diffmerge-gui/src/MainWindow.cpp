@@ -13,6 +13,7 @@
 #include <qce/CodeEditArea.h>
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QFile>
 #include <QStringConverter>
 #include <diffmerge/DiffEditor.h>
@@ -490,7 +491,12 @@ bool MainWindow::autoEditable(const QString& path) {
     const QFileInfo info(path);
     const auto temp = QDir(QDir::tempPath()).canonicalPath();
     const auto resolved = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
-    if (!temp.isEmpty() && (resolved == temp || resolved.startsWith(temp + QLatin1Char('/')))) return false;
+    if (!temp.isEmpty() && (resolved == temp || resolved.startsWith(temp + QLatin1Char('/')))) {
+        // git difftool -d: <temp>/git-difftool.XXXXXX/right is the working tree, copied back by git
+        // when the tool exits; left (and git-blob-XXXXXX/<file> of a file diff) is Git content
+        static const QRegularExpression workTree(QStringLiteral("^/git-difftool\\.[^/]+/right(/|$)"));
+        return workTree.match(resolved.mid(temp.size())).hasMatch() && (!info.exists() || info.isWritable());
+    }
     return !info.exists() || info.isWritable();
 }
 
