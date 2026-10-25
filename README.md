@@ -323,8 +323,12 @@ worker comparison preparation stays independent of syntax data and GUI resources
 
 ### Editing and saving
 
-The desktop application enables editing on the right, with the left read-only.
-`--edit right|left|both|none` chooses the sides; `--readonly` is `--edit none`.
+By default the desktop application makes each side editable unless its path is
+in the temporary directory (where `git difftool` puts its copies of Git content,
+such as `$LOCAL`) or is not writable: two ordinary files are both editable, a
+difftool comparison keeps the Git side read-only. The same rule applies to files
+and directories opened later from the File menu.
+`--edit right|left|both|none` chooses the sides instead; `--readonly` is `--edit none`.
 This choice also controls destination writes and deletions in the directory view.
 **View > Edit left/right side** changes that choice. A lock or pencil beside the
 path shows the effective state, with `*` for unsaved changes; the window title

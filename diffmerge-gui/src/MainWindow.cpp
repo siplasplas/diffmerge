@@ -485,9 +485,19 @@ void MainWindow::onOpenDirectories() {
     loadDirectories(left, right);
 }
 
+bool MainWindow::autoEditable(const QString& path) {
+    if (path.isEmpty()) return true; // a side missing in a directory comparison: created on save
+    const QFileInfo info(path);
+    const auto temp = QDir(QDir::tempPath()).canonicalPath();
+    const auto resolved = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
+    if (!temp.isEmpty() && (resolved == temp || resolved.startsWith(temp + QLatin1Char('/')))) return false;
+    return !info.exists() || info.isWritable();
+}
+
 void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
                            bool fromDir) {
     if (!confirmModified()) return;
+    if (m_autoEdit && !fromDir) setEditMode(autoEditable(leftPath), autoEditable(rightPath));
     m_diffWidget->setBackVisible(fromDir);
     if (!m_diffWidget->loadFromPaths(leftPath, rightPath)) return;
     if (fromDir && (leftPath.isEmpty() || rightPath.isEmpty())) {
@@ -502,6 +512,7 @@ void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,
 
 void MainWindow::loadDirectories(const QString& leftPath, const QString& rightPath) {
     if (!confirmModified()) return;
+    if (m_autoEdit) setEditMode(autoEditable(leftPath), autoEditable(rightPath));
     m_dirWidget->setDirectories(leftPath, rightPath);
     m_stack->setCurrentWidget(m_dirWidget);
 }

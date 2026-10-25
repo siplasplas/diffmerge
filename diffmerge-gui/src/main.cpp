@@ -64,7 +64,9 @@ int main(int argc,char* argv[]) {
     parser.addOption({QStringLiteral("base-absent"),QStringLiteral("Explicitly absent BASE; supply '-' as the BASE argument")});
     parser.addOption({QStringLiteral("marker-size"),QStringLiteral("Conflict marker run length for --merge, --conflict-sides or --resolve-conflicts"),QStringLiteral("N"),QStringLiteral("7")});
     parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display labels: LEFT/RIGHT for compare, BASE/LOCAL/REMOTE/RESULT for merge (repeat)"),QStringLiteral("LABEL")});
-    parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right (default), left, both, none"), QStringLiteral("SIDE"), QStringLiteral("right")});
+    parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right, left, both, none (default: each side "
+                                                             "unless it is in the temporary directory, as git difftool's "
+                                                             "copies, or not writable)"), QStringLiteral("SIDE"), QStringLiteral("right")});
     parser.addOption({QStringLiteral("readonly"), QStringLiteral("Read-only comparison or merge inspection (merge exits nonzero)")});
     parser.addOption({{QStringLiteral("w"),QStringLiteral("ignore-whitespace")},QStringLiteral("Ignore leading/trailing whitespace and collapse internal whitespace runs")});
     parser.addOption({{QStringLiteral("b"),QStringLiteral("ignore-trailing-whitespace")},QStringLiteral("Ignore trailing whitespace")});
@@ -126,7 +128,11 @@ int main(int argc,char* argv[]) {
     if (edit != "right" && edit != "left" && edit != "both" && edit != "none") {
         QTextStream(stderr) << "--edit must be right, left, both or none\n"; return 2;
     }
-    window.setEditMode(edit == "left" || edit == "both", edit == "right" || edit == "both");
+    // No --edit nor --readonly: the automatic mode, by the paths (MainWindow::autoEditable)
+    if (parser.isSet(QStringLiteral("edit")) || parser.isSet(QStringLiteral("readonly"))) {
+        window.setAutoEdit(false);
+        window.setEditMode(edit == "left" || edit == "both", edit == "right" || edit == "both");
+    }
     if(parser.isSet("w") || parser.isSet("b") || parser.isSet("i"))
         window.setIgnoreOptions(parser.isSet("w"),parser.isSet("b"),parser.isSet("i"));
     using diffmerge::gui::LaunchKind;

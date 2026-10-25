@@ -22,6 +22,10 @@ public:
     void chooseFiles() { onOpenFiles(); }
     void setFileLabels(const QStringList& labels);
     void setEditMode(bool left, bool right);
+    // Automatic edit mode (the default): a side is read-only when its path is in the temporary
+    // directory (git difftool's copies of Git content) or not writable; --edit turns it off
+    void setAutoEdit(bool on) { m_autoEdit = on; }
+    static bool autoEditable(const QString& path);
     void setIgnoreOptions(bool whitespace, bool trailingWhitespace, bool caseInsensitive);
     void loadFiles(const QString& leftPath, const QString& rightPath,
                    bool fromDir = false);
@@ -38,6 +42,7 @@ private slots:
     void onFileActivated(const QString& leftPath, const QString& rightPath);
 
 private:
+    bool m_autoEdit = true;
     bool confirmModified();
     bool saveSide(bool left);
     void updateModifiedTitle();
