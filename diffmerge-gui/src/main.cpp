@@ -65,8 +65,7 @@ int main(int argc,char* argv[]) {
     parser.addOption({QStringLiteral("marker-size"),QStringLiteral("Conflict marker run length for --merge, --conflict-sides or --resolve-conflicts"),QStringLiteral("N"),QStringLiteral("7")});
     parser.addOption({{QStringLiteral("L"),QStringLiteral("label")},QStringLiteral("Display labels: LEFT/RIGHT for compare, BASE/LOCAL/REMOTE/RESULT for merge (repeat)"),QStringLiteral("LABEL")});
     parser.addOption({QStringLiteral("edit"), QStringLiteral("Editable sides: right, left, both, none (default: each side "
-                                                             "unless it is in the temporary directory, as git difftool's "
-                                                             "copies, or not writable)"), QStringLiteral("SIDE"), QStringLiteral("right")});
+                                                             "unless its file is not writable)"), QStringLiteral("SIDE"), QStringLiteral("right")});
     parser.addOption({QStringLiteral("readonly"), QStringLiteral("Read-only comparison or merge inspection (merge exits nonzero)")});
     parser.addOption({{QStringLiteral("w"),QStringLiteral("ignore-whitespace")},QStringLiteral("Ignore leading/trailing whitespace and collapse internal whitespace runs")});
     parser.addOption({{QStringLiteral("b"),QStringLiteral("ignore-trailing-whitespace")},QStringLiteral("Ignore trailing whitespace")});

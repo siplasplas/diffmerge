@@ -12,9 +12,7 @@
 #include <QSignalBlocker>
 #include <qce/CodeEditArea.h>
 #include <QDir>
-#include <QDirIterator>
 #include <QFileInfo>
-#include <QRegularExpression>
 #include <QFile>
 #include <QStringConverter>
 #include <diffmerge/DiffEditor.h>
@@ -490,29 +488,7 @@ void MainWindow::onOpenDirectories() {
 bool MainWindow::autoEditable(const QString& path) {
     if (path.isEmpty()) return true; // a side missing in a directory comparison: created on save
     const QFileInfo info(path);
-    const auto temp = QDir(QDir::tempPath()).canonicalPath();
-    const auto resolved = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
-    // Git content that git difftool writes to the temporary directory: git-blob-XXXXXX/<file> of a
-    // file diff, git-difftool.XXXXXX/left of a directory diff, and its right when that holds
-    // regular files (a second commit). Its right is the working tree when its files are symbolic
-    // links to it (git copies changes back when the tool exits); --no-symlinks copies of the
-    // working tree look like a commit: read-only, --edit right opens them. Other temporary files
-    // are as any file.
-    const auto inTemp = temp.isEmpty() || !resolved.startsWith(temp + QLatin1Char('/')) ? QString()
-                                                                                       : resolved.mid(temp.size());
-    static const QRegularExpression blob(QStringLiteral("^/git-blob-[^/]+/")),
-            left(QStringLiteral("^/git-difftool\\.[^/]+/left(/|$)")),
-            right(QStringLiteral("^/git-difftool\\.[^/]+/right(/|$)"));
-    if (blob.match(inTemp).hasMatch() || left.match(inTemp).hasMatch()) return false;
-    if (right.match(inTemp).hasMatch()) {
-        if (!info.isDir()) return false;
-        QDirIterator files(info.absoluteFilePath(), QDir::Files | QDir::System | QDir::NoDotAndDotDot,
-                           QDirIterator::Subdirectories);
-        while (files.hasNext())
-            if (QFileInfo(files.next()).isSymLink()) return info.isWritable();
-        return false;
-    }
-    return !info.exists() || info.isWritable();
+    return !info.exists() || info.isWritable(); // read-only only by the file system
 }
 
 void MainWindow::loadFiles(const QString& leftPath, const QString& rightPath,

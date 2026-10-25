@@ -22,8 +22,8 @@ public:
     void chooseFiles() { onOpenFiles(); }
     void setFileLabels(const QStringList& labels);
     void setEditMode(bool left, bool right);
-    // Automatic edit mode (the default): a side is read-only when its path is in the temporary
-    // directory (git difftool's copies of Git content) or not writable; --edit turns it off
+    // Automatic edit mode (the default): a side is editable unless its file is not writable;
+    // --edit and --readonly turn it off
     void setAutoEdit(bool on) { m_autoEdit = on; }
     static bool autoEditable(const QString& path);
     void setIgnoreOptions(bool whitespace, bool trailingWhitespace, bool caseInsensitive);

@@ -323,13 +323,8 @@ worker comparison preparation stays independent of syntax data and GUI resources
 
 ### Editing and saving
 
-By default the desktop application makes each side editable unless it is Git
-content that `git difftool` wrote to the temporary directory, or is not writable.
-Git content is `git-blob-*/<file>` of a file diff (`$LOCAL`, and `$REMOTE` too
-when two commits are compared), `git-difftool.*/left` of `git difftool -d`, and
-its `right` when that holds regular files (a second commit). When `right` holds
-symbolic links to the working tree it stays editable: Git copies it back. Two
-ordinary files are both editable; the same rule applies to files and directories
+By default the desktop application makes both sides editable, except a file the
+file system does not allow to write. The same applies to files and directories
 opened later from the File menu.
 `--edit right|left|both|none` chooses the sides instead; `--readonly` is `--edit none`.
 This choice also controls destination writes and deletions in the directory view.
