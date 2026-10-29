@@ -106,8 +106,20 @@ protected:
         }
         // Controls sit above every connector, including neighbouring curves.
         for (const auto& hit : m_hits) {
-            painter.fillRect(hit.rect, palette().button()); painter.setPen(palette().buttonText().color());
-            painter.drawText(hit.rect, Qt::AlignCenter, hit.source == Side::Left ? QStringLiteral("→") : QStringLiteral("←"));
+            painter.fillRect(hit.rect, palette().button());
+            // A drawn arrow, not →/← text: those glyphs make Qt search the
+            // system fonts for a fallback when the first change is painted.
+            const QPointF c = QRectF(hit.rect).center();
+            const qreal half = std::min(4.0, hit.rect.width()/2.0 - 1), dir = hit.source == Side::Left ? 1 : -1;
+            QPainterPath arrow;
+            arrow.moveTo(c.x() - dir*half, c.y()); arrow.lineTo(c.x() + dir*half, c.y());
+            arrow.moveTo(c.x() + dir*(half-3), c.y() - 3); arrow.lineTo(c.x() + dir*half, c.y());
+            arrow.lineTo(c.x() + dir*(half-3), c.y() + 3);
+            painter.save();
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setPen(QPen(palette().buttonText().color(), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.drawPath(arrow);
+            painter.restore();
         }
         updateMouseCursor();
     }

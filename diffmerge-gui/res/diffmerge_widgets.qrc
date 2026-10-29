@@ -1,5 +1,8 @@
 <RCC>
     <qresource>
         <file>icons/folder.svg</file>
+        <file>icons/editable.svg</file>
+        <file>icons/editable-modified.svg</file>
+        <file>icons/read-only.svg</file>
     </qresource>
 </RCC>

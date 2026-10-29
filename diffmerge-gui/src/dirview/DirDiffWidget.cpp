@@ -52,9 +52,18 @@ void DirDiffWidget::setupUi() {
     addPath(Side::Left,m_leftPathEdit); addPath(Side::Right,m_rightPathEdit); layout->addLayout(paths);
     auto* actions = new QHBoxLayout;
     const auto button = [&](const QString& text) { auto* b = new QToolButton(this); b->setText(text); actions->addWidget(b); return b; };
-    auto* up = button(QStringLiteral("↑ Parent")); connect(up,&QToolButton::clicked,this,&DirDiffWidget::navigateUp);
+    // Arrows are style icons, not ←/→/↑ text: such glyphs make Qt search the
+    // system fonts for a fallback, which slows down the start.
+    const auto withIcon = [this](QToolButton* b, QStyle::StandardPixmap icon) {
+        b->setIcon(style()->standardIcon(icon)); b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); return b;
+    };
+    auto* up = withIcon(button(QStringLiteral("Parent")), QStyle::SP_FileDialogToParent); connect(up,&QToolButton::clicked,this,&DirDiffWidget::navigateUp);
     auto* refreshButton = button(QStringLiteral("Refresh")); connect(refreshButton,&QToolButton::clicked,this,&DirDiffWidget::refresh);
-    m_copyRight = button(QStringLiteral("Copy →")); m_copyLeft = button(QStringLiteral("← Copy"));
+    m_copyRight = withIcon(button(QStringLiteral("Copy")), QStyle::SP_ArrowRight);
+    m_copyRight->setLayoutDirection(Qt::RightToLeft); // The arrow after the text.
+    m_copyLeft = withIcon(button(QStringLiteral("Copy")), QStyle::SP_ArrowLeft);
+    m_copyRight->setToolTip(QStringLiteral("Copy selected entries to the right"));
+    m_copyLeft->setToolTip(QStringLiteral("Copy selected entries to the left"));
     m_deleteLeft = button(QStringLiteral("Delete left")); m_deleteRight = button(QStringLiteral("Delete right"));
     connect(m_copyRight,&QToolButton::clicked,this,[this] { if(!m_rightReadOnly) emit copyRequested(Side::Left,selectedPaths()); });
     connect(m_copyLeft,&QToolButton::clicked,this,[this] { if(!m_leftReadOnly) emit copyRequested(Side::Right,selectedPaths()); });

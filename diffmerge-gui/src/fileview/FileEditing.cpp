@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QFutureWatcher>
+#include <QIcon>
 #include <QSaveFile>
 #include <QScopedValueRollback>
 #include <QScrollBar>
@@ -26,6 +27,16 @@ void FileEditingState::syncGuard(int i) {
 }
 namespace {
 int index(Side side) { return side == Side::Left ? 0 : 1; }
+// Icons rather than ✎/🔒 text: those glyphs make Qt search the system fonts
+// for a fallback, which noticeably slows down the start.
+QIcon editStateIcon(bool editable, bool modified) {
+    const QString path = !editable ? QStringLiteral(":/icons/read-only.svg")
+        : modified ? QStringLiteral(":/icons/editable-modified.svg") : QStringLiteral(":/icons/editable.svg");
+    // The button is a disabled indicator; keep its colors instead of graying them.
+    QIcon icon(path);
+    icon.addFile(path, {}, QIcon::Disabled);
+    return icon;
+}
 QString normalized(const TextSnapshot& snapshot) {
     return snapshot.lines.join('\n') + (snapshot.finalNewline.value_or(false) ? QStringLiteral("\n") : QString{});
 }
@@ -177,8 +188,7 @@ void FileDiffWidget::updateEditability() {
         auto* saveButton = side == Side::Left ? m_leftSave : m_rightSave;
         saveButton->setVisible(m_editing->modified[i]);
         saveButton->setEnabled(isEditable(side) && m_editing->modified[i]);
-        lock->setText(enabled ? QStringLiteral("✎") : QStringLiteral("🔒"));
-        if (m_editing->modified[i]) lock->setText(lock->text()+'*');
+        lock->setIcon(editStateIcon(enabled, m_editing->modified[i]));
         lock->setToolTip(m_editing->encodingUnsafe[i] ? QStringLiteral("Cannot be decoded: read-only") :
             (enabled ? QStringLiteral("Editable side (%1)") : QStringLiteral("Read-only side (%1)"))
                 .arg(m_editing->encoding[i]));
@@ -198,7 +208,7 @@ void FileDiffWidget::documentEdited(Side side) {
     m_editing->pending = true; m_editing->timer->start();
     m_model = nullptr; clearSearchHighlights();
     m_currentHunk = -1; updateNavLabel();
-    (side == Side::Left ? m_leftLock : m_rightLock)->setText(modified ? QStringLiteral("✎*") : QStringLiteral("✎"));
+    (side == Side::Left ? m_leftLock : m_rightLock)->setIcon(editStateIcon(true, modified));
     auto* saveButton = side == Side::Left ? m_leftSave : m_rightSave;
     saveButton->setVisible(modified); saveButton->setEnabled(isEditable(side) && modified);
     // Old coordinates are unsafe until the new result arrives.
