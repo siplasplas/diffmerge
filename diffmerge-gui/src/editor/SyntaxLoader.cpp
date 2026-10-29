@@ -1,5 +1,8 @@
 #include "SyntaxLoader.h"
+#include <QCoreApplication>
 #include <QHash>
+#include <QPointer>
+#include <QtConcurrent/QtConcurrentRun>
 #include <qce/kate/KatePaths.h>
 #include <qce/kate/KateSyntaxIndex.h>
 #include <qce/kate/KateTheme.h>
@@ -37,6 +40,30 @@ QHash<QString, std::shared_ptr<const qce::IHighlighter>>& syntaxCache() {
     static QHash<QString, std::shared_ptr<const qce::IHighlighter>> cache;
     return cache;
 }
+// Raised by clearSyntaxCache() so that loads started before it are not cached.
+int& cacheEpoch() {
+    static int epoch = 0;
+    return epoch;
+}
+QString cacheKey(const QString& path, const qce::kate::LanguageEntry& entry, bool dark) {
+    return QStringLiteral("%1\n%2\n%3\n%4").arg(path).arg(entry.size).arg(entry.mtime).arg(dark);
+}
+
+// One definition to try; `known` marks a cache entry, which needs no loading.
+struct Candidate {
+    QString key, path, name;
+    bool known = false;
+    std::shared_ptr<const qce::IHighlighter> syntax;
+};
+struct Waiting {
+    QPointer<QObject> context;
+    SyntaxCallback done;
+};
+// Callers waiting for a load, by the key of its first candidate.
+QHash<QString, QList<Waiting>>& waitingLoads() {
+    static QHash<QString, QList<Waiting>> waiting;
+    return waiting;
+}
 }
 
 std::shared_ptr<const qce::IHighlighter> loadSyntax(const QString& fileName, bool dark, QString& language) {
@@ -45,7 +72,7 @@ std::shared_ptr<const qce::IHighlighter> loadSyntax(const QString& fileName, boo
     const auto index = qce::kate::KateSyntaxIndex::load(qce::kate::dataDir());
     for (const auto* entry : index.forFileName(fileName)) {
         const QString path = index.filePath(*entry);
-        const QString key = QStringLiteral("%1\n%2\n%3\n%4").arg(path).arg(entry->size).arg(entry->mtime).arg(dark);
+        const QString key = cacheKey(path, *entry, dark);
         auto& cache = syntaxCache();
         auto cached = cache.constFind(key);
         if (cached == cache.constEnd())
@@ -58,5 +85,52 @@ std::shared_ptr<const qce::IHighlighter> loadSyntax(const QString& fileName, boo
     return {};
 }
 
-void clearSyntaxCache() { syntaxCache().clear(); }
+void loadSyntaxAsync(const QString& fileName, bool dark, QObject* context, SyntaxCallback done) {
+    if (fileName.isEmpty()) { done({}, {}); return; }
+    const auto index = qce::kate::KateSyntaxIndex::load(qce::kate::dataDir());
+    // Candidates in priority order, from the first one that is not cached yet.
+    QList<Candidate> candidates;
+    for (const auto* entry : index.forFileName(fileName)) {
+        const QString path = index.filePath(*entry);
+        const QString key = cacheKey(path, *entry, dark);
+        const auto cached = syntaxCache().constFind(key);
+        const bool known = cached != syntaxCache().constEnd();
+        if (known && candidates.isEmpty()) {
+            if (*cached) { done(*cached, entry->name); return; }
+            continue; // Cached as unusable.
+        }
+        candidates.append({key, path, entry->name, known, known ? *cached : nullptr});
+    }
+    if (candidates.isEmpty()) { done({}, {}); return; }
+    const QString waitKey = candidates.first().key;
+    auto& waiting = waitingLoads();
+    const bool running = waiting.contains(waitKey);
+    waiting[waitKey].append({context, std::move(done)});
+    if (running) return;
+    const int epoch = cacheEpoch();
+    QtConcurrent::run([index, candidates, dark] {
+        auto loaded = candidates;
+        for (int i = 0; i < loaded.size(); ++i) {
+            auto& candidate = loaded[i];
+            if (!candidate.known)
+                candidate.syntax = std::shared_ptr<const qce::IHighlighter>(KateXmlReader::load(candidate.path, syntaxTheme(dark), index));
+            if (candidate.syntax) { loaded.resize(i + 1); break; }
+        }
+        return loaded;
+    }).then(qApp, [waitKey, epoch](const QList<Candidate>& loaded) {
+        if (epoch == cacheEpoch()) {
+            for (const auto& candidate : loaded)
+                if (!candidate.known) syntaxCache().insert(candidate.key, candidate.syntax);
+        }
+        const bool found = !loaded.isEmpty() && loaded.last().syntax;
+        for (const auto& w : waitingLoads().take(waitKey)) {
+            if (w.context) w.done(found ? loaded.last().syntax : nullptr, found ? loaded.last().name : QString{});
+        }
+    });
+}
+
+void clearSyntaxCache() {
+    ++cacheEpoch();
+    syntaxCache().clear();
+}
 } // namespace diffmerge::gui

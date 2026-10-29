@@ -304,10 +304,30 @@ void DiffEditor::setRevealOverlay(std::optional<diffcore::LineRange> range, cons
 void DiffEditor::setSyntaxFileName(const QString& fileName) {
     if (m_syntaxFileName == fileName) return;
     m_syntaxFileName = fileName;
-    reloadSyntaxDefinitions();
+    if (m_projectedComparison) { reloadSyntaxDefinitions(); return; }
+    // Show the comparison at once; syntax colors follow when the definition
+    // has been parsed in the background.
+    const int generation = ++m_syntaxGeneration;
+    m_edit->area()->setHighlighter(nullptr);
+    if (m_highlighter) m_highlighter->setSyntax(nullptr);
+    m_syntaxLanguage.clear();
+    m_syntaxPending = true;
+    loadSyntaxAsync(fileName, m_scheme.darkTheme, this,
+        [this, generation](std::shared_ptr<const qce::IHighlighter> syntax, const QString& language) {
+            if (generation != m_syntaxGeneration || m_projectedComparison) return;
+            m_syntaxPending = false;
+            m_syntaxLanguage = language;
+            if (!m_highlighter) m_highlighter = std::make_unique<DiffHighlighter>();
+            m_edit->area()->setHighlighter(nullptr);
+            m_highlighter->setSyntax(std::move(syntax));
+            applyHighlighter();
+        });
+    if (m_syntaxPending && generation == m_syntaxGeneration) applyHighlighter();
 }
 
 void DiffEditor::reloadSyntaxDefinitions() {
+    ++m_syntaxGeneration; // A pending background load is now stale.
+    m_syntaxPending = false;
     if (m_projectedComparison) { applyProjection(); return; }
     if (!m_highlighter) m_highlighter = std::make_unique<DiffHighlighter>();
     // Detach the old palette before replacing its owned syntax rules.

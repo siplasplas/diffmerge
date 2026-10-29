@@ -274,14 +274,14 @@ private slots:
         QVERIFY(view.loadFromPaths(path, path));
         QCOMPARE(view.changeCount(), 0);
         for (auto* editor : {view.leftEditor(), view.rightEditor()}) {
-            QCOMPARE(editor->syntaxLanguage(), QString("DiffMerge Test"));
+            QTRY_COMPARE(editor->syntaxLanguage(), QString("DiffMerge Test")); // Loaded in the background.
             QVERIFY(editor->edit()->area()->highlighter());
             QVERIFY(!editor->edit()->area()->foldingProvider());
         }
         view.setContent({"if value"}, {"if value"});
         QVERIFY(!view.leftEditor()->edit()->area()->highlighter());
         view.setSyntaxFileName(Side::Left, "memory.fixturecpp");
-        QCOMPARE(view.leftEditor()->syntaxLanguage(), QString("DiffMerge Test"));
+        QTRY_COMPARE(view.leftEditor()->syntaxLanguage(), QString("DiffMerge Test"));
         view.setSyntaxFileName(Side::Left, "unknown.extension");
         QVERIFY(view.leftEditor()->syntaxLanguage().isEmpty());
         QVERIFY(!view.leftEditor()->edit()->area()->highlighter());

@@ -318,8 +318,13 @@ auto snapshot = diffmerge::gui::TextSnapshot::fromText(
 call `setSyntaxFileName(Side::Left, "example.cpp")` and the equivalent for the
 right side afterward. Replacing or clearing the comparison resets its syntax hints
 from the new snapshots. An unknown file name or absent XML uses plain text plus
-diff colors. XML loading and editor syntax highlighting happen on the GUI thread;
-worker comparison preparation stays independent of syntax data and GUI resources.
+diff colors. A definition that is not loaded yet is parsed in a worker thread:
+the comparison appears at once in plain text with diff colors, and syntax colors
+(and `DiffEditor::syntaxLanguage()`) follow when parsing finishes. Parsed
+definitions are shared by all editors and kept until
+`reloadSyntaxDefinitions()`, which reloads synchronously. Editor syntax
+highlighting happens on the GUI thread; worker comparison preparation stays
+independent of syntax data and GUI resources.
 
 ### Editing and saving
 

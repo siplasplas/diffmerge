@@ -41,7 +41,10 @@ public:
     const QVector<diffcore::ChangeType>& documentLineChanges() const { return m_docLineChanges; }
     void setIntraLineDiffs(const QVector<QVector<IntraLineDiffEngine::CharRange>>& ranges);
     void setColorScheme(const ColorScheme& scheme);
-    // GUI-thread only. The file name selects installed Kate XML rules.
+    // GUI-thread only. The file name selects installed Kate XML rules. A
+    // definition that is not loaded yet is parsed in the background, so the
+    // syntax colors and syntaxLanguage() may follow later;
+    // reloadSyntaxDefinitions() reloads synchronously.
     void setSyntaxFileName(const QString& fileName);
     QString syntaxFileName() const { return m_syntaxFileName; }
     QString syntaxLanguage() const { return m_syntaxLanguage; }
@@ -84,6 +87,8 @@ private:
     QString m_leftSyntaxFileName;
     QString m_syntaxFileName;
     QString m_syntaxLanguage;
+    int m_syntaxGeneration = 0; // Identifies the latest syntax request.
+    bool m_syntaxPending = false;
     Side m_side;
     ColorScheme m_scheme;
     bool m_followSystemPalette = true;
