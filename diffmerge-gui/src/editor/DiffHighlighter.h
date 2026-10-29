@@ -29,7 +29,8 @@ public:
     void setData(const QVector<QVector<CharRange>>& changedRanges,
                  const QColor& strongBg);
 
-    void setSyntax(std::unique_ptr<qce::IHighlighter> syntax);
+    // The syntax may be shared with other editors; it is only read.
+    void setSyntax(std::shared_ptr<const qce::IHighlighter> syntax);
     bool hasSyntax() const { return bool(m_syntax); }
 
     // qce::IHighlighter
@@ -42,7 +43,7 @@ public:
 
 private:
     void rebuildAttributes();
-    std::unique_ptr<qce::IHighlighter> m_syntax;
+    std::shared_ptr<const qce::IHighlighter> m_syntax;
     QColor m_strongBg;
     int m_syntaxAttributeCount = 0;
     QVector<QVector<CharRange>>  m_ranges;

@@ -28,6 +28,7 @@
 #include <diffmerge/DiffEditor.h>
 #include <diffmerge/IntraLineDiffEngine.h>
 #include "DiffConnectorSplitter.h"
+#include "../editor/SyntaxLoader.h"
 #include "FileEditingState.h"
 
 namespace diffmerge::gui {
@@ -594,6 +595,7 @@ void FileDiffWidget::setSyntaxFileName(Side side, const QString& fileName) {
 }
 
 void FileDiffWidget::reloadSyntaxDefinitions() {
+    clearSyntaxCache(); // Included definitions may have changed too.
     m_leftEditor->reloadSyntaxDefinitions();
     m_rightEditor->reloadSyntaxDefinitions();
     rebuildProjection();

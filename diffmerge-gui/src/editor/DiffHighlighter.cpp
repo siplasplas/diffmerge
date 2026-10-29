@@ -3,7 +3,7 @@
 
 namespace diffmerge::gui {
 
-void DiffHighlighter::setSyntax(std::unique_ptr<qce::IHighlighter> syntax) {
+void DiffHighlighter::setSyntax(std::shared_ptr<const qce::IHighlighter> syntax) {
     m_syntax = std::move(syntax);
     rebuildAttributes();
 }

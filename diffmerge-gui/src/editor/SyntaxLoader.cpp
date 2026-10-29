@@ -1,4 +1,5 @@
 #include "SyntaxLoader.h"
+#include <QHash>
 #include <qce/kate/KatePaths.h>
 #include <qce/kate/KateSyntaxIndex.h>
 #include <qce/kate/KateTheme.h>
@@ -30,19 +31,32 @@ KateTheme syntaxTheme(bool dark) {
     color({"Alert", "Error", "Warning"}, dark ? QColor(255, 135, 135) : QColor(200, 0, 0), true);
     return theme;
 }
+
+// Keyed by XML path, its size and mtime, and the theme.
+QHash<QString, std::shared_ptr<const qce::IHighlighter>>& syntaxCache() {
+    static QHash<QString, std::shared_ptr<const qce::IHighlighter>> cache;
+    return cache;
+}
 }
 
-std::unique_ptr<qce::IHighlighter> loadSyntax(const QString& fileName, bool dark, QString& language) {
+std::shared_ptr<const qce::IHighlighter> loadSyntax(const QString& fileName, bool dark, QString& language) {
     language.clear();
     if (fileName.isEmpty()) return {};
     const auto index = qce::kate::KateSyntaxIndex::load(qce::kate::dataDir());
-    const auto theme = syntaxTheme(dark);
     for (const auto* entry : index.forFileName(fileName)) {
-        if (auto highlighter = KateXmlReader::load(index.filePath(*entry), theme, index)) {
+        const QString path = index.filePath(*entry);
+        const QString key = QStringLiteral("%1\n%2\n%3\n%4").arg(path).arg(entry->size).arg(entry->mtime).arg(dark);
+        auto& cache = syntaxCache();
+        auto cached = cache.constFind(key);
+        if (cached == cache.constEnd())
+            cached = cache.insert(key, std::shared_ptr<const qce::IHighlighter>(KateXmlReader::load(path, syntaxTheme(dark), index)));
+        if (*cached) {
             language = entry->name;
-            return highlighter;
+            return *cached;
         }
     }
     return {};
 }
+
+void clearSyntaxCache() { syntaxCache().clear(); }
 } // namespace diffmerge::gui
