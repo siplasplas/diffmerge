@@ -66,39 +66,25 @@ set(DIFFMERGE_WIDGET_SOURCES
     src/editor/DiffHighlighter.cpp
     src/editor/SyntaxLoader.h
     src/editor/SyntaxLoader.cpp
-    src/editor/IntraLineDiffEngine.cpp
     src/fileview/ViewProjection.cpp
-    src/merge/ConflictMarkers.cpp
-    src/merge/MergeExport.cpp
-    include/diffmerge/MergeExport.h
     src/merge/MergeWidget.cpp
     include/diffmerge/MergeWidget.h
     src/merge/MergePresentation.cpp
     src/merge/MergePresentation.h
     src/merge/MergePreviewWidget.cpp
-    include/diffmerge/ConflictMarkers.h
     include/diffmerge/MergePreviewWidget.h
-    src/merge/MergeSession.cpp
-    include/diffmerge/MergeSession.h
-    src/fileview/Comparison.cpp
-    src/fileview/AlignedLineModel.cpp
     src/fileview/FileDiffWidget.cpp
     src/fileview/DiffConnectorSplitter.h
     src/fileview/DiffConnectorSplitter.cpp
-    src/fileview/ScrollSyncMapper.cpp
     src/fileview/FileEditing.cpp
     src/fileview/FileReload.cpp
     src/fileview/ByteComparison.cpp
     src/dirview/DirectoryOperations.cpp
     src/dirview/DirDiffModel.cpp
     src/dirview/DirDiffWidget.cpp
-    include/diffmerge/Comparison.h
     include/diffmerge/ColorScheme.h
     include/diffmerge/DiffEditor.h
-    include/diffmerge/IntraLineDiffEngine.h
-    include/diffmerge/AlignedLineModel.h
     include/diffmerge/FileDiffWidget.h
-    include/diffmerge/ScrollSyncMapper.h
     include/diffmerge/DirDiffModel.h
     include/diffmerge/DirDiffWidget.h
 )
@@ -113,7 +99,7 @@ target_include_directories(diffmerge-widgets PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(diffmerge-widgets PUBLIC
-    DiffMerge::Core Qt6::Widgets qcodeedit::qcodeedit
+    DiffMerge::Model Qt6::Widgets qcodeedit::qcodeedit
     PRIVATE Qt6::Svg Qt6::Concurrent qcodeedit::kate qcodeedit::encoding)
 
 if(DIFFMERGE_BUILD_GUI)

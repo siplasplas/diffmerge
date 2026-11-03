@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(DiffMerge VERSION 1.7.0 LANGUAGES CXX)
+project(DiffMerge VERSION 1.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,6 +33,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 add_subdirectory(libdiffcore)
+add_subdirectory(libdiffmodel)
 
 if(DIFFMERGE_BUILD_GUI AND NOT DIFFMERGE_BUILD_WIDGETS)
     message(FATAL_ERROR "DIFFMERGE_BUILD_GUI requires DIFFMERGE_BUILD_WIDGETS")

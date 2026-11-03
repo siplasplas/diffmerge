@@ -501,12 +501,13 @@ Its edit cost describes the resulting alignment and is not necessarily minimal.
 ## Embedding in a Qt6 application
 
 The desktop executable and reusable widgets share the same implementation.
-Two static libraries are available; both propagate the C++20 requirement:
+Three static libraries are available; all propagate the C++20 requirement:
 
 | CMake target | Purpose | Dependencies |
 | --- | --- | --- |
 | `DiffMerge::Core` | Line and generic sequence diff algorithms | Qt6 Core |
-| `DiffMerge::Widgets` | File and directory comparison widgets | Core, Qt6 Widgets/Svg/Concurrent, qcodeedit + qcodeedit-kate >= 1.6.0 |
+| `DiffMerge::Model` | Prepared comparisons, merge sessions and exporting their results, for programs without a user interface | Core, Qt6 Core |
+| `DiffMerge::Widgets` | File and directory comparison widgets | Model, Qt6 Widgets/Svg/Concurrent, qcodeedit + qcodeedit-kate >= 1.6.0 |
 
 For a source dependency (including CMake FetchContent), use:
 
@@ -538,8 +539,8 @@ target_link_libraries(history-viewer PRIVATE DiffMerge::Widgets)
 ```
 
 Pass `-DCMAKE_PREFIX_PATH=/path/to/install` when configuring the consumer.
-`COMPONENTS Core` loads only the algorithm library and requires neither Widgets
-nor qcodeedit. With no components specified, all available libraries are loaded.
+`COMPONENTS Core` or `COMPONENTS Model` loads the libraries without a user
+interface and requires neither Widgets nor qcodeedit. With no components specified, all available libraries are loaded.
 If qcodeedit was fetched, its package is installed alongside DiffMerge; an
 existing qcodeedit installation remains an external dependency.
 
@@ -682,7 +683,7 @@ checks embedding and resource loading without opening a window.
 
 ### Merge session inputs
 
-`<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Widgets`.
+`<diffmerge/MergeSession.h>` adds `prepareMergeSession()` to `DiffMerge::Model`.
 It can run on a worker without GUI resources and produces an immutable
 `PreparedMergeSession`. This first stage prepares source data for inspection;
 the standalone merge algorithm remains a subsequent stage.
