@@ -31,11 +31,11 @@ Third-party code and dependencies retain their respective licenses.
   Network for the corpus downloader; Test when building tests.
 - qt-extra v2.7.0 for the desktop application, fetched from
   https://github.com/siplasplas/qt-extra.git. Widgets and Core do not depend on it.
-- qcodeedit, qcodeedit-kate and qcodeedit-encoding 1.13.0 or newer for the widgets and
+- qcodeedit, qcodeedit-kate and qcodeedit-encoding 1.70.0 or newer for the widgets and
   GUI; the desktop application also uses qcodeedit-katedata (Qt6 Network).
   qcodeedit-encoding needs [cpg](https://github.com/siplasplas/cpg) 1.1 with ICU and
   zlib (fetched by qcodeedit when cpg is not installed). CMake first looks for
-  installed packages. If none is compatible, FetchContent downloads tag `v1.13.0` from
+  installed packages. If none is compatible, FetchContent downloads tag `v1.70.0` from
   https://github.com/siplasplas/qcodeedit.git. This requires Git and network access
   on the first configuration.
 
